@@ -16,7 +16,6 @@ import {
 } from 'lucide-react'
 import { useProjects } from '../contexts/ProjectContext'
 import { useKeyboardShortcuts } from '../contexts/KeyboardShortcutsContext'
-import { useAppSettings } from '../contexts/AppSettingsContext'
 import { useGeneration } from '../hooks/use-generation'
 import { Button } from '../components/ui/button'
 import { logger } from '../lib/logger'
@@ -82,7 +81,6 @@ export function VideoEditor() {
   } = useProjects()
 
   const { activeLayout: kbLayout, isEditorOpen: isKbEditorOpen, setEditorOpen: setKbEditorOpen } = useKeyboardShortcuts()
-  const { shouldVideoGenerateWithLtxApi } = useAppSettings()
   const kbLayoutRef = useRef(kbLayout)
   kbLayoutRef.current = kbLayout
   const isKbEditorOpenRef = useRef(isKbEditorOpen)
@@ -1085,7 +1083,6 @@ export function VideoEditor() {
     isRegenerating, regenProgress, regenStatusMessage,
     regenCancel, regenReset, regenError,
     assetSavePath: currentProject?.assetSavePath,
-    shouldVideoGenerateWithLtxApi,
   })
   
   useEditorKeyboard({
@@ -4212,7 +4209,6 @@ export function VideoEditor() {
         regenProgress={regenProgress}
         regenReset={regenReset}
         handleI2vGenerate={handleI2vGenerate}
-        shouldVideoGenerateWithLtxApi={shouldVideoGenerateWithLtxApi}
       />
       
       {subtitleTrackStyleIdx !== null && (

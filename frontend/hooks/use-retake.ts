@@ -1,5 +1,4 @@
 import { useCallback, useState } from 'react'
-import { logger } from '../lib/logger'
 
 export type RetakeMode = 'replace_audio_and_video' | 'replace_video' | 'replace_audio'
 
@@ -31,66 +30,14 @@ export function useRetake() {
     result: null,
   })
 
-  const submitRetake = useCallback(async (params: RetakeSubmitParams) => {
-    if (!params.videoPath) return
-
+  const submitRetake = useCallback(async (_params: RetakeSubmitParams) => {
+    // Retake not supported in ComfyUI integration (deferred)
     setState({
-      isRetaking: true,
-      retakeStatus: 'Generating',
-      retakeError: null,
+      isRetaking: false,
+      retakeStatus: '',
+      retakeError: 'Retake is not yet supported in this version.',
       result: null,
     })
-
-    try {
-      const backendUrl = await window.electronAPI.getBackendUrl()
-      const response = await fetch(`${backendUrl}/api/retake`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          video_path: params.videoPath,
-          start_time: params.startTime,
-          duration: params.duration,
-          prompt: params.prompt,
-          mode: params.mode,
-        }),
-      })
-
-      const data = await response.json()
-
-      if (response.ok && data.status === 'complete' && data.video_path) {
-        const pathNormalized = data.video_path.replace(/\\/g, '/')
-        const videoUrl = pathNormalized.startsWith('/') ? `file://${pathNormalized}` : `file:///${pathNormalized}`
-
-        setState({
-          isRetaking: false,
-          retakeStatus: 'Retake complete!',
-          retakeError: null,
-          result: {
-            videoPath: data.video_path,
-            videoUrl,
-          },
-        })
-        return
-      }
-
-      const errorMsg = data.error || 'Unknown error'
-      setState({
-        isRetaking: false,
-        retakeStatus: '',
-        retakeError: errorMsg,
-        result: null,
-      })
-      logger.error(`Retake failed: ${errorMsg}`)
-    } catch (error) {
-      const message = (error as Error).message || 'Unknown error'
-      logger.error(`Retake error: ${message}`)
-      setState({
-        isRetaking: false,
-        retakeStatus: '',
-        retakeError: message,
-        result: null,
-      })
-    }
   }, [])
 
   const resetRetake = useCallback(() => {

@@ -1,11 +1,5 @@
 import { Select } from './ui/select'
 import type { GenerationMode } from './ModeTabs'
-import {
-  FORCED_API_VIDEO_FPS,
-  FORCED_API_VIDEO_RESOLUTIONS,
-  getAllowedForcedApiDurations,
-  sanitizeForcedApiVideoSettings,
-} from '../lib/api-video-options'
 
 export interface GenerationSettings {
   model: 'fast' | 'pro'
@@ -15,6 +9,11 @@ export interface GenerationSettings {
   audio: boolean
   cameraMotion: string
   aspectRatio?: string
+  spatialUpscale?: boolean
+  temporalUpscale?: boolean
+  filmGrain?: boolean
+  filmGrainIntensity?: number
+  filmGrainSize?: number
   // Image-specific settings
   imageResolution: string
   imageAspectRatio: string
@@ -27,7 +26,6 @@ interface SettingsPanelProps {
   onSettingsChange: (settings: GenerationSettings) => void
   disabled?: boolean
   mode?: GenerationMode
-  forceApiGenerations?: boolean
   hasAudio?: boolean
 }
 
@@ -36,38 +34,18 @@ export function SettingsPanel({
   onSettingsChange,
   disabled,
   mode = 'text-to-video',
-  forceApiGenerations = false,
   hasAudio = false,
 }: SettingsPanelProps) {
   const isImageMode = mode === 'text-to-image'
-  const LOCAL_MAX_DURATION: Record<string, number> = { '540p': 20, '720p': 10, '1080p': 5 }
-
   const handleChange = (key: keyof GenerationSettings, value: string | number | boolean) => {
     const nextSettings = { ...settings, [key]: value } as GenerationSettings
-    if (forceApiGenerations && !isImageMode) {
-      onSettingsChange(sanitizeForcedApiVideoSettings(nextSettings, { hasAudio }))
-      return
-    }
-
-    // Clamp duration when resolution changes for local generation
-    if (key === 'videoResolution' && !forceApiGenerations) {
-      const maxDur = LOCAL_MAX_DURATION[value as string] ?? 20
-      if (nextSettings.duration > maxDur) {
-        nextSettings.duration = maxDur
-      }
-    }
-
     onSettingsChange(nextSettings)
   }
 
-  const localMaxDuration = LOCAL_MAX_DURATION[settings.videoResolution] ?? 20
-  const durationOptions = forceApiGenerations
-    ? [...getAllowedForcedApiDurations(settings.model, settings.videoResolution, settings.fps)]
-    : [5, 6, 8, 10, 20].filter(d => d <= localMaxDuration)
-  const resolutionOptions = forceApiGenerations
-    ? (hasAudio ? ['1080p'] : [...FORCED_API_VIDEO_RESOLUTIONS])
-    : ['1080p', '720p', '540p']
-  const fpsOptions = forceApiGenerations ? [...FORCED_API_VIDEO_FPS] : [24, 25, 50]
+  const maxDuration = settings.temporalUpscale ? 40 : 20
+  const durationOptions = [5, 6, 8, 10, 20, 30, 40].filter(d => d <= maxDuration)
+  const resolutionOptions = ['1080p', '720p', '540p']
+  const fpsOptions = [24, 25, 30, 50, 60]
 
   // Image mode settings
   if (isImageMode) {
@@ -108,34 +86,22 @@ export function SettingsPanel({
   return (
     <div className="space-y-4">
       {/* Model Selection */}
-      {!forceApiGenerations ? (
-        <Select
-          label="Model"
-          value={settings.model}
-          onChange={(e) => handleChange('model', e.target.value)}
-          disabled={disabled}
-        >
-          <option value="fast">LTX 2.3 Fast</option>
-        </Select>
-      ) : (
-        <Select
-          label="Model"
-          value={settings.model}
-          onChange={(e) => handleChange('model', e.target.value)}
-          disabled={disabled}
-        >
-          <option value="fast" disabled={hasAudio}>LTX-2.3 Fast (API)</option>
-          <option value="pro">LTX-2.3 Pro (API)</option>
-        </Select>
-      )}
+      <Select
+        label="Model"
+        value={settings.model}
+        onChange={(e) => handleChange('model', e.target.value)}
+        disabled={disabled}
+      >
+        <option value="fast">LTX via ComfyUI</option>
+      </Select>
 
       {/* Duration, Resolution, FPS Row */}
       <div className="grid grid-cols-3 gap-3">
         <Select
-          label="Duration"
+          label={hasAudio ? 'Duration (auto)' : 'Duration'}
           value={settings.duration}
           onChange={(e) => handleChange('duration', parseInt(e.target.value))}
-          disabled={disabled}
+          disabled={disabled || hasAudio}
         >
           {durationOptions.map((duration) => (
             <option key={duration} value={duration}>
@@ -221,6 +187,124 @@ export function SettingsPanel({
             <option value="jib_down">Jib Down</option>
           </Select>
         </div>
+      </div>
+
+      {/* Upscale Options */}
+      <div className="flex gap-3">
+        <label className={`flex items-center gap-2 flex-1 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors ${
+          settings.spatialUpscale ? 'border-violet-500/50 bg-violet-500/10' : 'border-zinc-700 hover:border-zinc-600'
+        } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
+          <input
+            type="checkbox"
+            checked={settings.spatialUpscale || false}
+            onChange={(e) => handleChange('spatialUpscale', e.target.checked)}
+            disabled={disabled}
+            className="sr-only"
+          />
+          <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+            settings.spatialUpscale ? 'bg-violet-500 border-violet-500' : 'border-zinc-600'
+          }`}>
+            {settings.spatialUpscale && (
+              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            )}
+          </div>
+          <div>
+            <div className="text-sm text-zinc-200 font-medium">Spatial Upscale</div>
+            <div className="text-[10px] text-zinc-500">2x resolution</div>
+          </div>
+        </label>
+
+        <label className={`flex items-center gap-2 flex-1 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors ${
+          settings.temporalUpscale ? 'border-violet-500/50 bg-violet-500/10' : 'border-zinc-700 hover:border-zinc-600'
+        } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
+          <input
+            type="checkbox"
+            checked={settings.temporalUpscale || false}
+            onChange={(e) => handleChange('temporalUpscale', e.target.checked)}
+            disabled={disabled}
+            className="sr-only"
+          />
+          <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+            settings.temporalUpscale ? 'bg-violet-500 border-violet-500' : 'border-zinc-600'
+          }`}>
+            {settings.temporalUpscale && (
+              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            )}
+          </div>
+          <div>
+            <div className="text-sm text-zinc-200 font-medium">Temporal Upscale</div>
+            <div className="text-[10px] text-zinc-500">2x frame count</div>
+          </div>
+        </label>
+      </div>
+
+      {/* Film Grain */}
+      <div className={`rounded-lg border transition-colors ${
+        settings.filmGrain ? 'border-violet-500/50 bg-violet-500/10' : 'border-zinc-700'
+      }`}>
+        <label className={`flex items-center gap-2 px-3 py-2.5 cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
+          <input
+            type="checkbox"
+            checked={settings.filmGrain || false}
+            onChange={(e) => handleChange('filmGrain', e.target.checked)}
+            disabled={disabled}
+            className="sr-only"
+          />
+          <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+            settings.filmGrain ? 'bg-violet-500 border-violet-500' : 'border-zinc-600'
+          }`}>
+            {settings.filmGrain && (
+              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            )}
+          </div>
+          <div>
+            <div className="text-sm text-zinc-200 font-medium">Film Grain</div>
+            <div className="text-[10px] text-zinc-500">Subtle grain texture</div>
+          </div>
+        </label>
+
+        {settings.filmGrain && (
+          <div className="px-3 pb-3 space-y-2">
+            <div>
+              <div className="flex justify-between text-[11px] mb-1">
+                <span className="text-zinc-400">Intensity</span>
+                <span className="text-zinc-500">{(settings.filmGrainIntensity ?? 0.05).toFixed(2)}</span>
+              </div>
+              <input
+                type="range"
+                min={0.01}
+                max={0.5}
+                step={0.01}
+                value={settings.filmGrainIntensity ?? 0.05}
+                onChange={(e) => handleChange('filmGrainIntensity', parseFloat(e.target.value))}
+                disabled={disabled}
+                className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-violet-500"
+              />
+            </div>
+            <div>
+              <div className="flex justify-between text-[11px] mb-1">
+                <span className="text-zinc-400">Grain Size</span>
+                <span className="text-zinc-500">{(settings.filmGrainSize ?? 1.2).toFixed(1)}</span>
+              </div>
+              <input
+                type="range"
+                min={0.5}
+                max={3.0}
+                step={0.1}
+                value={settings.filmGrainSize ?? 1.2}
+                onChange={(e) => handleChange('filmGrainSize', parseFloat(e.target.value))}
+                disabled={disabled}
+                className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-violet-500"
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -6,9 +6,10 @@ import { cn } from '@/lib/utils'
 interface ImageUploaderProps {
   onImageSelect: (path: string | null) => void
   selectedImage: string | null
+  label?: string
 }
 
-export function ImageUploader({ onImageSelect, selectedImage }: ImageUploaderProps) {
+export function ImageUploader({ onImageSelect, selectedImage, label = 'Image' }: ImageUploaderProps) {
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0]
     if (file) {
@@ -64,7 +65,7 @@ export function ImageUploader({ onImageSelect, selectedImage }: ImageUploaderPro
   return (
     <div className="w-full">
       <label className="block text-[12px] font-semibold text-zinc-500 mb-2 uppercase leading-4">
-        Image
+        {label}
       </label>
       <div
         {...getRootProps()}

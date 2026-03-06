@@ -45,13 +45,13 @@ export function LaunchGate({
 }: LaunchGateProps) {
   const [currentStep, setCurrentStep] = useState<Step>(showLicenseStep ? 'license' : 'location')
   const [installPath, setInstallPath] = useState('')
-  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null)
+  const [downloadProgress, _setDownloadProgress] = useState<DownloadProgress | null>(null)
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const [installMessage, setInstallMessage] = useState(INSTALL_MESSAGES[0])
   const [availableSpace, setAvailableSpace] = useState('...')
   const [videoPath, setVideoPath] = useState('/splash/splash.mp4')
   const [ltxApiKey, setLtxApiKey] = useState('')
-  const [backendUrl, setBackendUrl] = useState<string | null>(null)
+  // ComfyUI manages its own models — no backend URL needed for model downloads
   const [licenseAccepted, setLicenseAccepted] = useState(false)
   const [licenseText, setLicenseText] = useState<string | null>(null)
   const [licenseError, setLicenseError] = useState<string | null>(null)
@@ -112,17 +112,10 @@ export function LaunchGate({
           setVideoPath('/splash/splash.mp4')
         }
 
-        // Get models path from backend
+        // Models are managed by ComfyUI — just set a placeholder path
         try {
-          const url = await window.electronAPI.getBackendUrl()
-          setBackendUrl(url)
-          const response = await fetch(`${url}/api/models/status`)
-          if (response.ok) {
-            const data = await response.json()
-            if (data.models_path) {
-              setInstallPath(data.models_path)
-            }
-          }
+          const appInfo = await window.electronAPI.getAppInfo()
+          setInstallPath(appInfo.modelsPath)
         } catch (e) {
           logger.error(`Failed to get models path: ${e}`)
         }
@@ -150,61 +143,16 @@ export function LaunchGate({
     return () => clearInterval(interval)
   }, [currentStep])
 
-  // Poll download progress during installation
+  // ComfyUI manages models — auto-complete installation step
   useEffect(() => {
-    if (currentStep !== 'installing' || !backendUrl) return
+    if (currentStep !== 'installing') return
+    // Skip model download — ComfyUI handles this
+    setTimeout(() => setCurrentStep('complete'), 1000)
+  }, [currentStep])
 
-    const pollProgress = async () => {
-      try {
-        const response = await fetch(`${backendUrl}/api/models/download/progress`)
-        if (response.ok) {
-          const progress = await response.json()
-          setDownloadProgress(progress)
-
-          if (progress.status === 'error') {
-            setDownloadError(progress.error || 'Download failed.')
-          } else if (progress.status === 'complete') {
-            setTimeout(() => setCurrentStep('complete'), 600)
-          }
-        }
-      } catch (e) {
-        logger.error(`Progress poll error: ${e}`)
-      }
-    }
-
-    pollProgress()
-    const interval = setInterval(pollProgress, 500)
-    return () => clearInterval(interval)
-  }, [currentStep, backendUrl])
-
-  // Start installation
+  // Start installation — ComfyUI manages models, so just advance
   const startInstallation = async () => {
-    if (!backendUrl) return
     setCurrentStep('installing')
-    try {
-      // If API key is provided, save it to settings first and skip text encoder download
-      if (ltxApiKey.trim()) {
-        try {
-          await fetch(`${backendUrl}/api/settings`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ltxApiKey: ltxApiKey.trim() }),
-          })
-        } catch (e) {
-          logger.error(`Failed to save API key: ${e}`)
-        }
-      }
-
-      // Start download - skip text encoder if API key is provided
-      await fetch(`${backendUrl}/api/models/download`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ skipTextEncoder: !!ltxApiKey.trim() }),
-      })
-    } catch (e) {
-      logger.error(`Download start error: ${e}`)
-      setDownloadError(e instanceof Error ? e.message : 'Failed to start model download.')
-    }
   }
 
   const retryInstallation = () => {

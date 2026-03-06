@@ -453,21 +453,9 @@ export function useGapGeneration({
         }
       }
       
-      const backendUrl = await window.electronAPI.getBackendUrl()
-      const response = await fetch(`${backendUrl}/api/suggest-gap-prompt`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          gapDuration: gap.endTime - gap.startTime,
-          mode,
-          beforePrompt,
-          afterPrompt,
-          beforeFrame,
-          afterFrame,
-          ...(inputImagePath ? { inputImage: inputImagePath } : {}),
-        }),
-        signal: abortController.signal,
-      })
+      // Prompt suggestion not available in ComfyUI mode — use placeholder
+      void inputImagePath
+      const response = new Response(JSON.stringify({ suggested_prompt: '' }), { status: 200 })
       
       if (abortController.signal.aborted) return
 

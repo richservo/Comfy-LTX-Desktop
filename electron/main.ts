@@ -4,11 +4,12 @@ import { setupCSP } from './csp'
 import { registerExportHandlers } from './export/export-handler'
 import { stopExportProcess } from './export/ffmpeg-utils'
 import { registerAppHandlers } from './ipc/app-handlers'
+import { registerComfyUIHandlers } from './ipc/comfyui-handlers'
+import { registerSettingsHandlers } from './ipc/settings-handlers'
 import { registerFileHandlers } from './ipc/file-handlers'
 import { registerLogHandlers } from './ipc/log-handlers'
 import { registerVideoProcessingHandlers } from './ipc/video-processing-handlers'
 import { initSessionLog } from './logging-management'
-import { stopPythonBackend } from './python-backend'
 import { initAutoUpdater } from './updater'
 import { createWindow, getMainWindow } from './window'
 import { sendAnalyticsEvent } from './analytics'
@@ -21,6 +22,8 @@ if (!gotLock) {
   initSessionLog()
 
   registerAppHandlers()
+  registerComfyUIHandlers()
+  registerSettingsHandlers()
   registerFileHandlers()
   registerLogHandlers()
   registerExportHandlers()
@@ -47,7 +50,6 @@ if (!gotLock) {
     setupCSP()
     createWindow()
     initAutoUpdater()
-    // Python setup + backend start are now driven by the renderer via IPC
 
     // Fire analytics event (no-op if user hasn't opted in)
     void sendAnalyticsEvent('ltxdesktop_app_launched')
@@ -55,7 +57,6 @@ if (!gotLock) {
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
-      stopPythonBackend()
       app.quit()
     }
   })
@@ -68,6 +69,5 @@ if (!gotLock) {
 
   app.on('before-quit', () => {
     stopExportProcess()
-    stopPythonBackend()
   })
 }

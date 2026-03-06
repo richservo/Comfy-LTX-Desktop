@@ -136,7 +136,7 @@ export function ICLoraPanel({
   // Fetch available models
   const fetchModels = useCallback(async () => {
     try {
-      const backendUrl = await window.electronAPI.getBackendUrl()
+      const backendUrl = '' // IC-LoRA backend not available in ComfyUI mode
       const resp = await fetch(`${backendUrl}/api/ic-lora/list-models`)
       if (resp.ok) {
         const data = await resp.json()
@@ -155,7 +155,7 @@ export function ICLoraPanel({
     if (!inputVideoPath || isExtracting) return
     setIsExtracting(true)
     try {
-      const backendUrl = await window.electronAPI.getBackendUrl()
+      const backendUrl = '' // IC-LoRA backend not available in ComfyUI mode
       const resp = await fetch(`${backendUrl}/api/ic-lora/extract-conditioning`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -254,7 +254,7 @@ export function ICLoraPanel({
     if (downloadingModels[modelDef.id] === 'downloading') return
     setDownloadingModels(prev => ({ ...prev, [modelDef.id]: 'downloading' }))
     try {
-      const backendUrl = await window.electronAPI.getBackendUrl()
+      const backendUrl = '' // IC-LoRA backend not available in ComfyUI mode
       const resp = await fetch(`${backendUrl}/api/ic-lora/download-model`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -302,7 +302,7 @@ export function ICLoraPanel({
     setOutputVideoPath(null)
 
     try {
-      const backendUrl = await window.electronAPI.getBackendUrl()
+      const backendUrl = '' // IC-LoRA backend not available in ComfyUI mode
       setGenerationStatus('Generating video with IC-LoRA...')
       const resp = await fetch(`${backendUrl}/api/ic-lora/generate`, {
         method: 'POST',

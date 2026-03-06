@@ -3,7 +3,6 @@ import type { Asset, TimelineClip } from '../../types/project'
 import type { GenerationSettings } from '../../components/SettingsPanel'
 import { copyToAssetFolder } from '../../lib/asset-copy'
 import { fileUrlToPath } from '../../lib/url-to-path'
-import { sanitizeForcedApiVideoSettings } from '../../lib/api-video-options'
 import { logger } from '../../lib/logger'
 
 export interface UseRegenerationParams {
@@ -29,7 +28,6 @@ export interface UseRegenerationParams {
   regenReset: () => void
   regenError: string | null
   assetSavePath: string | undefined | null
-  shouldVideoGenerateWithLtxApi: boolean
 }
 
 export function useRegeneration(params: UseRegenerationParams) {
@@ -43,7 +41,6 @@ export function useRegeneration(params: UseRegenerationParams) {
     regenCancel, regenReset,
     regenError,
     assetSavePath,
-    shouldVideoGenerateWithLtxApi,
   } = params
 
   // Track which asset/clip is being regenerated
@@ -73,11 +70,6 @@ export function useRegeneration(params: UseRegenerationParams) {
     imageSteps: 30,
   })
 
-  useEffect(() => {
-    if (!shouldVideoGenerateWithLtxApi) return
-    setI2vSettings((prev) => sanitizeForcedApiVideoSettings(prev))
-  }, [shouldVideoGenerateWithLtxApi])
-
   const handleI2vGenerate = useCallback(async () => {
     if (!i2vClipId || !i2vPrompt.trim() || !currentProjectId) return
 
@@ -98,14 +90,14 @@ export function useRegeneration(params: UseRegenerationParams) {
       ...i2vSettings,
       duration: Math.min(Math.max(1, Math.round(clip.duration)), i2vSettings.model === 'pro' ? 10 : 20),
     }
-    const settings = shouldVideoGenerateWithLtxApi ? sanitizeForcedApiVideoSettings(rawSettings) : rawSettings
+    const settings = rawSettings
 
     try {
       await regenGenerate(i2vPrompt, imagePath, settings)
     } catch (err) {
       logger.error(`I2V generation failed: ${err}`)
     }
-  }, [i2vClipId, i2vPrompt, i2vSettings, currentProjectId, clips, resolveClipSrc, regenGenerate, shouldVideoGenerateWithLtxApi])
+  }, [i2vClipId, i2vPrompt, i2vSettings, currentProjectId, clips, resolveClipSrc, regenGenerate])
 
   // When I2V generation completes, replace the image clip with a video clip
   useEffect(() => {
@@ -117,12 +109,7 @@ export function useRegeneration(params: UseRegenerationParams) {
 
       ;(async () => {
         const { path: finalPath, url: finalUrl } = await copyToAssetFolder(regenVideoPath || regenVideoUrl, regenVideoUrl, assetSavePath)
-        const savedI2vSettings = shouldVideoGenerateWithLtxApi
-          ? sanitizeForcedApiVideoSettings({
-              ...i2vSettings,
-              duration: Math.min(Math.max(1, Math.round(clip.duration)), i2vSettings.model === 'pro' ? 10 : 20),
-            })
-          : {
+        const savedI2vSettings = {
               ...i2vSettings,
               duration: Math.min(Math.max(1, Math.round(clip.duration)), i2vSettings.model === 'pro' ? 10 : 20),
             }
@@ -167,7 +154,7 @@ export function useRegeneration(params: UseRegenerationParams) {
       regenReset()
     })()
 
-  }, [regenVideoUrl, isRegenerating, regenVideoPath, currentProjectId, clips, i2vClipId, i2vPrompt, i2vSettings, addAsset, setClips, regenReset, assetSavePath, shouldVideoGenerateWithLtxApi])
+  }, [regenVideoUrl, isRegenerating, regenVideoPath, currentProjectId, clips, i2vClipId, i2vPrompt, i2vSettings, addAsset, setClips, regenReset, assetSavePath])
 
   // Clean up I2V state when generation fails
   useEffect(() => {
@@ -202,42 +189,8 @@ export function useRegeneration(params: UseRegenerationParams) {
           framePath = fileUrlToPath(clipSrc) || ''
         }
 
-        if (framePath) {
-          // Ask Gemini to describe the frame
-          const backendUrl = await window.electronAPI.getBackendUrl()
-          const resp = await fetch(`${backendUrl}/api/suggest-gap-prompt`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              gapDuration: asset.duration || 5,
-              mode: asset.type === 'image' ? 'text-to-image' : 'text-to-video',
-              beforePrompt: '',
-              afterPrompt: '',
-              beforeFrame: framePath,
-              afterFrame: '',
-            }),
-          })
-          if (resp.ok) {
-            const data = await resp.json()
-            if (data.suggested_prompt) {
-              params = {
-                mode: asset.type === 'image' ? 'text-to-image' : 'text-to-video',
-                prompt: data.suggested_prompt,
-                model: 'fast',
-                duration: asset.duration || 5,
-                resolution: asset.resolution || '768x512',
-                fps: 24,
-                audio: false,
-                cameraMotion: 'none',
-              }
-              // Save the generated params back to the asset so future regenerations are instant
-              // (update the asset in project context)
-              if (asset.id && currentProjectId) {
-                updateAsset(currentProjectId, asset.id, { generationParams: params })
-              }
-            }
-          }
-        }
+        // Prompt suggestion not available in ComfyUI mode
+        void framePath
       } catch (err) {
         logger.warn(`Failed to auto-generate prompt for imported asset: ${err}`)
       }
@@ -295,13 +248,11 @@ export function useRegeneration(params: UseRegenerationParams) {
         imageAspectRatio: params.imageAspectRatio || '16:9',
         imageSteps: params.imageSteps || 4,
       }
-      const videoSettings = shouldVideoGenerateWithLtxApi
-        ? sanitizeForcedApiVideoSettings(rawVideoSettings)
-        : rawVideoSettings
+      const videoSettings = rawVideoSettings
 
       regenGenerate(params.prompt, imagePath, videoSettings)
     }
-  }, [currentProjectId, isRegenerating, assets, clips, regenGenerate, regenGenerateImage, resolveClipSrc, updateAsset, shouldVideoGenerateWithLtxApi])
+  }, [currentProjectId, isRegenerating, assets, clips, regenGenerate, regenGenerateImage, resolveClipSrc, updateAsset])
 
   const handleCancelRegeneration = useCallback(() => {
     regenCancel()

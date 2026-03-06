@@ -8,16 +8,13 @@ import { ImageResult } from '../components/ImageResult'
 import { SettingsPanel, type GenerationSettings } from '../components/SettingsPanel'
 import { ModeTabs, type GenerationMode } from '../components/ModeTabs'
 import { LtxLogo } from '../components/LtxLogo'
-import { ModelStatusDropdown } from '../components/ModelStatusDropdown'
 import { Textarea } from '../components/ui/textarea'
 import { Button } from '../components/ui/button'
 import { useGeneration } from '../hooks/use-generation'
 import { useRetake } from '../hooks/use-retake'
 import { useBackend } from '../hooks/use-backend'
 import { useProjects } from '../contexts/ProjectContext'
-import { useAppSettings } from '../contexts/AppSettingsContext'
 import { fileUrlToPath } from '../lib/url-to-path'
-import { sanitizeForcedApiVideoSettings } from '../lib/api-video-options'
 import { RetakePanel } from '../components/RetakePanel'
 
 const DEFAULT_SETTINGS: GenerationSettings = {
@@ -36,31 +33,22 @@ const DEFAULT_SETTINGS: GenerationSettings = {
 
 export function Playground() {
   const { goHome } = useProjects()
-  const { forceApiGenerations, shouldVideoGenerateWithLtxApi } = useAppSettings()
   const [mode, setMode] = useState<GenerationMode>('text-to-video')
   const [prompt, setPrompt] = useState('')
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
+  const [selectedMiddleImage, setSelectedMiddleImage] = useState<string | null>(null)
+  const [selectedLastImage, setSelectedLastImage] = useState<string | null>(null)
   const [selectedAudio, setSelectedAudio] = useState<string | null>(null)
   const [settings, setSettings] = useState<GenerationSettings>(() => ({ ...DEFAULT_SETTINGS }))
 
-  const { status, processStatus } = useBackend()
+  const { status } = useBackend()
 
-  useEffect(() => {
-    if (!shouldVideoGenerateWithLtxApi || mode === 'text-to-image') return
-    setSettings((prev) => sanitizeForcedApiVideoSettings({ ...prev, model: 'fast' }))
-  }, [mode, shouldVideoGenerateWithLtxApi])
-
-  // Force pro model + resolution when audio is attached (A2V only supports pro @ 1080p 16:9)
+  // Force pro model when audio is attached (A2V only supports pro)
   useEffect(() => {
     if (selectedAudio && mode !== 'text-to-image') {
-      setSettings(prev => {
-        if (shouldVideoGenerateWithLtxApi) {
-          return sanitizeForcedApiVideoSettings({ ...prev, model: 'pro' }, { hasAudio: true })
-        }
-        return prev.model !== 'pro' ? { ...prev, model: 'pro' } : prev
-      })
+      setSettings(prev => prev.model !== 'pro' ? { ...prev, model: 'pro' } : prev)
     }
-  }, [mode, selectedAudio, shouldVideoGenerateWithLtxApi]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mode, selectedAudio])
 
   // Handle mode change
   const handleModeChange = (newMode: GenerationMode) => {
@@ -117,18 +105,17 @@ export function Playground() {
 
     if (mode === 'text-to-image') {
       if (!prompt.trim()) return
-      // Text-to-image behavior remains tied to raw forceApiGenerations in useGeneration.
       generateImage(prompt, settings)
     } else {
-      const effectiveVideoSettings = shouldVideoGenerateWithLtxApi
-        ? sanitizeForcedApiVideoSettings(settings)
-        : settings
       // Auto-detect: if image is loaded → I2V, otherwise → T2V
       if (!prompt.trim()) return
       const imagePath = selectedImage ? fileUrlToPath(selectedImage) : null
+      const middleImagePath = selectedMiddleImage ? fileUrlToPath(selectedMiddleImage) : null
+      const lastImagePath = selectedLastImage ? fileUrlToPath(selectedLastImage) : null
       const audioPath = selectedAudio ? fileUrlToPath(selectedAudio) : null
-      if (audioPath) effectiveVideoSettings.model = 'pro'
-      generate(prompt, imagePath, effectiveVideoSettings, audioPath)
+      const effectiveSettings = { ...settings }
+      if (audioPath) effectiveSettings.model = 'pro'
+      generate(prompt, imagePath, effectiveSettings, audioPath, middleImagePath, lastImagePath)
     }
   }
   
@@ -148,10 +135,10 @@ export function Playground() {
   const handleClearAll = () => {
     setPrompt('')
     setSelectedImage(null)
+    setSelectedMiddleImage(null)
+    setSelectedLastImage(null)
     setSelectedAudio(null)
-    const baseDefaults = { ...DEFAULT_SETTINGS }
-    const shouldSanitizeVideoSettings = shouldVideoGenerateWithLtxApi && mode !== 'text-to-image'
-    setSettings(shouldSanitizeVideoSettings ? sanitizeForcedApiVideoSettings(baseDefaults) : baseDefaults)
+    setSettings({ ...DEFAULT_SETTINGS })
     if (mode !== 'text-to-image') setMode('text-to-video')
     setRetakeInput({
       videoUrl: null,
@@ -169,7 +156,7 @@ export function Playground() {
   const isRetakeMode = mode === 'retake'
   const isVideoMode = mode === 'text-to-video' || mode === 'image-to-video'
   const isBusy = isRetakeMode ? isRetaking : isGenerating
-  const canGenerate = processStatus === 'alive' && !isBusy && (
+  const canGenerate = status.connected && !isBusy && (
     isRetakeMode
       ? retakeInput.ready && !!retakeInput.videoPath
       : !!prompt.trim()
@@ -194,15 +181,10 @@ export function Playground() {
         </div>
         
         <div className="flex items-center gap-4 pr-20">
-          {/* Model Status Dropdown */}
-          {!forceApiGenerations && <ModelStatusDropdown />}
-          
-          {/* GPU Info */}
-          {status.gpuInfo && (
-            <div className="text-sm text-zinc-500">
-              {status.gpuInfo.name} ({(status.gpuInfo.vramUsed / 1024).toFixed(1)}GB / {Math.round(status.gpuInfo.vram / 1024)}GB)
-            </div>
-          )}
+          {/* Connection status */}
+          <div className="text-sm text-zinc-500">
+            {status.connected ? 'ComfyUI Connected' : 'ComfyUI Disconnected'}
+          </div>
         </div>
       </header>
 
@@ -222,8 +204,19 @@ export function Playground() {
             {isVideoMode && !isRetakeMode && (
               <>
                 <ImageUploader
+                  label="First Frame"
                   selectedImage={selectedImage}
                   onImageSelect={setSelectedImage}
+                />
+                <ImageUploader
+                  label="Middle Frame"
+                  selectedImage={selectedMiddleImage}
+                  onImageSelect={setSelectedMiddleImage}
+                />
+                <ImageUploader
+                  label="Last Frame"
+                  selectedImage={selectedLastImage}
+                  onImageSelect={setSelectedLastImage}
                 />
                 <AudioUploader
                   selectedAudio={selectedAudio}
@@ -260,7 +253,6 @@ export function Playground() {
                 onSettingsChange={setSettings}
                 disabled={isBusy}
                 mode={mode}
-                forceApiGenerations={shouldVideoGenerateWithLtxApi}
                 hasAudio={!!selectedAudio}
               />
             )}

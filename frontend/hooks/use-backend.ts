@@ -3,203 +3,85 @@ import { logger } from '../lib/logger'
 
 interface BackendStatus {
   connected: boolean
-  modelsLoaded: boolean
-  gpuInfo: {
-    name: string
-    vram: number
-    vramUsed: number
-  } | null
-}
-
-interface ModelStatus {
-  id: string
-  name: string
-  size: number
-  downloaded: boolean
-  downloadProgress: number
-}
-
-export type BackendProcessStatus = 'alive' | 'restarting' | 'dead'
-
-interface BackendHealthStatusPayload {
-  status: BackendProcessStatus
-  exitCode?: number | null
 }
 
 interface UseBackendReturn {
   status: BackendStatus
-  models: ModelStatus[]
-  processStatus: BackendProcessStatus | null
   isLoading: boolean
   error: string | null
   checkHealth: () => Promise<boolean>
-  downloadModel: (modelId: string) => Promise<void>
-}
-
-function toBackendHealthStatus(value: unknown): BackendHealthStatusPayload | null {
-  if (!value || typeof value !== 'object') {
-    return null
-  }
-
-  const record = value as { status?: unknown; exitCode?: unknown }
-  if (record.status !== 'alive' && record.status !== 'restarting' && record.status !== 'dead') {
-    return null
-  }
-
-  return {
-    status: record.status,
-    exitCode: typeof record.exitCode === 'number' || record.exitCode === null ? record.exitCode : undefined,
-  }
 }
 
 export function useBackend(): UseBackendReturn {
   const [status, setStatus] = useState<BackendStatus>({
     connected: false,
-    modelsLoaded: false,
-    gpuInfo: null,
   })
-  const [models, setModels] = useState<ModelStatus[]>([])
-  const [processStatus, setProcessStatus] = useState<BackendProcessStatus | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const checkHealth = useCallback(async (): Promise<boolean> => {
     try {
-      const backendUrl = await window.electronAPI.getBackendUrl()
-      logger.info(`Checking backend health at: ${backendUrl}`)
-      const response = await fetch(`${backendUrl}/health`)
+      logger.info('Checking ComfyUI health...')
+      const result = await window.electronAPI.checkComfyUIHealth()
+      logger.info(`ComfyUI health: connected=${result.connected}`)
 
-      if (response.ok) {
-        const data = await response.json()
-        logger.info(`Backend health: ${JSON.stringify(data)}`)
-
-        setStatus({
-          connected: true,
-          modelsLoaded: data.models_loaded,
-          gpuInfo: data.gpu_info,
-        })
+      setStatus({ connected: result.connected })
+      if (result.connected) {
         setError(null)
-        return true
       }
-      logger.warn(`Backend health check failed with status: ${response.status}`)
-      return false
+      return result.connected
     } catch (err) {
-      logger.error(`Backend health check error: ${err}`)
-      setStatus(prev => ({ ...prev, connected: false }))
+      logger.error(`ComfyUI health check error: ${err}`)
+      setStatus({ connected: false })
       return false
     }
   }, [])
-
-  const fetchModels = useCallback(async () => {
-    try {
-      const backendUrl = await window.electronAPI.getBackendUrl()
-      const response = await fetch(`${backendUrl}/api/models`)
-
-      if (response.ok) {
-        const data = await response.json()
-        setModels(data.models)
-      }
-    } catch (err) {
-      logger.error(`Failed to fetch models: ${err}`)
-    }
-  }, [])
-
-  const downloadModel = useCallback(async (modelId: string) => {
-    try {
-      const backendUrl = await window.electronAPI.getBackendUrl()
-
-      // Connect to WebSocket for download progress
-      const wsUrl = backendUrl.replace('http://', 'ws://') + `/ws/download/${modelId}`
-      const ws = new WebSocket(wsUrl)
-
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data)
-        if (data.type === 'progress') {
-          setModels(prev => prev.map(m =>
-            m.id === modelId
-              ? { ...m, downloadProgress: data.progress }
-              : m
-          ))
-        } else if (data.type === 'complete') {
-          setModels(prev => prev.map(m =>
-            m.id === modelId
-              ? { ...m, downloaded: true, downloadProgress: 100 }
-              : m
-          ))
-        }
-      }
-
-      // Trigger download
-      await fetch(`${backendUrl}/api/models/${modelId}/download`, {
-        method: 'POST',
-      })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Download failed')
-    }
-  }, [])
-
-  const handleBackendStatus = useCallback(async (payload: BackendHealthStatusPayload) => {
-    setProcessStatus(payload.status)
-
-    if (payload.status === 'alive') {
-      const healthy = await checkHealth()
-      if (healthy) {
-        await fetchModels()
-      } else {
-        setError('Failed to connect to backend')
-      }
-      setIsLoading(false)
-      return
-    }
-
-    if (payload.status === 'restarting') {
-      return
-    }
-
-    setStatus((prev) => ({ ...prev, connected: false }))
-    setError('The backend process crashed and could not be restarted')
-    setIsLoading(false)
-  }, [checkHealth, fetchModels])
 
   useEffect(() => {
     let cancelled = false
 
-    const applyStatus = async (value: unknown) => {
-      const payload = toBackendHealthStatus(value)
-      if (!payload || cancelled) {
-        return
-      }
-      await handleBackendStatus(payload)
-    }
-
-    const unsubscribe = window.electronAPI.onBackendHealthStatus((data: BackendHealthStatusPayload) => {
-      void applyStatus(data)
-    })
-
     const init = async () => {
-      try {
-        const snapshot = await window.electronAPI.getBackendHealthStatus()
-        await applyStatus(snapshot)
-      } catch (err) {
-        logger.error(`Failed to load backend health status snapshot: ${err}`)
+      const connected = await checkHealth()
+      if (cancelled) return
+
+      if (!connected) {
+        // Retry a few times
+        for (let i = 0; i < 5; i++) {
+          await new Promise(r => setTimeout(r, 2000))
+          if (cancelled) return
+          const ok = await checkHealth()
+          if (ok || cancelled) break
+        }
+      }
+
+      if (!cancelled) {
+        setIsLoading(false)
+        const currentStatus = await window.electronAPI.checkComfyUIHealth()
+        if (!currentStatus.connected && !cancelled) {
+          setError('Could not connect to ComfyUI. Make sure ComfyUI Desktop is running on port 8188.')
+        }
       }
     }
 
     void init()
 
+    // Periodic health check
+    const interval = setInterval(async () => {
+      if (!cancelled) {
+        await checkHealth()
+      }
+    }, 30000)
+
     return () => {
       cancelled = true
-      unsubscribe()
+      clearInterval(interval)
     }
-  }, [handleBackendStatus])
+  }, [checkHealth])
 
   return {
     status,
-    models,
-    processStatus,
     isLoading,
     error,
     checkHealth,
-    downloadModel,
   }
 }

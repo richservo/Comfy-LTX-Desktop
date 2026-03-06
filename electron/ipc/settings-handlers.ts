@@ -1,0 +1,81 @@
+import { app, ipcMain } from 'electron'
+import fs from 'fs'
+import path from 'path'
+import { comfyClient } from '../comfyui/client'
+import { logger } from '../logger'
+
+export interface ComfyUISettings {
+  comfyuiUrl: string
+  comfyuiOutputDir: string
+  seedLocked: boolean
+  lockedSeed: number
+  steps: number
+  cfg: number
+  ollamaEnabled: boolean
+  ollamaUrl: string
+  ollamaModel: string
+}
+
+function getDefaultSettings(): ComfyUISettings {
+  const docsDir = app.getPath('documents')
+  return {
+    comfyuiUrl: 'http://localhost:8188',
+    comfyuiOutputDir: path.join(docsDir, 'ComfyUI', 'output'),
+    seedLocked: false,
+    lockedSeed: 42,
+    steps: 30,
+    cfg: 3,
+    ollamaEnabled: true,
+    ollamaUrl: 'http://localhost:11434',
+    ollamaModel: 'gemma3:12b',
+  }
+}
+
+function getSettingsPath(): string {
+  return path.join(app.getPath('userData'), 'comfyui-settings.json')
+}
+
+export function getComfyUISettings(): ComfyUISettings {
+  const settingsPath = getSettingsPath()
+  try {
+    if (fs.existsSync(settingsPath)) {
+      const raw = fs.readFileSync(settingsPath, 'utf-8')
+      const data = JSON.parse(raw) as Partial<ComfyUISettings>
+      return { ...getDefaultSettings(), ...data }
+    }
+  } catch (err) {
+    logger.error(`Failed to read ComfyUI settings: ${err}`)
+  }
+  return { ...getDefaultSettings() }
+}
+
+function saveComfyUISettings(settings: ComfyUISettings): void {
+  const settingsPath = getSettingsPath()
+  try {
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2))
+  } catch (err) {
+    logger.error(`Failed to write ComfyUI settings: ${err}`)
+  }
+}
+
+export function registerSettingsHandlers(): void {
+  ipcMain.handle('settings:get', () => {
+    return getComfyUISettings()
+  })
+
+  ipcMain.handle(
+    'settings:update',
+    (_event, patch: Partial<ComfyUISettings>) => {
+      const current = getComfyUISettings()
+      const updated = { ...current, ...patch }
+      saveComfyUISettings(updated)
+
+      // If URL changed, update the client
+      if (patch.comfyuiUrl) {
+        comfyClient.setBaseUrl(updated.comfyuiUrl)
+      }
+
+      return updated
+    },
+  )
+}

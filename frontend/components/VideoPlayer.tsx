@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react'
-import { Play, Pause, Download, RefreshCw, RotateCcw, Volume2, VolumeX, Maximize2 } from 'lucide-react'
+import { Play, Pause, Download, RefreshCw, RotateCcw, Volume2, VolumeX } from 'lucide-react'
 import { Button } from './ui/button'
 import { logger } from '../lib/logger'
 
@@ -18,7 +18,7 @@ function formatTime(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
-export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating, progress, statusMessage }: VideoPlayerProps) {
+export function VideoPlayer({ videoUrl, videoResolution, isGenerating, progress, statusMessage }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const progressRef = useRef<HTMLDivElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -27,7 +27,6 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
   const [isDragging, setIsDragging] = useState(false)
   const [isLooping, setIsLooping] = useState(true)
   const [isMuted, setIsMuted] = useState(false)
-  const [isHovering, setIsHovering] = useState(false)
   const [hasBeenUpscaled, setHasBeenUpscaled] = useState(false)
   const [_currentResolution, setCurrentResolution] = useState<string | null>(null)
   const [upscaledVideoUrl, setUpscaledVideoUrl] = useState<string | null>(null)
@@ -297,8 +296,6 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
             <div 
               ref={curtainContainerRef}
               className="flex-1 flex items-center justify-center bg-black min-h-0 relative overflow-hidden"
-              onMouseEnter={() => setIsHovering(true)}
-              onMouseLeave={() => setIsHovering(false)}
             >
               {/* Normal video display (toggle mode or no upscale) */}
               {(!hasBeenUpscaled || !upscaledVideoUrl || comparisonMode === 'toggle') && (
@@ -425,19 +422,6 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
                 </div>
               )}
               
-              {/* Upscale overlay button — Coming Soon */}
-              {videoPath && isHovering && !hasBeenUpscaled && (videoResolution === '540p' || videoResolution === '720p' || videoResolution === '1080p') && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/40 transition-opacity">
-                  <Button
-                    disabled
-                    title="Coming Soon!"
-                    className="bg-zinc-600 text-white px-6 py-3 rounded-lg font-medium flex items-center gap-2 shadow-lg cursor-not-allowed opacity-50"
-                  >
-                    <Maximize2 className="h-5 w-5" />
-                    Upscale to {upscaleTargetResolution}
-                  </Button>
-                </div>
-              )}
               
             </div>
             

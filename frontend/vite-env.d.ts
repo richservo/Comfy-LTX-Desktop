@@ -6,14 +6,8 @@ interface LogsResponse {
   error?: string
 }
 
-interface BackendHealthStatus {
-  status: 'alive' | 'restarting' | 'dead'
-  exitCode?: number | null
-}
-
 interface Window {
   electronAPI: {
-    getBackendUrl: () => Promise<string>
     getModelsPath: () => Promise<string>
     readLocalFile: (filePath: string) => Promise<{ data: string; mimeType: string }>
     checkGpu: () => Promise<{ available: boolean; name?: string; vram?: number }>
@@ -48,13 +42,41 @@ interface Window {
       subtitles?: { text: string; startTime: number; endTime: number; style: { fontSize: number; fontFamily: string; fontWeight: string; color: string; backgroundColor: string; position: string; italic: boolean } }[]
     }) => Promise<{ success?: boolean; error?: string }>
     exportCancel: (sessionId: string) => Promise<{ ok?: boolean }>
-    checkPythonReady: () => Promise<{ ready: boolean }>
-    startPythonSetup: () => Promise<void>
-    startPythonBackend: () => Promise<void>
-    getBackendHealthStatus: () => Promise<BackendHealthStatus | null>
-    onPythonSetupProgress: (cb: (data: unknown) => void) => void
-    removePythonSetupProgress: () => void
-    onBackendHealthStatus: (cb: (data: BackendHealthStatus) => void) => (() => void)
+    generateVideo: (params: {
+      prompt: string
+      imagePath?: string | null
+      middleImagePath?: string | null
+      lastImagePath?: string | null
+      audioPath?: string | null
+      resolution: string
+      aspectRatio: string
+      duration: number
+      fps: number
+      cameraMotion?: string
+      spatialUpscale?: boolean
+      temporalUpscale?: boolean
+      filmGrain?: boolean
+      filmGrainIntensity?: number
+      filmGrainSize?: number
+    }) => Promise<{ status: string; video_path?: string; error?: string }>
+    getGenerationProgress: () => Promise<{
+      status: string
+      phase: string
+      progress: number
+      currentStep: number | null
+      totalSteps: number | null
+    }>
+    cancelGeneration: () => Promise<void>
+    checkComfyUIHealth: () => Promise<{ connected: boolean }>
+    getSettings: () => Promise<{
+      comfyuiUrl: string
+      comfyuiOutputDir: string
+      seedLocked: boolean
+      lockedSeed: number
+      steps: number
+      cfg: number
+    }>
+    updateSettings: (patch: Record<string, unknown>) => Promise<Record<string, unknown>>
     extractVideoFrame: (videoUrl: string, seekTime: number, width?: number, quality?: number) => Promise<{ path: string; url: string }>
     writeLog: (level: string, message: string) => Promise<void>
     getAnalyticsState: () => Promise<{ analyticsEnabled: boolean; installationId: string }>

@@ -1,6 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
 import type { GenerationSettings } from '../components/SettingsPanel'
-import { useAppSettings } from '../contexts/AppSettingsContext'
 
 interface GenerationState {
   isGenerating: boolean
@@ -22,72 +21,29 @@ interface GenerationProgress {
 }
 
 interface UseGenerationReturn extends GenerationState {
-  generate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null) => Promise<void>
+  generate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null) => Promise<void>
   generateImage: (prompt: string, settings: GenerationSettings) => Promise<void>
   cancel: () => void
   reset: () => void
 }
 
-const IMAGE_SHORT_SIDE_BY_RESOLUTION: Record<string, number> = {
-  '1080p': 1080,
-  '1440p': 1440,
-  '2048p': 2048,
-}
-
-const IMAGE_ASPECT_RATIO_VALUE: Record<string, number> = {
-  '1:1': 1,
-  '16:9': 16 / 9,
-  '9:16': 9 / 16,
-  '4:3': 4 / 3,
-  '3:4': 3 / 4,
-  '21:9': 21 / 9,
-}
-
-function getImageDimensions(settings: GenerationSettings): { width: number; height: number } {
-  const shortSide = IMAGE_SHORT_SIDE_BY_RESOLUTION[settings.imageResolution]
-  if (!shortSide) {
-    throw new Error(`Unsupported image resolution mapping: ${settings.imageResolution}`)
-  }
-
-  const ratio = IMAGE_ASPECT_RATIO_VALUE[settings.imageAspectRatio]
-  if (!ratio) {
-    throw new Error(`Unsupported image aspect ratio mapping: ${settings.imageAspectRatio}`)
-  }
-
-  if (ratio >= 1) {
-    return { width: Math.round(shortSide * ratio), height: shortSide }
-  }
-  return { width: shortSide, height: Math.round(shortSide / ratio) }
-}
-
 // Map phase to user-friendly message
 function getPhaseMessage(phase: string): string {
   switch (phase) {
-    case 'validating_request':
-      return 'Validating request...'
-    case 'uploading_image':
-      return 'Uploading image...'
-    case 'uploading_audio':
-      return 'Uploading audio...'
-    case 'loading_model':
-      return 'Loading model...'
-    case 'encoding_text':
-      return 'Encoding prompt...'
     case 'inference':
       return 'Generating...'
-    case 'downloading_output':
-      return 'Downloading output...'
-    case 'decoding':
-      return 'Decoding video...'
     case 'complete':
       return 'Complete!'
+    case 'error':
+      return 'Error'
+    case 'cancelled':
+      return 'Cancelled'
     default:
       return 'Generating...'
   }
 }
 
 export function useGeneration(): UseGenerationReturn {
-  const { settings: appSettings, forceApiGenerations, refreshSettings } = useAppSettings()
   const [state, setState] = useState<GenerationState>({
     isGenerating: false,
     progress: 0,
@@ -99,22 +55,20 @@ export function useGeneration(): UseGenerationReturn {
     error: null,
   })
 
-  const abortControllerRef = useRef<AbortController | null>(null)
+  const cancelledRef = useRef(false)
 
   const generate = useCallback(async (
     prompt: string,
     imagePath: string | null,
     settings: GenerationSettings,
     audioPath?: string | null,
+    middleImagePath?: string | null,
+    lastImagePath?: string | null,
   ) => {
-    const statusMsg = settings.model === 'pro'
-      ? 'Loading Pro model & generating...'
-      : 'Generating video...'
-
     setState({
       isGenerating: true,
       progress: 0,
-      statusMessage: statusMsg,
+      statusMessage: 'Generating video...',
       videoUrl: null,
       videoPath: null,
       imageUrl: null,
@@ -122,109 +76,61 @@ export function useGeneration(): UseGenerationReturn {
       error: null,
     })
 
-    abortControllerRef.current = new AbortController()
+    cancelledRef.current = false
     let progressInterval: ReturnType<typeof setInterval> | null = null
-    let shouldApplyPollingUpdates = true
 
     try {
-      // Get backend URL from Electron
-      const backendUrl = await window.electronAPI.getBackendUrl()
-
-      // Prepare JSON body
-      const body: Record<string, unknown> = {
-        prompt,
-        model: settings.model,
-        duration: String(settings.duration),
-        resolution: settings.videoResolution,
-        fps: String(settings.fps),
-        audio: String(settings.audio),
-        cameraMotion: settings.cameraMotion,
-        aspectRatio: settings.aspectRatio || '16:9',
-      }
-      if (imagePath) {
-        body.imagePath = imagePath
-      }
-      if (audioPath) {
-        body.audioPath = audioPath
-      }
-
-      // Poll for real progress from backend with time-based interpolation
-      let lastPhase = ''
-      let inferenceStartTime = 0
-      // Estimated inference time in seconds based on model
-      const estimatedInferenceTime = settings.model === 'pro' ? 120 : 45
-      
+      // Poll for progress from ComfyUI via IPC
       const pollProgress = async () => {
-        if (!shouldApplyPollingUpdates) return
+        if (cancelledRef.current) return
         try {
-          const res = await fetch(`${backendUrl}/api/generation/progress`)
-          if (res.ok) {
-            const data: GenerationProgress = await res.json()
-            if (!shouldApplyPollingUpdates) return
-            
-            let displayProgress = data.progress
-            let statusMessage = getPhaseMessage(data.phase)
-            
-            // Time-based interpolation during inference phase
-            if (data.phase === 'inference') {
-              if (lastPhase !== 'inference') {
-                inferenceStartTime = Date.now()
-              }
-              const elapsed = (Date.now() - inferenceStartTime) / 1000
-              // Interpolate from 15% to 95% based on estimated time
-              const inferenceProgress = Math.min(elapsed / estimatedInferenceTime, 0.95)
-              displayProgress = 15 + Math.floor(inferenceProgress * 80)
-            }
+          const data: GenerationProgress = await window.electronAPI.getGenerationProgress()
+          if (cancelledRef.current) return
 
-            // Keep API/local completion as a terminal response state, not polling state.
-            // Polling complete means backend state is finalized, but request can still be in-flight.
-            if (data.phase === 'complete' || data.status === 'complete') {
-              displayProgress = 95
-              statusMessage = 'Finalizing...'
-            }
-            
-            lastPhase = data.phase
-            
-            setState(prev => ({
-              ...prev,
-              progress: displayProgress,
-              statusMessage,
-            }))
-          }
+          setState(prev => ({
+            ...prev,
+            progress: data.progress,
+            statusMessage: getPhaseMessage(data.phase),
+          }))
         } catch {
           // Ignore polling errors
         }
       }
-      
+
       progressInterval = setInterval(pollProgress, 500)
 
-      // Start generation (HTTP POST - synchronous, returns when done)
-      const response = await fetch(`${backendUrl}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: abortControllerRef.current.signal,
+      // Start generation via ComfyUI IPC (async, returns when done)
+      const result = await window.electronAPI.generateVideo({
+        prompt,
+        imagePath,
+        middleImagePath,
+        lastImagePath,
+        audioPath,
+        resolution: settings.videoResolution,
+        aspectRatio: settings.aspectRatio || '16:9',
+        duration: settings.duration,
+        fps: settings.fps,
+        cameraMotion: settings.cameraMotion,
+        spatialUpscale: (settings as unknown as { spatialUpscale?: boolean }).spatialUpscale,
+        temporalUpscale: (settings as unknown as { temporalUpscale?: boolean }).temporalUpscale,
+        filmGrain: (settings as unknown as { filmGrain?: boolean }).filmGrain,
+        filmGrainIntensity: (settings as unknown as { filmGrainIntensity?: number }).filmGrainIntensity,
+        filmGrainSize: (settings as unknown as { filmGrainSize?: number }).filmGrainSize,
       })
-      shouldApplyPollingUpdates = false
 
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(errorText || 'Generation failed')
-      }
+      if (cancelledRef.current) return
 
-      const result = await response.json()
-      
       if (result.status === 'complete' && result.video_path) {
-        // Convert Windows path to proper file:// URL
+        // Convert path to file:// URL
         const videoPathNormalized = result.video_path.replace(/\\/g, '/')
         const fileUrl = videoPathNormalized.startsWith('/') ? `file://${videoPathNormalized}` : `file:///${videoPathNormalized}`
-        
+
         setState({
           isGenerating: false,
           progress: 100,
           statusMessage: 'Complete!',
           videoUrl: fileUrl,
-          videoPath: result.video_path,  // Keep original path for API calls
+          videoPath: result.video_path,
           imageUrl: null,
           imageUrls: [],
           error: null,
@@ -240,7 +146,7 @@ export function useGeneration(): UseGenerationReturn {
       }
 
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
+      if (cancelledRef.current) {
         setState(prev => ({
           ...prev,
           isGenerating: false,
@@ -254,7 +160,6 @@ export function useGeneration(): UseGenerationReturn {
         }))
       }
     } finally {
-      shouldApplyPollingUpdates = false
       if (progressInterval) {
         clearInterval(progressInterval)
       }
@@ -262,19 +167,14 @@ export function useGeneration(): UseGenerationReturn {
   }, [])
 
   const cancel = useCallback(async () => {
-    // Abort the fetch request
-    abortControllerRef.current?.abort()
-    
-    // Also tell the backend to cancel
+    cancelledRef.current = true
+
     try {
-      const backendUrl = await window.electronAPI.getBackendUrl()
-      await fetch(`${backendUrl}/api/generate/cancel`, {
-        method: 'POST',
-      })
-    } catch (e) {
+      await window.electronAPI.cancelGeneration()
+    } catch {
       // Ignore errors from cancel request
     }
-    
+
     setState(prev => ({
       ...prev,
       isGenerating: false,
@@ -283,171 +183,15 @@ export function useGeneration(): UseGenerationReturn {
   }, [])
 
   const generateImage = useCallback(async (
-    prompt: string,
-    settings: GenerationSettings
+    _prompt: string,
+    _settings: GenerationSettings
   ) => {
-    if (forceApiGenerations) {
-      try {
-        const backendUrl = await window.electronAPI.getBackendUrl()
-        const response = await fetch(`${backendUrl}/api/settings`)
-        if (response.ok) {
-          const payload = await response.json()
-          if (!payload?.hasFalApiKey) {
-            void refreshSettings()
-            window.dispatchEvent(new CustomEvent('open-api-gateway', {
-              detail: {
-                requiredKeys: ['fal'],
-                title: 'Connect FAL AI',
-                description: 'FAL AI is required for generating images with Z Image Turbo when API generations are enabled.',
-                blocking: false,
-              },
-            }))
-            return
-          }
-        }
-      } catch {
-        if (!appSettings.hasFalApiKey) {
-          window.dispatchEvent(new CustomEvent('open-api-gateway', {
-            detail: {
-              requiredKeys: ['fal'],
-              title: 'Connect FAL AI',
-              description: 'FAL AI is required for generating images with Z Image Turbo when API generations are enabled.',
-              blocking: false,
-            },
-          }))
-          return
-        }
-      }
-    }
-
-    const numImages = settings.variations || 1
-    
-    setState({
-      isGenerating: true,
-      progress: 0,
-      statusMessage: numImages > 1 ? `Generating ${numImages} images...` : 'Generating image...',
-      videoUrl: null,
-      videoPath: null,
-      imageUrl: null,
-      imageUrls: [],
-      error: null,
-    })
-
-    abortControllerRef.current = new AbortController()
-
-    try {
-      const backendUrl = await window.electronAPI.getBackendUrl()
-
-      // Skip prompt enhancement for T2I - use original prompt directly
-      const finalPrompt = prompt
-
-      const dims = getImageDimensions(settings)
-      const numSteps = settings.imageSteps || 4
-
-      // Poll for progress
-      const pollProgress = async () => {
-        try {
-          const res = await fetch(`${backendUrl}/api/generation/progress`)
-          if (res.ok) {
-            const data = await res.json()
-            const currentImage = data.currentStep || 0
-            const totalImages = data.totalSteps || numImages
-            setState(prev => ({
-              ...prev,
-              progress: data.progress,
-              statusMessage: data.phase === 'loading_model' 
-                ? 'Loading Z-Image Turbo model...' 
-                : data.phase === 'inference'
-                  ? numImages > 1 
-                    ? `Generating image ${currentImage + 1}/${totalImages}...`
-                    : 'Generating image...'
-                  : data.phase === 'complete'
-                    ? 'Complete!'
-                    : 'Generating...',
-            }))
-          }
-        } catch {
-          // Ignore polling errors
-        }
-      }
-      
-      const progressInterval = setInterval(pollProgress, 500)
-
-      const response = await fetch(`${backendUrl}/api/generate-image`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: finalPrompt,
-          width: dims.width,
-          height: dims.height,
-          numSteps,
-          numImages,
-        }),
-        signal: abortControllerRef.current.signal,
-      })
-
-      clearInterval(progressInterval)
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(errorText || 'Image generation failed')
-      }
-
-      const result = await response.json()
-      
-      if (result.status === 'complete') {
-        // Handle both new format (image_paths array) and old format (single image_path)
-        let rawPaths: string[] = []
-        if (result.image_paths && Array.isArray(result.image_paths)) {
-          rawPaths = result.image_paths
-        } else if (result.image_path) {
-          rawPaths = [result.image_path]
-        }
-        
-        if (rawPaths.length > 0) {
-          // Convert all paths to file URLs
-          const fileUrls = rawPaths.map((path: string) => {
-            const imagePath = path.replace(/\\/g, '/')
-            return imagePath.startsWith('/') ? `file://${imagePath}` : `file:///${imagePath}`
-          })
-          
-          setState({
-            isGenerating: false,
-            progress: 100,
-            statusMessage: 'Complete!',
-            videoUrl: null,
-            videoPath: null,
-            imageUrl: fileUrls[0],  // First image for backwards compatibility
-            imageUrls: fileUrls,    // All images
-            error: null,
-          })
-        }
-      } else if (result.status === 'cancelled') {
-        setState(prev => ({
-          ...prev,
-          isGenerating: false,
-          statusMessage: 'Cancelled',
-        }))
-      } else if (result.error) {
-        throw new Error(result.error)
-      }
-
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        setState(prev => ({
-          ...prev,
-          isGenerating: false,
-          statusMessage: 'Cancelled',
-        }))
-      } else {
-        setState(prev => ({
-          ...prev,
-          isGenerating: false,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        }))
-      }
-    }
-  }, [appSettings.hasFalApiKey, forceApiGenerations, refreshSettings])
+    // Image generation not supported in ComfyUI integration (deferred)
+    setState(prev => ({
+      ...prev,
+      error: 'Image generation is not supported in this version. Use ComfyUI directly for image generation.',
+    }))
+  }, [])
 
   const reset = useCallback(() => {
     setState({
