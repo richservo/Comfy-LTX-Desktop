@@ -15,6 +15,9 @@ export interface ComfyUISettings {
   ollamaEnabled: boolean
   ollamaUrl: string
   ollamaModel: string
+  filmGrain: boolean
+  filmGrainIntensity: number
+  filmGrainSize: number
   checkpoint: string
   textEncoder: string
   vaeCheckpoint: string
@@ -36,6 +39,9 @@ function getDefaultSettings(): ComfyUISettings {
     ollamaEnabled: true,
     ollamaUrl: 'http://localhost:11434',
     ollamaModel: 'gemma3:12b',
+    filmGrain: false,
+    filmGrainIntensity: 0.05,
+    filmGrainSize: 1.2,
     checkpoint: 'ltx-2.3-22b-dev-fp8.safetensors',
     textEncoder: 'gemma_3_12B_it_fp4_mixed.safetensors',
     vaeCheckpoint: 'ltx-2.3-22b-dev-fp8.safetensors',

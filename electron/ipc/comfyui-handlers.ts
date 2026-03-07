@@ -31,7 +31,6 @@ interface GenerateParams {
   filmGrainIntensity?: number
   filmGrainSize?: number
   firstStrength?: number
-  middleStrength?: number
   lastStrength?: number
 }
 
@@ -124,7 +123,6 @@ export function registerComfyUIHandlers(): void {
         filmGrainIntensity: params.filmGrainIntensity,
         filmGrainSize: params.filmGrainSize,
         firstStrength: params.firstStrength,
-        middleStrength: params.middleStrength,
         lastStrength: params.lastStrength,
         checkpoint: settings.checkpoint,
         textEncoder: settings.textEncoder,
@@ -191,7 +189,6 @@ export function registerComfyUIHandlers(): void {
           filmGrainIntensity: params.filmGrainIntensity,
           filmGrainSize: params.filmGrainSize,
           firstStrength: params.firstStrength,
-          middleStrength: params.middleStrength,
           lastStrength: params.lastStrength,
         })
         const ext = path.extname(fileInfo.filename) || '.mp4'

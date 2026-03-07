@@ -14,6 +14,7 @@ import { useGeneration } from '../hooks/use-generation'
 import { useRetake } from '../hooks/use-retake'
 import { useBackend } from '../hooks/use-backend'
 import { useProjects } from '../contexts/ProjectContext'
+import { useAppSettings } from '../contexts/AppSettingsContext'
 import { fileUrlToPath } from '../lib/url-to-path'
 import { RetakePanel } from '../components/RetakePanel'
 
@@ -33,6 +34,7 @@ const DEFAULT_SETTINGS: GenerationSettings = {
 
 export function Playground() {
   const { goHome } = useProjects()
+  const { settings: appSettings, updateSettings: updateAppSettings } = useAppSettings()
   const [mode, setMode] = useState<GenerationMode>('text-to-video')
   const [prompt, setPrompt] = useState('')
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
@@ -40,9 +42,29 @@ export function Playground() {
   const [selectedAudio, setSelectedAudio] = useState<string | null>(null)
   const [firstStrength, setFirstStrength] = useState(1)
   const [lastStrength, setLastStrength] = useState(1)
-  const [settings, setSettings] = useState<GenerationSettings>(() => ({ ...DEFAULT_SETTINGS }))
+  const [settings, setSettings] = useState<GenerationSettings>(() => ({
+    ...DEFAULT_SETTINGS,
+    filmGrain: appSettings.filmGrain,
+    filmGrainIntensity: appSettings.filmGrainIntensity,
+    filmGrainSize: appSettings.filmGrainSize,
+  }))
 
   const { status } = useBackend()
+
+  const handleSettingsChange = (next: GenerationSettings) => {
+    setSettings(next)
+    if (
+      next.filmGrain !== settings.filmGrain ||
+      next.filmGrainIntensity !== settings.filmGrainIntensity ||
+      next.filmGrainSize !== settings.filmGrainSize
+    ) {
+      updateAppSettings({
+        filmGrain: next.filmGrain ?? false,
+        filmGrainIntensity: next.filmGrainIntensity ?? 0.05,
+        filmGrainSize: next.filmGrainSize ?? 1.2,
+      })
+    }
+  }
 
   // Force pro model when audio is attached (A2V only supports pro)
   useEffect(() => {
@@ -291,7 +313,7 @@ export function Playground() {
             {!isRetakeMode && (
               <SettingsPanel
                 settings={settings}
-                onSettingsChange={setSettings}
+                onSettingsChange={handleSettingsChange}
                 disabled={isBusy}
                 mode={mode}
                 hasAudio={!!selectedAudio}

@@ -267,7 +267,7 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     const grainNode = workflow[OPTIONAL_NODE_IDS.filmGrain]
     grainNode.inputs['images'] = ['6', 2]
     grainNode.inputs['intensity'] = params.filmGrainIntensity ?? 0.05
-    grainNode.inputs['grain_size'] = params.filmGrainSize ?? 1.2
+    grainNode.inputs['grain_size'] = Math.max(1.0, params.filmGrainSize ?? 1.2)
     workflow['23'].inputs['images'] = [OPTIONAL_NODE_IDS.filmGrain, 0]
   }
 

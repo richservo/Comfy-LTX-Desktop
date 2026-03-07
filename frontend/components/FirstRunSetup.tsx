@@ -45,13 +45,14 @@ export function LaunchGate({
 }: LaunchGateProps) {
   const [currentStep, setCurrentStep] = useState<Step>(showLicenseStep ? 'license' : 'location')
   const [installPath, setInstallPath] = useState('')
-  const [downloadProgress, _setDownloadProgress] = useState<DownloadProgress | null>(null)
+  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null)
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const [installMessage, setInstallMessage] = useState(INSTALL_MESSAGES[0])
   const [availableSpace, setAvailableSpace] = useState('...')
   const [videoPath, setVideoPath] = useState('/splash/splash.mp4')
-  const [ltxApiKey, setLtxApiKey] = useState('')
-  // ComfyUI manages its own models — no backend URL needed for model downloads
+  const [pathValidation, setPathValidation] = useState<{ valid: boolean; error?: string } | null>(null)
+  const [modelsAllPresent, setModelsAllPresent] = useState(false)
+  const [missingModelBytes, setMissingModelBytes] = useState(0)
   const [licenseAccepted, setLicenseAccepted] = useState(false)
   const [licenseText, setLicenseText] = useState<string | null>(null)
   const [licenseError, setLicenseError] = useState<string | null>(null)
@@ -97,6 +98,34 @@ export function LaunchGate({
     }
   }
 
+  // Validate a ComfyUI path and check which models exist
+  const validateAndCheckPath = async (comfyPath: string) => {
+    if (!comfyPath) return
+
+    const validation = await window.electronAPI.validateComfyPath(comfyPath)
+    setPathValidation(validation)
+
+    if (validation.valid) {
+      const modelCheck = await window.electronAPI.checkModels(comfyPath)
+      setModelsAllPresent(modelCheck.allPresent)
+      setMissingModelBytes(modelCheck.missingBytes)
+    } else {
+      setModelsAllPresent(false)
+      setMissingModelBytes(0)
+    }
+
+    // Get disk space
+    try {
+      const { freeBytes } = await window.electronAPI.getDiskSpace(comfyPath)
+      if (freeBytes > 0) {
+        const gb = freeBytes / (1024 * 1024 * 1024)
+        setAvailableSpace(gb >= 1000 ? `${(gb / 1024).toFixed(1)} TB` : `${gb.toFixed(1)} GB`)
+      }
+    } catch {
+      setAvailableSpace('...')
+    }
+  }
+
   // Initialize
   useEffect(() => {
     const init = async () => {
@@ -112,16 +141,14 @@ export function LaunchGate({
           setVideoPath('/splash/splash.mp4')
         }
 
-        // Models are managed by ComfyUI — just set a placeholder path
+        // Get default ComfyUI path
         try {
-          const appInfo = await window.electronAPI.getAppInfo()
-          setInstallPath(appInfo.modelsPath)
+          const defaultPath = await window.electronAPI.getDefaultComfyPath()
+          setInstallPath(defaultPath)
+          await validateAndCheckPath(defaultPath)
         } catch (e) {
-          logger.error(`Failed to get models path: ${e}`)
+          logger.error(`Failed to get default comfy path: ${e}`)
         }
-
-        // TODO: Get actual available space
-        setAvailableSpace('1.8 TB')
       } catch (e) {
         logger.error(`Init error: ${e}`)
       }
@@ -143,16 +170,79 @@ export function LaunchGate({
     return () => clearInterval(interval)
   }, [currentStep])
 
-  // ComfyUI manages models — auto-complete installation step
+  // Register progress listener once (always on, so we never miss events)
   useEffect(() => {
-    if (currentStep !== 'installing') return
-    // Skip model download — ComfyUI handles this
-    setTimeout(() => setCurrentStep('complete'), 1000)
-  }, [currentStep])
+    const cleanup = window.electronAPI.onSetupProgress((_event, data) => {
+      const d = data as Record<string, unknown>
+      if (d.type === 'download') {
+        const totalFiles = (d.totalFiles as number) || 0
+        const fileIndex = (d.fileIndex as number) || 0
+        const bytesDownloaded = (d.bytesDownloaded as number) || 0
+        const totalBytes = (d.totalBytes as number) || 0
+        const totalProgress = totalBytes > 0 ? Math.round((bytesDownloaded / totalBytes) * 100) : 0
+        setDownloadProgress({
+          status: 'downloading',
+          currentFile: (d.currentFile as string) || '',
+          currentFileProgress: 0,
+          totalProgress,
+          downloadedBytes: bytesDownloaded,
+          totalBytes,
+          filesCompleted: fileIndex,
+          totalFiles,
+          error: null,
+          speedMbps: (d.speedMbps as number) || 0,
+        })
+      } else if (d.type === 'rs-nodes') {
+        setDownloadProgress((prev) => ({
+          ...(prev || {
+            status: 'downloading',
+            currentFileProgress: 0,
+            totalProgress: 95,
+            downloadedBytes: 0,
+            totalBytes: 0,
+            filesCompleted: 0,
+            totalFiles: 0,
+            error: null,
+            speedMbps: 0,
+          }),
+          status: 'downloading',
+          currentFile: (d.message as string) || 'Installing rs-nodes...',
+          totalProgress: 95,
+        }))
+      } else if (d.type === 'complete') {
+        setDownloadProgress((prev) => ({
+          ...(prev || {
+            status: 'complete',
+            currentFile: '',
+            currentFileProgress: 100,
+            downloadedBytes: 0,
+            totalBytes: 0,
+            filesCompleted: 0,
+            totalFiles: 0,
+            error: null,
+            speedMbps: 0,
+          }),
+          status: 'complete',
+          totalProgress: 100,
+        }))
+        setCurrentStep('complete')
+      } else if (d.type === 'error') {
+        setDownloadError((d.error as string) || 'Installation failed')
+      }
+    })
 
-  // Start installation — ComfyUI manages models, so just advance
-  const startInstallation = async () => {
+    return cleanup
+  }, [])
+
+  // Start installation — register listener is already active
+  const startInstallation = () => {
+    setDownloadError(null)
+    setDownloadProgress(null)
     setCurrentStep('installing')
+    // Small delay to ensure React has rendered the installing step before we fire
+    setTimeout(() => {
+      void window.electronAPI.startInstall(installPath)
+    }, 100)
   }
 
   const retryInstallation = () => {
@@ -195,6 +285,8 @@ export function LaunchGate({
     setActionError(null)
     setIsActionPending(true)
     try {
+      // Save the ComfyUI path to settings
+      await window.electronAPI.updateSettings({ comfyuiPath: installPath })
       await onComplete()
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Failed to complete setup.')
@@ -214,6 +306,7 @@ export function LaunchGate({
   // Check if next button should be disabled
   const isNextDisabled = () => {
     if (currentStep === 'license') return !licenseAccepted || isActionPending
+    if (currentStep === 'location') return !pathValidation?.valid || isActionPending
     if (currentStep === 'complete') return isActionPending
     return false
   }
@@ -406,7 +499,7 @@ export function LaunchGate({
                 Choose Location
               </h2>
               <p style={{ color: '#a0a0a0', fontSize: 14, marginBottom: 24 }}>
-                Select where to install the model files.
+                Select your ComfyUI installation folder.
               </p>
 
               <div style={{
@@ -432,7 +525,11 @@ export function LaunchGate({
                   />
                   <button
                     onClick={async () => {
-                      // Would open folder dialog in real implementation
+                      const selected = await window.electronAPI.showOpenDirectoryDialog({ title: 'Select ComfyUI folder' })
+                      if (selected) {
+                        setInstallPath(selected)
+                        await validateAndCheckPath(selected)
+                      }
                     }}
                     style={{
                       padding: '10px 28px',
@@ -452,62 +549,26 @@ export function LaunchGate({
 
                 <div style={{
                   display: 'flex',
-                  justifyContent: 'flex-end',
+                  justifyContent: 'space-between',
                   fontSize: 12,
                   color: '#a0a0a0',
                   marginTop: 10
                 }}>
+                  <span>
+                    {pathValidation === null ? '' : pathValidation.valid ? (
+                      modelsAllPresent ? (
+                        <span style={{ color: '#4ade80' }}>All model weights found — download will be skipped</span>
+                      ) : (
+                        <span style={{ color: '#4ade80' }}>Valid ComfyUI installation{missingModelBytes > 0 ? ` — ${formatBytes(missingModelBytes)} to download` : ''}</span>
+                      )
+                    ) : (
+                      <span style={{ color: '#f87171' }}>{pathValidation.error}</span>
+                    )}
+                  </span>
                   <span>Available: <strong style={{ color: '#fff' }}>{availableSpace}</strong></span>
                 </div>
               </div>
 
-              {/* LTX API Key - Optional but saves ~25 GB download */}
-              <div style={{
-                marginTop: 24,
-                background: '#2e3445',
-                borderRadius: 12,
-                padding: '14px 18px'
-              }}>
-                <div style={{ marginBottom: 8 }}>
-                  <label style={{ fontSize: 13, fontWeight: 600, color: '#ffffff' }}>
-                    LTX API Key
-                    <span style={{
-                      fontSize: 11,
-                      color: '#A98BD9',
-                      marginLeft: 8,
-                      fontWeight: 400
-                    }}>
-                      Optional - Saves ~25 GB download
-                    </span>
-                  </label>
-                </div>
-                <input
-                  type="password"
-                  value={ltxApiKey}
-                  onChange={(e) => setLtxApiKey(e.target.value)}
-                  placeholder="Enter API key to skip text encoder download..."
-                  style={{
-                    width: '100%',
-                    background: '#1a1a1a',
-                    border: '1px solid #333',
-                    borderRadius: 8,
-                    padding: '12px 14px',
-                    color: '#ffffff',
-                    fontSize: 13,
-                    boxSizing: 'border-box'
-                  }}
-                />
-                <p style={{ fontSize: 11, color: '#888', marginTop: 8 }}>
-                  {ltxApiKey ? (
-                    <span style={{ color: '#6D28D9' }}>
-                      ✓ Text encoder download will be skipped (using API instead)
-                    </span>
-                  ) : (
-                    'If you have an LTX API key, entering it here skips the 25 GB text encoder download. ' +
-                    'The API provides faster text encoding (~1s vs 23s local).'
-                  )}
-                </p>
-              </div>
             </div>
           )}
 

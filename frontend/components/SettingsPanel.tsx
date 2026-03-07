@@ -294,7 +294,7 @@ export function SettingsPanel({
               </div>
               <input
                 type="range"
-                min={0.5}
+                min={1.0}
                 max={3.0}
                 step={0.1}
                 value={settings.filmGrainSize ?? 1.2}

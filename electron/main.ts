@@ -8,6 +8,7 @@ import { registerComfyUIHandlers } from './ipc/comfyui-handlers'
 import { registerSettingsHandlers } from './ipc/settings-handlers'
 import { registerFileHandlers } from './ipc/file-handlers'
 import { registerLogHandlers } from './ipc/log-handlers'
+import { registerSetupHandlers } from './ipc/setup-handlers'
 import { registerVideoProcessingHandlers } from './ipc/video-processing-handlers'
 import { initSessionLog } from './logging-management'
 import { initAutoUpdater } from './updater'
@@ -27,6 +28,7 @@ if (!gotLock) {
   registerFileHandlers()
   registerLogHandlers()
   registerExportHandlers()
+  registerSetupHandlers()
   registerVideoProcessingHandlers()
 
   app.on('second-instance', () => {
