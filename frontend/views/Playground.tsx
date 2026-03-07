@@ -36,11 +36,9 @@ export function Playground() {
   const [mode, setMode] = useState<GenerationMode>('text-to-video')
   const [prompt, setPrompt] = useState('')
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
-  const [selectedMiddleImage, setSelectedMiddleImage] = useState<string | null>(null)
   const [selectedLastImage, setSelectedLastImage] = useState<string | null>(null)
   const [selectedAudio, setSelectedAudio] = useState<string | null>(null)
   const [firstStrength, setFirstStrength] = useState(1)
-  const [middleStrength, setMiddleStrength] = useState(1)
   const [lastStrength, setLastStrength] = useState(1)
   const [settings, setSettings] = useState<GenerationSettings>(() => ({ ...DEFAULT_SETTINGS }))
 
@@ -113,14 +111,12 @@ export function Playground() {
       // Auto-detect: if image is loaded → I2V, otherwise → T2V
       if (!prompt.trim()) return
       const imagePath = selectedImage ? fileUrlToPath(selectedImage) : null
-      const middleImagePath = selectedMiddleImage ? fileUrlToPath(selectedMiddleImage) : null
       const lastImagePath = selectedLastImage ? fileUrlToPath(selectedLastImage) : null
       const audioPath = selectedAudio ? fileUrlToPath(selectedAudio) : null
       const effectiveSettings = { ...settings }
       if (audioPath) effectiveSettings.model = 'pro'
-      generate(prompt, imagePath, effectiveSettings, audioPath, middleImagePath, lastImagePath, {
+      generate(prompt, imagePath, effectiveSettings, audioPath, null, lastImagePath, {
         first: firstStrength,
-        middle: middleStrength,
         last: lastStrength,
       })
     }
@@ -142,11 +138,9 @@ export function Playground() {
   const handleClearAll = () => {
     setPrompt('')
     setSelectedImage(null)
-    setSelectedMiddleImage(null)
     setSelectedLastImage(null)
     setSelectedAudio(null)
     setFirstStrength(1)
-    setMiddleStrength(1)
     setLastStrength(1)
     setSettings({ ...DEFAULT_SETTINGS })
     if (mode !== 'text-to-image') setMode('text-to-video')
@@ -192,11 +186,9 @@ export function Playground() {
       ...(typeof metadata.filmGrainSize === 'number' && { filmGrainSize: metadata.filmGrainSize }),
     }))
     if (typeof metadata.firstStrength === 'number') setFirstStrength(metadata.firstStrength)
-    if (typeof metadata.middleStrength === 'number') setMiddleStrength(metadata.middleStrength)
     if (typeof metadata.lastStrength === 'number') setLastStrength(metadata.lastStrength)
     setMode('text-to-video')
     setSelectedImage(null)
-    setSelectedMiddleImage(null)
     setSelectedLastImage(null)
     setSelectedAudio(null)
     reset()
@@ -259,13 +251,7 @@ export function Playground() {
                   strength={firstStrength}
                   onStrengthChange={setFirstStrength}
                 />
-                <ImageUploader
-                  label="Middle Frame"
-                  selectedImage={selectedMiddleImage}
-                  onImageSelect={setSelectedMiddleImage}
-                  strength={middleStrength}
-                  onStrengthChange={setMiddleStrength}
-                />
+
                 <ImageUploader
                   label="Last Frame"
                   selectedImage={selectedLastImage}
