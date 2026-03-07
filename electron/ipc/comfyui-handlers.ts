@@ -256,15 +256,18 @@ export function registerComfyUIHandlers(): void {
     if (!ffmpegPath) return null
 
     try {
-      const result = spawnSync(ffmpegPath, [
-        '-i', filePath, '-f', 'ffmetadata', '-',
-      ], { encoding: 'utf8', timeout: 10000 })
+      // ffmpeg -i prints file info (including metadata) to stderr
+      const result = spawnSync(ffmpegPath, ['-i', filePath], {
+        encoding: 'utf8',
+        timeout: 10000,
+      })
 
-      const output = (result.stdout || '') + (result.stderr || '')
-      const match = output.match(/comment=(.+)/)
+      const output = (result.stderr || '') + (result.stdout || '')
+      // ffmpeg formats metadata as "    comment         : {json...}"
+      const match = output.match(/comment\s*:\s*(.+)/)
       if (!match) return null
 
-      return JSON.parse(match[1]) as Record<string, unknown>
+      return JSON.parse(match[1].trim()) as Record<string, unknown>
     } catch {
       return null
     }
