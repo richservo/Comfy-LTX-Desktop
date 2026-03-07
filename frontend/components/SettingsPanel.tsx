@@ -199,7 +199,7 @@ export function SettingsPanel({
             checked={settings.spatialUpscale || false}
             onChange={(e) => handleChange('spatialUpscale', e.target.checked)}
             disabled={disabled}
-            className="sr-only"
+            className="absolute opacity-0 w-0 h-0 pointer-events-none"
           />
           <div className={`w-4 h-4 rounded border flex items-center justify-center ${
             settings.spatialUpscale ? 'bg-violet-500 border-violet-500' : 'border-zinc-600'
@@ -224,7 +224,7 @@ export function SettingsPanel({
             checked={settings.temporalUpscale || false}
             onChange={(e) => handleChange('temporalUpscale', e.target.checked)}
             disabled={disabled}
-            className="sr-only"
+            className="absolute opacity-0 w-0 h-0 pointer-events-none"
           />
           <div className={`w-4 h-4 rounded border flex items-center justify-center ${
             settings.temporalUpscale ? 'bg-violet-500 border-violet-500' : 'border-zinc-600'
@@ -252,7 +252,7 @@ export function SettingsPanel({
             checked={settings.filmGrain || false}
             onChange={(e) => handleChange('filmGrain', e.target.checked)}
             disabled={disabled}
-            className="sr-only"
+            className="absolute opacity-0 w-0 h-0 pointer-events-none"
           />
           <div className={`w-4 h-4 rounded border flex items-center justify-center ${
             settings.filmGrain ? 'bg-violet-500 border-violet-500' : 'border-zinc-600'
