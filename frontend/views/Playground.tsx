@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Sparkles, Trash2, Square, ImageIcon, ArrowLeft, Scissors } from 'lucide-react'
+import { Sparkles, Trash2, Square, ImageIcon, ArrowLeft, Scissors, Upload } from 'lucide-react'
 import { logger } from '../lib/logger'
 import { ImageUploader } from '../components/ImageUploader'
 import { AudioUploader } from '../components/AudioUploader'
@@ -153,6 +153,42 @@ export function Playground() {
     reset()
   }
 
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  const handleLoadSettings = async () => {
+    setLoadError(null)
+    const files = await window.electronAPI.showOpenFileDialog({
+      title: 'Load settings from video',
+      filters: [{ name: 'Video Files', extensions: ['mp4', 'webm', 'mov'] }],
+    })
+    if (!files || files.length === 0) return
+    const metadata = await window.electronAPI.readVideoMetadata(files[0])
+    if (!metadata) {
+      setLoadError('No generation settings found in this video.')
+      return
+    }
+    if (typeof metadata.prompt === 'string') setPrompt(metadata.prompt)
+    setSettings(prev => ({
+      ...prev,
+      ...(typeof metadata.duration === 'number' && { duration: metadata.duration }),
+      ...(typeof metadata.fps === 'number' && { fps: metadata.fps }),
+      ...(typeof metadata.resolution === 'string' && { videoResolution: metadata.resolution }),
+      ...(typeof metadata.aspectRatio === 'string' && { aspectRatio: metadata.aspectRatio }),
+      ...(typeof metadata.cameraMotion === 'string' && { cameraMotion: metadata.cameraMotion }),
+      ...(typeof metadata.spatialUpscale === 'boolean' && { spatialUpscale: metadata.spatialUpscale }),
+      ...(typeof metadata.temporalUpscale === 'boolean' && { temporalUpscale: metadata.temporalUpscale }),
+      ...(typeof metadata.filmGrain === 'boolean' && { filmGrain: metadata.filmGrain }),
+      ...(typeof metadata.filmGrainIntensity === 'number' && { filmGrainIntensity: metadata.filmGrainIntensity }),
+      ...(typeof metadata.filmGrainSize === 'number' && { filmGrainSize: metadata.filmGrainSize }),
+    }))
+    setMode('text-to-video')
+    setSelectedImage(null)
+    setSelectedMiddleImage(null)
+    setSelectedLastImage(null)
+    setSelectedAudio(null)
+    reset()
+  }
+
   const isRetakeMode = mode === 'retake'
   const isVideoMode = mode === 'text-to-video' || mode === 'image-to-video'
   const isBusy = isRetakeMode ? isRetaking : isGenerating
@@ -191,7 +227,7 @@ export function Playground() {
       {/* Main Content */}
       <main className="flex-1 flex overflow-hidden">
         {/* Left Panel - Controls */}
-        <div className="w-[500px] border-r border-zinc-800 p-6 overflow-y-auto">
+        <div className="w-[500px] min-h-0 border-r border-zinc-800 p-6 overflow-y-auto">
           <div className="space-y-6">
             {/* Mode Tabs */}
             <ModeTabs
@@ -258,6 +294,11 @@ export function Playground() {
             )}
 
             {/* Error Display */}
+            {loadError && (
+              <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg text-sm">
+                <span className="text-yellow-400">{loadError}</span>
+              </div>
+            )}
             {(generationError || retakeError) && (
               <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm">
                 {(generationError || retakeError)!.includes('TEXT_ENCODING_NOT_CONFIGURED') ? (
@@ -282,6 +323,16 @@ export function Playground() {
 
             {/* Action Buttons */}
             <div className="flex gap-3 pt-4">
+              <Button
+                variant="outline"
+                onClick={handleLoadSettings}
+                disabled={isBusy}
+                className="flex items-center gap-2 border-zinc-700 bg-zinc-800 text-white hover:bg-zinc-700"
+                title="Load settings from a previously generated video"
+              >
+                <Upload className="h-4 w-4" />
+                Load
+              </Button>
               <Button
                 variant="outline"
                 onClick={handleClearAll}

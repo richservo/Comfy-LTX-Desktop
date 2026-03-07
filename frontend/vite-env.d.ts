@@ -17,6 +17,19 @@ interface Window {
     completeSetup: () => Promise<boolean>
     fetchLicenseText: () => Promise<string>
     getNoticesText: () => Promise<string>
+    getDefaultComfyPath: () => Promise<string>
+    validateComfyPath: (comfyPath: string) => Promise<{ valid: boolean; error?: string }>
+    checkModels: (comfyPath: string) => Promise<{
+      allPresent: boolean
+      missing: { filename: string; sizeBytes: number }[]
+      present: { filename: string; sizeBytes: number }[]
+      missingBytes: number
+      totalBytes: number
+    }>
+    startInstall: (comfyPath: string) => Promise<{ success: boolean; error?: string }>
+    cancelInstall: () => Promise<void>
+    getDiskSpace: (dirPath: string) => Promise<{ freeBytes: number }>
+    onSetupProgress: (callback: (_event: unknown, data: Record<string, unknown>) => void) => () => void
     openLtxApiKeyPage: () => Promise<boolean>
     openFalApiKeyPage: () => Promise<boolean>
     openParentFolderOfFile: (filePath: string) => Promise<void>
@@ -68,6 +81,7 @@ interface Window {
     }>
     cancelGeneration: () => Promise<void>
     checkComfyUIHealth: () => Promise<{ connected: boolean }>
+    readVideoMetadata: (filePath: string) => Promise<Record<string, unknown> | null>
     getSettings: () => Promise<{
       comfyuiUrl: string
       comfyuiOutputDir: string

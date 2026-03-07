@@ -2,6 +2,7 @@ import { app, ipcMain } from 'electron'
 import { randomUUID } from 'crypto'
 import fs from 'fs'
 import path from 'path'
+import { spawnSync } from 'child_process'
 import { comfyClient } from '../comfyui/client'
 import { progressTracker } from '../comfyui/progress'
 import {
@@ -10,6 +11,7 @@ import {
   calculateNumFrames,
 } from '../comfyui/workflow-builder'
 import { getComfyUISettings } from './settings-handlers'
+import { findFfmpegPath } from '../export/ffmpeg-utils'
 import { logger } from '../logger'
 
 interface GenerateParams {
@@ -174,6 +176,39 @@ export function registerComfyUIHandlers(): void {
       )
       logger.info(`Video saved to: ${outputPath}`)
 
+      // 11. Embed generation settings as metadata
+      const ffmpegPath = findFfmpegPath()
+      if (ffmpegPath) {
+        const metadata = JSON.stringify({
+          prompt: params.prompt,
+          resolution: params.resolution,
+          aspectRatio: params.aspectRatio,
+          duration: params.duration,
+          fps: params.fps,
+          cameraMotion: params.cameraMotion,
+          spatialUpscale: params.spatialUpscale,
+          temporalUpscale: params.temporalUpscale,
+          filmGrain: params.filmGrain,
+          filmGrainIntensity: params.filmGrainIntensity,
+          filmGrainSize: params.filmGrainSize,
+        })
+        const tempPath = outputPath + '.tmp' + ext
+        fs.renameSync(outputPath, tempPath)
+        const muxResult = spawnSync(ffmpegPath, [
+          '-y', '-i', tempPath, '-c', 'copy',
+          '-metadata', `comment=${metadata}`,
+          outputPath,
+        ], { timeout: 30000 })
+        if (muxResult.status === 0) {
+          fs.unlinkSync(tempPath)
+          logger.info('Generation metadata embedded in video')
+        } else {
+          // Fallback: keep the original file without metadata
+          fs.renameSync(tempPath, outputPath)
+          logger.warn('Failed to embed metadata, keeping original video')
+        }
+      }
+
       return {
         status: 'complete',
         video_path: outputPath,
@@ -214,5 +249,24 @@ export function registerComfyUIHandlers(): void {
   ipcMain.handle('comfyui:health', async () => {
     const connected = await comfyClient.checkHealth()
     return { connected }
+  })
+
+  ipcMain.handle('comfyui:read-video-metadata', (_event, filePath: string) => {
+    const ffmpegPath = findFfmpegPath()
+    if (!ffmpegPath) return null
+
+    try {
+      const result = spawnSync(ffmpegPath, [
+        '-i', filePath, '-f', 'ffmetadata', '-',
+      ], { encoding: 'utf8', timeout: 10000 })
+
+      const output = (result.stdout || '') + (result.stderr || '')
+      const match = output.match(/comment=(.+)/)
+      if (!match) return null
+
+      return JSON.parse(match[1]) as Record<string, unknown>
+    } catch {
+      return null
+    }
   })
 }

@@ -25,6 +25,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
   fetchLicenseText: (): Promise<string> => ipcRenderer.invoke('fetch-license-text'),
   getNoticesText: (): Promise<string> => ipcRenderer.invoke('get-notices-text'),
 
+  // First-run setup: ComfyUI path + model downloads
+  getDefaultComfyPath: (): Promise<string> => ipcRenderer.invoke('setup:get-default-comfy-path'),
+  validateComfyPath: (comfyPath: string): Promise<{ valid: boolean; error?: string }> =>
+    ipcRenderer.invoke('setup:validate-comfy-path', comfyPath),
+  checkModels: (comfyPath: string): Promise<{
+    allPresent: boolean
+    missing: { filename: string; sizeBytes: number }[]
+    present: { filename: string; sizeBytes: number }[]
+    missingBytes: number
+    totalBytes: number
+  }> => ipcRenderer.invoke('setup:check-models', comfyPath),
+  startInstall: (comfyPath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('setup:start-install', comfyPath),
+  cancelInstall: (): Promise<void> => ipcRenderer.invoke('setup:cancel-install'),
+  getDiskSpace: (dirPath: string): Promise<{ freeBytes: number }> =>
+    ipcRenderer.invoke('setup:get-disk-space', dirPath),
+  onSetupProgress: (callback: (_event: unknown, data: Record<string, unknown>) => void) => {
+    ipcRenderer.on('setup:progress', callback)
+    return () => { ipcRenderer.removeListener('setup:progress', callback) }
+  },
+
   // Open specific app pages / folders
   openLtxApiKeyPage: (): Promise<boolean> => ipcRenderer.invoke('open-ltx-api-key-page'),
   openFalApiKeyPage: (): Promise<boolean> => ipcRenderer.invoke('open-fal-api-key-page'),
@@ -100,6 +121,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cancelGeneration: (): Promise<void> => ipcRenderer.invoke('comfyui:cancel'),
   checkComfyUIHealth: (): Promise<{ connected: boolean }> =>
     ipcRenderer.invoke('comfyui:health'),
+  readVideoMetadata: (filePath: string): Promise<Record<string, unknown> | null> =>
+    ipcRenderer.invoke('comfyui:read-video-metadata', filePath),
 
   // Settings (stored locally by Electron)
   getSettings: (): Promise<{
@@ -152,6 +175,19 @@ declare global {
       completeSetup: () => Promise<boolean>
       fetchLicenseText: () => Promise<string>
       getNoticesText: () => Promise<string>
+      getDefaultComfyPath: () => Promise<string>
+      validateComfyPath: (comfyPath: string) => Promise<{ valid: boolean; error?: string }>
+      checkModels: (comfyPath: string) => Promise<{
+        allPresent: boolean
+        missing: { filename: string; sizeBytes: number }[]
+        present: { filename: string; sizeBytes: number }[]
+        missingBytes: number
+        totalBytes: number
+      }>
+      startInstall: (comfyPath: string) => Promise<{ success: boolean; error?: string }>
+      cancelInstall: () => Promise<void>
+      getDiskSpace: (dirPath: string) => Promise<{ freeBytes: number }>
+      onSetupProgress: (callback: (_event: unknown, data: Record<string, unknown>) => void) => () => void
       openLtxApiKeyPage: () => Promise<boolean>
       openParentFolderOfFile: (filePath: string) => Promise<void>
       showItemInFolder: (filePath: string) => Promise<void>
@@ -194,6 +230,7 @@ declare global {
       }>
       cancelGeneration: () => Promise<void>
       checkComfyUIHealth: () => Promise<{ connected: boolean }>
+      readVideoMetadata: (filePath: string) => Promise<Record<string, unknown> | null>
       getSettings: () => Promise<{
         comfyuiUrl: string
         comfyuiOutputDir: string
