@@ -21,7 +21,7 @@ interface GenerationProgress {
 }
 
 interface UseGenerationReturn extends GenerationState {
-  generate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null) => Promise<void>
+  generate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }) => Promise<void>
   generateImage: (prompt: string, settings: GenerationSettings) => Promise<void>
   cancel: () => void
   reset: () => void
@@ -64,6 +64,7 @@ export function useGeneration(): UseGenerationReturn {
     audioPath?: string | null,
     middleImagePath?: string | null,
     lastImagePath?: string | null,
+    strengths?: { first?: number; middle?: number; last?: number },
   ) => {
     setState({
       isGenerating: true,
@@ -116,6 +117,9 @@ export function useGeneration(): UseGenerationReturn {
         filmGrain: (settings as unknown as { filmGrain?: boolean }).filmGrain,
         filmGrainIntensity: (settings as unknown as { filmGrainIntensity?: number }).filmGrainIntensity,
         filmGrainSize: (settings as unknown as { filmGrainSize?: number }).filmGrainSize,
+        firstStrength: strengths?.first,
+        middleStrength: strengths?.middle,
+        lastStrength: strengths?.last,
       })
 
       if (cancelledRef.current) return

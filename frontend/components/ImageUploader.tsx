@@ -7,9 +7,11 @@ interface ImageUploaderProps {
   onImageSelect: (path: string | null) => void
   selectedImage: string | null
   label?: string
+  strength?: number
+  onStrengthChange?: (value: number) => void
 }
 
-export function ImageUploader({ onImageSelect, selectedImage, label = 'Image' }: ImageUploaderProps) {
+export function ImageUploader({ onImageSelect, selectedImage, label = 'Image', strength, onStrengthChange }: ImageUploaderProps) {
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0]
     if (file) {
@@ -137,6 +139,23 @@ export function ImageUploader({ onImageSelect, selectedImage, label = 'Image' }:
       <p className="text-xs text-zinc-500 mt-2">
         png, jpeg, webp. Max size is 10MB
       </p>
+      {selectedImage && onStrengthChange && strength !== undefined && (
+        <div className="mt-2">
+          <div className="flex justify-between text-[11px] mb-1">
+            <span className="text-zinc-400">Strength</span>
+            <span className="text-zinc-500">{strength.toFixed(2)}</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={strength}
+            onChange={(e) => onStrengthChange(parseFloat(e.target.value))}
+            className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-violet-500"
+          />
+        </div>
+      )}
     </div>
   )
 }

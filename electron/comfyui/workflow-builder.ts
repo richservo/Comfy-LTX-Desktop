@@ -35,6 +35,12 @@ export interface WorkflowParams {
   filmGrainIntensity?: number
   /** Film grain size (0.5–3.0, default 1.2) */
   filmGrainSize?: number
+  /** First frame strength (0–1, default 1) */
+  firstStrength?: number
+  /** Middle frame strength (0–1, default 1) */
+  middleStrength?: number
+  /** Last frame strength (0–1, default 1) */
+  lastStrength?: number
 }
 
 type WorkflowNode = { class_type: string; inputs: Record<string, unknown>; _meta?: { title: string } }
@@ -181,14 +187,17 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   if (params.firstImage) {
     workflow[OPTIONAL_NODE_IDS.firstFrame].inputs['image'] = params.firstImage.name
     genNode.inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+    genNode.inputs['first_strength'] = params.firstStrength ?? 1
   }
   if (params.middleImage) {
     workflow[OPTIONAL_NODE_IDS.middleFrame].inputs['image'] = params.middleImage.name
     genNode.inputs['middle_image'] = [OPTIONAL_NODE_IDS.middleFrame, 0]
+    genNode.inputs['middle_strength'] = params.middleStrength ?? 1
   }
   if (params.lastImage) {
     workflow[OPTIONAL_NODE_IDS.lastFrame].inputs['image'] = params.lastImage.name
     genNode.inputs['last_image'] = [OPTIONAL_NODE_IDS.lastFrame, 0]
+    genNode.inputs['last_strength'] = params.lastStrength ?? 1
   }
 
   // --- Patch prompt / prompt formatter chain ---

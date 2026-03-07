@@ -71,6 +71,9 @@ interface Window {
       filmGrain?: boolean
       filmGrainIntensity?: number
       filmGrainSize?: number
+      firstStrength?: number
+      middleStrength?: number
+      lastStrength?: number
     }) => Promise<{ status: string; video_path?: string; error?: string }>
     getGenerationProgress: () => Promise<{
       status: string

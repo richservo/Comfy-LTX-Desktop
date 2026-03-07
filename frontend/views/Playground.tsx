@@ -39,6 +39,9 @@ export function Playground() {
   const [selectedMiddleImage, setSelectedMiddleImage] = useState<string | null>(null)
   const [selectedLastImage, setSelectedLastImage] = useState<string | null>(null)
   const [selectedAudio, setSelectedAudio] = useState<string | null>(null)
+  const [firstStrength, setFirstStrength] = useState(1)
+  const [middleStrength, setMiddleStrength] = useState(1)
+  const [lastStrength, setLastStrength] = useState(1)
   const [settings, setSettings] = useState<GenerationSettings>(() => ({ ...DEFAULT_SETTINGS }))
 
   const { status } = useBackend()
@@ -115,7 +118,11 @@ export function Playground() {
       const audioPath = selectedAudio ? fileUrlToPath(selectedAudio) : null
       const effectiveSettings = { ...settings }
       if (audioPath) effectiveSettings.model = 'pro'
-      generate(prompt, imagePath, effectiveSettings, audioPath, middleImagePath, lastImagePath)
+      generate(prompt, imagePath, effectiveSettings, audioPath, middleImagePath, lastImagePath, {
+        first: firstStrength,
+        middle: middleStrength,
+        last: lastStrength,
+      })
     }
   }
   
@@ -138,6 +145,9 @@ export function Playground() {
     setSelectedMiddleImage(null)
     setSelectedLastImage(null)
     setSelectedAudio(null)
+    setFirstStrength(1)
+    setMiddleStrength(1)
+    setLastStrength(1)
     setSettings({ ...DEFAULT_SETTINGS })
     if (mode !== 'text-to-image') setMode('text-to-video')
     setRetakeInput({
@@ -181,6 +191,9 @@ export function Playground() {
       ...(typeof metadata.filmGrainIntensity === 'number' && { filmGrainIntensity: metadata.filmGrainIntensity }),
       ...(typeof metadata.filmGrainSize === 'number' && { filmGrainSize: metadata.filmGrainSize }),
     }))
+    if (typeof metadata.firstStrength === 'number') setFirstStrength(metadata.firstStrength)
+    if (typeof metadata.middleStrength === 'number') setMiddleStrength(metadata.middleStrength)
+    if (typeof metadata.lastStrength === 'number') setLastStrength(metadata.lastStrength)
     setMode('text-to-video')
     setSelectedImage(null)
     setSelectedMiddleImage(null)
@@ -243,16 +256,22 @@ export function Playground() {
                   label="First Frame"
                   selectedImage={selectedImage}
                   onImageSelect={setSelectedImage}
+                  strength={firstStrength}
+                  onStrengthChange={setFirstStrength}
                 />
                 <ImageUploader
                   label="Middle Frame"
                   selectedImage={selectedMiddleImage}
                   onImageSelect={setSelectedMiddleImage}
+                  strength={middleStrength}
+                  onStrengthChange={setMiddleStrength}
                 />
                 <ImageUploader
                   label="Last Frame"
                   selectedImage={selectedLastImage}
                   onImageSelect={setSelectedLastImage}
+                  strength={lastStrength}
+                  onStrengthChange={setLastStrength}
                 />
                 <AudioUploader
                   selectedAudio={selectedAudio}

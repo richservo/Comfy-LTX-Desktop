@@ -30,6 +30,9 @@ interface GenerateParams {
   filmGrain?: boolean
   filmGrainIntensity?: number
   filmGrainSize?: number
+  firstStrength?: number
+  middleStrength?: number
+  lastStrength?: number
 }
 
 let activePromptId: string | null = null
@@ -120,6 +123,9 @@ export function registerComfyUIHandlers(): void {
         filmGrain: params.filmGrain ?? false,
         filmGrainIntensity: params.filmGrainIntensity,
         filmGrainSize: params.filmGrainSize,
+        firstStrength: params.firstStrength,
+        middleStrength: params.middleStrength,
+        lastStrength: params.lastStrength,
       })
 
       // Debug: log key workflow params
@@ -178,6 +184,9 @@ export function registerComfyUIHandlers(): void {
           filmGrain: params.filmGrain,
           filmGrainIntensity: params.filmGrainIntensity,
           filmGrainSize: params.filmGrainSize,
+          firstStrength: params.firstStrength,
+          middleStrength: params.middleStrength,
+          lastStrength: params.lastStrength,
         })
         const ext = path.extname(fileInfo.filename) || '.mp4'
         const tempPath = outputPath + '.tmp' + ext
