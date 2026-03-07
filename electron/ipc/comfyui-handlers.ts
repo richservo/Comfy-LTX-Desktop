@@ -34,14 +34,6 @@ interface GenerateParams {
 
 let activePromptId: string | null = null
 
-function getOutputDir(): string {
-  const outputDir = path.join(app.getPath('userData'), 'comfyui-output')
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true })
-  }
-  return outputDir
-}
-
 export function registerComfyUIHandlers(): void {
   ipcMain.handle('comfyui:generate', async (_event, params: GenerateParams) => {
     const settings = getComfyUISettings()
@@ -161,22 +153,17 @@ export function registerComfyUIHandlers(): void {
         throw new Error('No video output found in ComfyUI history')
       }
 
-      // 10. Download video from ComfyUI
-      const outputDir = getOutputDir()
-      const ext = path.extname(fileInfo.filename) || '.mp4'
-      const outputFilename = `gen_${Date.now()}${ext}`
-      const outputPath = path.join(outputDir, outputFilename)
+      // 10. Resolve output file path on disk
+      const outputDir = settings.comfyuiOutputDir || path.join(app.getPath('documents'), 'ComfyUI', 'output')
+      const subfolder = fileInfo.subfolder || ''
+      const outputPath = path.join(outputDir, subfolder, fileInfo.filename)
 
-      logger.info(`Downloading video from ComfyUI: ${fileInfo.filename}`)
-      await comfyClient.downloadOutput(
-        fileInfo.filename,
-        fileInfo.subfolder,
-        fileInfo.type,
-        outputPath,
-      )
-      logger.info(`Video saved to: ${outputPath}`)
+      if (!fs.existsSync(outputPath)) {
+        throw new Error(`ComfyUI output file not found: ${outputPath}`)
+      }
+      logger.info(`ComfyUI output at: ${outputPath}`)
 
-      // 11. Embed generation settings as metadata
+      // 11. Embed generation settings as metadata (remux in-place)
       const ffmpegPath = findFfmpegPath()
       if (ffmpegPath) {
         const metadata = JSON.stringify({
@@ -192,19 +179,20 @@ export function registerComfyUIHandlers(): void {
           filmGrainIntensity: params.filmGrainIntensity,
           filmGrainSize: params.filmGrainSize,
         })
+        const ext = path.extname(fileInfo.filename) || '.mp4'
         const tempPath = outputPath + '.tmp' + ext
-        fs.renameSync(outputPath, tempPath)
         const muxResult = spawnSync(ffmpegPath, [
-          '-y', '-i', tempPath, '-c', 'copy',
+          '-y', '-i', outputPath, '-c', 'copy',
           '-metadata', `comment=${metadata}`,
-          outputPath,
+          tempPath,
         ], { timeout: 30000 })
         if (muxResult.status === 0) {
-          fs.unlinkSync(tempPath)
+          fs.unlinkSync(outputPath)
+          fs.renameSync(tempPath, outputPath)
           logger.info('Generation metadata embedded in video')
         } else {
-          // Fallback: keep the original file without metadata
-          fs.renameSync(tempPath, outputPath)
+          // Clean up temp file, keep original
+          if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath)
           logger.warn('Failed to embed metadata, keeping original video')
         }
       }
@@ -253,22 +241,32 @@ export function registerComfyUIHandlers(): void {
 
   ipcMain.handle('comfyui:read-video-metadata', (_event, filePath: string) => {
     const ffmpegPath = findFfmpegPath()
-    if (!ffmpegPath) return null
+    if (!ffmpegPath) {
+      logger.warn('readVideoMetadata: ffmpeg not found')
+      return null
+    }
 
     try {
       // ffmpeg -i prints file info (including metadata) to stderr
-      const result = spawnSync(ffmpegPath, ['-i', filePath], {
+      const result = spawnSync(ffmpegPath, ['-i', filePath, '-hide_banner'], {
         encoding: 'utf8',
         timeout: 10000,
       })
 
       const output = (result.stderr || '') + (result.stdout || '')
+      logger.info(`readVideoMetadata output:\n${output}`)
+
       // ffmpeg formats metadata as "    comment         : {json...}"
       const match = output.match(/comment\s*:\s*(.+)/)
-      if (!match) return null
+      if (!match) {
+        logger.warn('readVideoMetadata: no comment field found')
+        return null
+      }
 
+      logger.info(`readVideoMetadata comment raw: ${match[1]}`)
       return JSON.parse(match[1].trim()) as Record<string, unknown>
-    } catch {
+    } catch (err) {
+      logger.error(`readVideoMetadata parse error: ${err}`)
       return null
     }
   })
