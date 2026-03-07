@@ -126,6 +126,12 @@ export function registerComfyUIHandlers(): void {
         firstStrength: params.firstStrength,
         middleStrength: params.middleStrength,
         lastStrength: params.lastStrength,
+        checkpoint: settings.checkpoint,
+        textEncoder: settings.textEncoder,
+        vaeCheckpoint: settings.vaeCheckpoint,
+        spatialUpscaleModel: settings.spatialUpscaleModel,
+        temporalUpscaleModel: settings.temporalUpscaleModel,
+        upscaleLora: settings.upscaleLora,
       })
 
       // Debug: log key workflow params
@@ -246,6 +252,53 @@ export function registerComfyUIHandlers(): void {
   ipcMain.handle('comfyui:health', async () => {
     const connected = await comfyClient.checkHealth()
     return { connected }
+  })
+
+  ipcMain.handle('comfyui:model-lists', async () => {
+    try {
+      const info = await comfyClient.getObjectInfo()
+
+      // Extract COMBO options from a field definition.
+      // ComfyUI has two formats:
+      //   Old (built-in nodes): [["option1", "option2"], ...]
+      //   New (custom nodes):   ["COMBO", {"options": ["option1", "option2"]}]
+      const parseComboField = (field: unknown[]): string[] => {
+        if (Array.isArray(field[0])) {
+          return field[0] as string[]
+        }
+        if (field[0] === 'COMBO' && field[1] && typeof field[1] === 'object') {
+          const opts = (field[1] as Record<string, unknown>)['options']
+          if (Array.isArray(opts)) return opts as string[]
+        }
+        return []
+      }
+
+      const extractOptions = (nodeType: string, inputName: string): string[] => {
+        const node = info[nodeType] as Record<string, unknown> | undefined
+        if (!node) return []
+        const input = node['input'] as Record<string, unknown> | undefined
+        if (!input) return []
+        const required = input['required'] as Record<string, unknown[]> | undefined
+        const optional = input['optional'] as Record<string, unknown[]> | undefined
+        const field = required?.[inputName] ?? optional?.[inputName]
+        if (Array.isArray(field)) {
+          return parseComboField(field)
+        }
+        return []
+      }
+
+      const result = {
+        checkpoints: extractOptions('CheckpointLoaderSimple', 'ckpt_name'),
+        textEncoders: extractOptions('LTXAVTextEncoderLoader', 'text_encoder'),
+        upscaleModels: extractOptions('LatentUpscaleModelLoader', 'model_name'),
+        loras: extractOptions('RSLTXVGenerate', 'upscale_lora'),
+      }
+      logger.info(`comfyui:model-lists counts: checkpoints=${result.checkpoints.length}, textEncoders=${result.textEncoders.length}, upscaleModels=${result.upscaleModels.length}, loras=${result.loras.length}`)
+      return result
+    } catch (error) {
+      logger.error(`Failed to fetch model lists: ${error}`)
+      return { checkpoints: [], textEncoders: [], upscaleModels: [], loras: [] }
+    }
   })
 
   ipcMain.handle('comfyui:read-video-metadata', (_event, filePath: string) => {

@@ -41,6 +41,18 @@ export interface WorkflowParams {
   middleStrength?: number
   /** Last frame strength (0–1, default 1) */
   lastStrength?: number
+  /** Checkpoint model filename */
+  checkpoint?: string
+  /** Text encoder model filename */
+  textEncoder?: string
+  /** Spatial upscale model filename */
+  spatialUpscaleModel?: string
+  /** Temporal upscale model filename */
+  temporalUpscaleModel?: string
+  /** Audio VAE checkpoint filename (usually same as checkpoint) */
+  vaeCheckpoint?: string
+  /** Upscale LoRA filename */
+  upscaleLora?: string
 }
 
 type WorkflowNode = { class_type: string; inputs: Record<string, unknown>; _meta?: { title: string } }
@@ -154,10 +166,34 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     delete workflow[id]
   }
 
+  // --- Patch model selections ---
+  if (params.checkpoint) {
+    workflow['1'].inputs['ckpt_name'] = params.checkpoint
+    workflow['4'].inputs['ckpt_name'] = params.checkpoint
+  }
+  if (params.vaeCheckpoint) {
+    workflow['5'].inputs['ckpt_name'] = params.vaeCheckpoint
+  } else if (params.checkpoint) {
+    workflow['5'].inputs['ckpt_name'] = params.checkpoint
+  }
+  if (params.textEncoder) {
+    workflow['4'].inputs['text_encoder'] = params.textEncoder
+  }
+  if (params.spatialUpscaleModel && workflow['2']) {
+    workflow['2'].inputs['model_name'] = params.spatialUpscaleModel
+  }
+  if (params.temporalUpscaleModel && workflow['3']) {
+    workflow['3'].inputs['model_name'] = params.temporalUpscaleModel
+  }
+
   // --- Patch RSLTXVGenerate (node 6) ---
   const genNode = workflow['6']
   if (!genNode || genNode.class_type !== 'RSLTXVGenerate') {
     throw new Error('Workflow template missing RSLTXVGenerate at node "6"')
+  }
+
+  if (params.upscaleLora) {
+    genNode.inputs['upscale_lora'] = params.upscaleLora
   }
 
   genNode.inputs['width'] = params.width

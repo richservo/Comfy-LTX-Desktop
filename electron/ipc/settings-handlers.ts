@@ -7,6 +7,7 @@ import { logger } from '../logger'
 export interface ComfyUISettings {
   comfyuiUrl: string
   comfyuiOutputDir: string
+  comfyuiPath: string
   seedLocked: boolean
   lockedSeed: number
   steps: number
@@ -14,6 +15,12 @@ export interface ComfyUISettings {
   ollamaEnabled: boolean
   ollamaUrl: string
   ollamaModel: string
+  checkpoint: string
+  textEncoder: string
+  vaeCheckpoint: string
+  spatialUpscaleModel: string
+  temporalUpscaleModel: string
+  upscaleLora: string
 }
 
 function getDefaultSettings(): ComfyUISettings {
@@ -21,6 +28,7 @@ function getDefaultSettings(): ComfyUISettings {
   return {
     comfyuiUrl: 'http://localhost:8188',
     comfyuiOutputDir: path.join(docsDir, 'ComfyUI', 'output'),
+    comfyuiPath: '',
     seedLocked: false,
     lockedSeed: 42,
     steps: 30,
@@ -28,6 +36,12 @@ function getDefaultSettings(): ComfyUISettings {
     ollamaEnabled: true,
     ollamaUrl: 'http://localhost:11434',
     ollamaModel: 'gemma3:12b',
+    checkpoint: 'ltx-2.3-22b-dev-fp8.safetensors',
+    textEncoder: 'gemma_3_12B_it_fp4_mixed.safetensors',
+    vaeCheckpoint: 'ltx-2.3-22b-dev-fp8.safetensors',
+    spatialUpscaleModel: 'ltx-2.3-spatial-upscaler-x2-1.0.safetensors',
+    temporalUpscaleModel: 'ltx-2.3-temporal-upscaler-x2-1.0.safetensors',
+    upscaleLora: 'ltx-2.3-22b-distilled-lora-384.safetensors',
   }
 }
 

@@ -121,6 +121,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cancelGeneration: (): Promise<void> => ipcRenderer.invoke('comfyui:cancel'),
   checkComfyUIHealth: (): Promise<{ connected: boolean }> =>
     ipcRenderer.invoke('comfyui:health'),
+  getModelLists: (): Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[] }> =>
+    ipcRenderer.invoke('comfyui:model-lists'),
   readVideoMetadata: (filePath: string): Promise<Record<string, unknown> | null> =>
     ipcRenderer.invoke('comfyui:read-video-metadata', filePath),
 
@@ -230,6 +232,7 @@ declare global {
       }>
       cancelGeneration: () => Promise<void>
       checkComfyUIHealth: () => Promise<{ connected: boolean }>
+      getModelLists: () => Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[] }>
       readVideoMetadata: (filePath: string) => Promise<Record<string, unknown> | null>
       getSettings: () => Promise<{
         comfyuiUrl: string

@@ -1,4 +1,4 @@
-import { Info, Settings, Sliders, X } from 'lucide-react'
+import { Info, Package, Settings, Sliders, X } from 'lucide-react'
 import React, { useEffect, useState } from 'react'
 import { Button } from './ui/button'
 import { useAppSettings, type AppSettings } from '../contexts/AppSettingsContext'
@@ -10,7 +10,7 @@ interface SettingsModalProps {
   initialTab?: TabId
 }
 
-type TabId = 'general' | 'inference' | 'about'
+type TabId = 'general' | 'inference' | 'models' | 'about'
 
 export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
   const { settings, updateSettings } = useAppSettings()
@@ -23,6 +23,9 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const [modelLicenseLoading, setModelLicenseLoading] = useState(false)
   const [showModelLicense, setShowModelLicense] = useState(false)
   const [analyticsEnabled, setAnalyticsEnabled] = useState(false)
+  const [modelLists, setModelLists] = useState<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[] } | null>(null)
+  const [modelListsLoading, setModelListsLoading] = useState(false)
+  const [modelListsError, setModelListsError] = useState<string | null>(null)
   const [comfyUrlInput, setComfyUrlInput] = useState(settings.comfyuiUrl)
   const [comfyOutputDirInput, setComfyOutputDirInput] = useState(settings.comfyuiOutputDir)
   const [ollamaUrlInput, setOllamaUrlInput] = useState(settings.ollamaUrl)
@@ -42,6 +45,21 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
       setOllamaModelInput(settings.ollamaModel)
     }
   }, [isOpen, settings.comfyuiUrl, settings.comfyuiOutputDir, settings.ollamaUrl, settings.ollamaModel])
+
+  useEffect(() => {
+    if (activeTab !== 'models') return
+    setModelListsLoading(true)
+    setModelListsError(null)
+    window.electronAPI.getModelLists()
+      .then((lists) => {
+        setModelLists(lists)
+        setModelListsLoading(false)
+      })
+      .catch(() => {
+        setModelListsError('Could not connect to ComfyUI. Make sure it is running.')
+        setModelListsLoading(false)
+      })
+  }, [activeTab])
 
   useEffect(() => {
     if (activeTab !== 'about' || appVersion) return
@@ -126,6 +144,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const tabs = [
     { id: 'general' as TabId, label: 'General', icon: Settings },
     { id: 'inference' as TabId, label: 'Inference', icon: Sliders },
+    { id: 'models' as TabId, label: 'Models', icon: Package },
     { id: 'about' as TabId, label: 'About', icon: Info },
   ]
 
@@ -396,6 +415,111 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                     </p>
                   </div>
                 )}
+              </div>
+            </>
+          )}
+
+          {activeTab === 'models' && (
+            <>
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-white">Model Selection</h3>
+                {modelListsLoading && (
+                  <div className="flex items-center gap-2 text-sm text-zinc-400">
+                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+                      <path d="M12 2a10 10 0 0 1 10 10" />
+                    </svg>
+                    Loading available models from ComfyUI...
+                  </div>
+                )}
+                {modelListsError && (
+                  <div className="bg-red-900/20 border border-red-800/50 rounded-lg p-3">
+                    <p className="text-xs text-red-400">{modelListsError}</p>
+                  </div>
+                )}
+                {modelLists && !modelListsLoading && (
+                  <div className="bg-zinc-800/50 rounded-lg p-4 space-y-4">
+                    <div>
+                      <label className="text-xs text-zinc-400 mb-1 block">Checkpoint</label>
+                      <p className="text-xs text-zinc-500 mb-1">Used by model loader and text encoder</p>
+                      <select
+                        value={settings.checkpoint}
+                        onChange={(e) => updateSettings({ checkpoint: e.target.value })}
+                        className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {modelLists.checkpoints.map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-400 mb-1 block">Audio VAE Checkpoint</label>
+                      <p className="text-xs text-zinc-500 mb-1">Usually same as checkpoint, but can differ</p>
+                      <select
+                        value={settings.vaeCheckpoint}
+                        onChange={(e) => updateSettings({ vaeCheckpoint: e.target.value })}
+                        className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {modelLists.checkpoints.map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-400 mb-1 block">Text Encoder</label>
+                      <select
+                        value={settings.textEncoder}
+                        onChange={(e) => updateSettings({ textEncoder: e.target.value })}
+                        className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {modelLists.textEncoders.map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-400 mb-1 block">Spatial Upscaler</label>
+                      <select
+                        value={settings.spatialUpscaleModel}
+                        onChange={(e) => updateSettings({ spatialUpscaleModel: e.target.value })}
+                        className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {modelLists.upscaleModels.map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-400 mb-1 block">Temporal Upscaler</label>
+                      <select
+                        value={settings.temporalUpscaleModel}
+                        onChange={(e) => updateSettings({ temporalUpscaleModel: e.target.value })}
+                        className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {modelLists.upscaleModels.map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-400 mb-1 block">Upscale LoRA</label>
+                      <select
+                        value={settings.upscaleLora}
+                        onChange={(e) => updateSettings({ upscaleLora: e.target.value })}
+                        className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {modelLists.loras.map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+                <div className="bg-zinc-800/30 rounded-lg p-3">
+                  <p className="text-xs text-zinc-400">
+                    <span className="text-blue-400 font-medium">Tip:</span> These dropdowns show models available in your ComfyUI installation. Add new models to ComfyUI's model directories to see them here.
+                  </p>
+                </div>
               </div>
             </>
           )}

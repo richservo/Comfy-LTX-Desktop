@@ -228,6 +228,14 @@ export class ComfyUIClient {
     return filename
   }
 
+  async getObjectInfo(): Promise<Record<string, unknown>> {
+    const response = await fetch(`${this.baseUrl}/object_info`)
+    if (!response.ok) {
+      throw new Error(`ComfyUI /object_info failed (${response.status})`)
+    }
+    return (await response.json()) as Record<string, unknown>
+  }
+
   getBaseUrl(): string {
     return this.baseUrl
   }
