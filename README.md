@@ -24,9 +24,10 @@ A desktop app for AI video and image generation using LTX models via ComfyUI. Fo
 ## Requirements
 
 - [ComfyUI](https://github.com/comfyanonymous/ComfyUI) running and accessible (default: `http://localhost:8188`)
-- [rs-nodes](https://github.com/richservo/rs-nodes) custom nodes installed in ComfyUI
 - NVIDIA GPU with sufficient VRAM (16GB+ recommended, 24GB+ for 1080p with upscale)
-- LTX model weights installed in ComfyUI's models directory
+- LTX model weights (downloaded automatically during first-run setup)
+
+The required [rs-nodes](https://github.com/richservo/rs-nodes) custom nodes are installed automatically on first launch.
 
 ## Install
 
