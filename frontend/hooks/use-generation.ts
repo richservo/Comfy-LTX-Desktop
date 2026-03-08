@@ -22,7 +22,7 @@ interface GenerationProgress {
 
 interface UseGenerationReturn extends GenerationState {
   generate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }) => Promise<void>
-  generateImage: (prompt: string, settings: GenerationSettings) => Promise<void>
+  generateImage: (prompt: string, settings: GenerationSettings, imagePath?: string | null, strength?: number) => Promise<void>
   cancel: () => void
   reset: () => void
 }
@@ -30,8 +30,6 @@ interface UseGenerationReturn extends GenerationState {
 // Map phase to user-friendly message
 function getPhaseMessage(phase: string): string {
   switch (phase) {
-    case 'inference':
-      return 'Generating...'
     case 'complete':
       return 'Complete!'
     case 'error':
@@ -39,7 +37,8 @@ function getPhaseMessage(phase: string): string {
     case 'cancelled':
       return 'Cancelled'
     default:
-      return 'Generating...'
+      // Use the phase label from the progress tracker directly
+      return phase || 'Generating...'
   }
 }
 
@@ -113,6 +112,7 @@ export function useGeneration(): UseGenerationReturn {
         fps: settings.fps,
         cameraMotion: settings.cameraMotion,
         spatialUpscale: (settings as unknown as { spatialUpscale?: boolean }).spatialUpscale,
+        upscaleDenoise: (settings as unknown as { upscaleDenoise?: number }).upscaleDenoise,
         temporalUpscale: (settings as unknown as { temporalUpscale?: boolean }).temporalUpscale,
         filmGrain: (settings as unknown as { filmGrain?: boolean }).filmGrain,
         filmGrainIntensity: (settings as unknown as { filmGrainIntensity?: number }).filmGrainIntensity,
@@ -187,14 +187,99 @@ export function useGeneration(): UseGenerationReturn {
   }, [])
 
   const generateImage = useCallback(async (
-    _prompt: string,
-    _settings: GenerationSettings
+    prompt: string,
+    settings: GenerationSettings,
+    imagePath?: string | null,
+    strength?: number,
   ) => {
-    // Image generation not supported in ComfyUI integration (deferred)
-    setState(prev => ({
-      ...prev,
-      error: 'Image generation is not supported in this version. Use ComfyUI directly for image generation.',
-    }))
+    setState({
+      isGenerating: true,
+      progress: 0,
+      statusMessage: 'Generating image...',
+      videoUrl: null,
+      videoPath: null,
+      imageUrl: null,
+      imageUrls: [],
+      error: null,
+    })
+
+    cancelledRef.current = false
+    let progressInterval: ReturnType<typeof setInterval> | null = null
+
+    try {
+      const pollProgress = async () => {
+        if (cancelledRef.current) return
+        try {
+          const data: GenerationProgress = await window.electronAPI.getGenerationProgress()
+          if (cancelledRef.current) return
+          setState(prev => ({
+            ...prev,
+            progress: data.progress,
+            statusMessage: getPhaseMessage(data.phase),
+          }))
+        } catch {
+          // Ignore polling errors
+        }
+      }
+
+      progressInterval = setInterval(pollProgress, 500)
+
+      const result = await window.electronAPI.generateVideo({
+        prompt,
+        imagePath,
+        resolution: '1080p',
+        aspectRatio: settings.imageAspectRatio || settings.aspectRatio || '16:9',
+        duration: 0,
+        fps: 24,
+        firstStrength: strength,
+        imageMode: true,
+        imageSteps: settings.imageSteps,
+      })
+
+      if (cancelledRef.current) return
+
+      if (result.status === 'complete' && result.image_path) {
+        const normalized = result.image_path.replace(/\\/g, '/')
+        const fileUrl = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
+
+        setState({
+          isGenerating: false,
+          progress: 100,
+          statusMessage: 'Complete!',
+          videoUrl: null,
+          videoPath: null,
+          imageUrl: fileUrl,
+          imageUrls: [fileUrl],
+          error: null,
+        })
+      } else if (result.status === 'cancelled') {
+        setState(prev => ({
+          ...prev,
+          isGenerating: false,
+          statusMessage: 'Cancelled',
+        }))
+      } else if (result.error) {
+        throw new Error(result.error)
+      }
+    } catch (error) {
+      if (cancelledRef.current) {
+        setState(prev => ({
+          ...prev,
+          isGenerating: false,
+          statusMessage: 'Cancelled',
+        }))
+      } else {
+        setState(prev => ({
+          ...prev,
+          isGenerating: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        }))
+      }
+    } finally {
+      if (progressInterval) {
+        clearInterval(progressInterval)
+      }
+    }
   }, [])
 
   const reset = useCallback(() => {

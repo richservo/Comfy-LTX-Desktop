@@ -23,7 +23,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const [modelLicenseLoading, setModelLicenseLoading] = useState(false)
   const [showModelLicense, setShowModelLicense] = useState(false)
   const [analyticsEnabled, setAnalyticsEnabled] = useState(false)
-  const [modelLists, setModelLists] = useState<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[] } | null>(null)
+  const [modelLists, setModelLists] = useState<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[] } | null>(null)
   const [modelListsLoading, setModelListsLoading] = useState(false)
   const [modelListsError, setModelListsError] = useState<string | null>(null)
   const [comfyUrlInput, setComfyUrlInput] = useState(settings.comfyuiUrl)
@@ -47,7 +47,8 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   }, [isOpen, settings.comfyuiUrl, settings.comfyuiOutputDir, settings.ollamaUrl, settings.ollamaModel])
 
   useEffect(() => {
-    if (activeTab !== 'models') return
+    if (activeTab !== 'models' && activeTab !== 'inference') return
+    if (modelLists) return // already fetched
     setModelListsLoading(true)
     setModelListsError(null)
     window.electronAPI.getModelLists()
@@ -328,6 +329,26 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                       onChange={handleCfgChange}
                       className="w-20 px-3 py-1.5 bg-zinc-700 border border-zinc-600 rounded-lg text-sm text-white text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-sm text-white">Sampler</label>
+                      <p className="text-xs text-zinc-500">Noise sampling algorithm</p>
+                    </div>
+                    <select
+                      value={settings.sampler || 'euler_ancestral'}
+                      onChange={(e) => updateSettings({ sampler: e.target.value })}
+                      className="px-3 py-1.5 bg-zinc-700 border border-zinc-600 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {modelLists?.samplers?.length ? (
+                        modelLists.samplers.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))
+                      ) : (
+                        <option value={settings.sampler || 'euler_ancestral'}>{settings.sampler || 'euler_ancestral'}</option>
+                      )}
+                    </select>
                   </div>
                 </div>
 

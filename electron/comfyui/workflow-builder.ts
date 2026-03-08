@@ -21,6 +21,8 @@ export interface WorkflowParams {
   lastImage?: ComfyUIUploadResult | null
   /** Enable spatial upscale (2x resolution) */
   spatialUpscale?: boolean
+  /** Upscale denoise strength (0–1, default 0.5) */
+  upscaleDenoise?: number
   /** Enable temporal upscale (2x frame count) */
   temporalUpscale?: boolean
   /** Enable Ollama prompt formatter */
@@ -53,6 +55,8 @@ export interface WorkflowParams {
   vaeCheckpoint?: string
   /** Upscale LoRA filename */
   upscaleLora?: string
+  /** Sampler name (e.g. euler_ancestral) */
+  sampler?: string
 }
 
 type WorkflowNode = { class_type: string; inputs: Record<string, unknown>; _meta?: { title: string } }
@@ -194,6 +198,15 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
 
   if (params.upscaleLora) {
     genNode.inputs['upscale_lora'] = params.upscaleLora
+  }
+  if (params.upscaleDenoise !== undefined) {
+    genNode.inputs['upscale_denoise'] = params.upscaleDenoise
+  }
+
+  // Connect sampler node
+  if (params.sampler) {
+    workflow['27'].inputs['sampler_name'] = params.sampler
+    genNode.inputs['sampler'] = ['27', 0]
   }
 
   genNode.inputs['width'] = params.width

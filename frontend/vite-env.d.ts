@@ -67,6 +67,7 @@ interface Window {
       fps: number
       cameraMotion?: string
       spatialUpscale?: boolean
+      upscaleDenoise?: number
       temporalUpscale?: boolean
       filmGrain?: boolean
       filmGrainIntensity?: number
@@ -74,7 +75,9 @@ interface Window {
       firstStrength?: number
       middleStrength?: number
       lastStrength?: number
-    }) => Promise<{ status: string; video_path?: string; error?: string }>
+      imageMode?: boolean
+      imageSteps?: number
+    }) => Promise<{ status: string; video_path?: string; image_path?: string; error?: string }>
     getGenerationProgress: () => Promise<{
       status: string
       phase: string
@@ -84,7 +87,7 @@ interface Window {
     }>
     cancelGeneration: () => Promise<void>
     checkComfyUIHealth: () => Promise<{ connected: boolean }>
-    getModelLists: () => Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[] }>
+    getModelLists: () => Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[] }>
     readVideoMetadata: (filePath: string) => Promise<Record<string, unknown> | null>
     getSettings: () => Promise<{
       comfyuiUrl: string

@@ -26,12 +26,15 @@ interface GenerateParams {
   fps: number
   cameraMotion?: string
   spatialUpscale?: boolean
+  upscaleDenoise?: number
   temporalUpscale?: boolean
   filmGrain?: boolean
   filmGrainIntensity?: number
   filmGrainSize?: number
   firstStrength?: number
   lastStrength?: number
+  imageMode?: boolean
+  imageSteps?: number
 }
 
 let activePromptId: string | null = null
@@ -47,7 +50,7 @@ export function registerComfyUIHandlers(): void {
         params.resolution,
         params.aspectRatio || '16:9',
       )
-      const numFrames = calculateNumFrames(params.duration, params.fps)
+      const numFrames = params.imageMode ? 9 : calculateNumFrames(params.duration, params.fps)
 
       // 2. Upload image if I2V
       let uploadedImage = null
@@ -108,14 +111,15 @@ export function registerComfyUIHandlers(): void {
         numFrames,
         frameRate: params.fps,
         seed,
-        steps: settings.steps,
+        steps: (params.imageMode && params.imageSteps) ? params.imageSteps : settings.steps,
         cfg: settings.cfg,
         firstImage: uploadedImage,
         middleImage: uploadedMiddleImage,
         lastImage: uploadedLastImage,
         audio: uploadedAudio,
-        spatialUpscale: params.spatialUpscale ?? false,
-        temporalUpscale: params.temporalUpscale ?? false,
+        spatialUpscale: params.imageMode ? false : (params.spatialUpscale ?? false),
+        upscaleDenoise: params.imageMode ? undefined : params.upscaleDenoise,
+        temporalUpscale: params.imageMode ? false : (params.temporalUpscale ?? false),
         ollamaEnabled: settings.ollamaEnabled ?? true,
         ollamaUrl: settings.ollamaUrl,
         ollamaModel: settings.ollamaModel,
@@ -130,6 +134,7 @@ export function registerComfyUIHandlers(): void {
         spatialUpscaleModel: settings.spatialUpscaleModel,
         temporalUpscaleModel: settings.temporalUpscaleModel,
         upscaleLora: settings.upscaleLora,
+        sampler: settings.sampler,
       })
 
       // Debug: log key workflow params
@@ -141,6 +146,11 @@ export function registerComfyUIHandlers(): void {
 
       // 6. Connect WebSocket for progress
       progressTracker.setBaseUrl(settings.comfyuiUrl)
+      progressTracker.setGenerationContext({
+        hasFirstImage: !!uploadedImage,
+        hasUpscale: !!(params.spatialUpscale),
+        imageMode: !!params.imageMode,
+      })
       progressTracker.connect(clientId)
 
       // 7. Submit to ComfyUI
@@ -206,6 +216,26 @@ export function registerComfyUIHandlers(): void {
           // Clean up temp file, keep original
           if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath)
           logger.warn('Failed to embed metadata, keeping original video')
+        }
+      }
+
+      // 12. Image mode: extract first frame as PNG
+      if (params.imageMode) {
+        const ffmpeg = findFfmpegPath()
+        if (!ffmpeg) {
+          throw new Error('ffmpeg not found — cannot extract frame')
+        }
+        const imagePath = outputPath.replace(/\.[^.]+$/, '.png')
+        const extractResult = spawnSync(ffmpeg, [
+          '-y', '-i', outputPath, '-frames:v', '1', '-q:v', '2', imagePath,
+        ], { timeout: 30000 })
+        if (extractResult.status !== 0) {
+          throw new Error('Failed to extract frame from generated video')
+        }
+        logger.info(`Image extracted to: ${imagePath}`)
+        return {
+          status: 'complete',
+          image_path: imagePath,
         }
       }
 
@@ -289,8 +319,9 @@ export function registerComfyUIHandlers(): void {
         textEncoders: extractOptions('LTXAVTextEncoderLoader', 'text_encoder'),
         upscaleModels: extractOptions('LatentUpscaleModelLoader', 'model_name'),
         loras: extractOptions('RSLTXVGenerate', 'upscale_lora'),
+        samplers: extractOptions('KSamplerSelect', 'sampler_name'),
       }
-      logger.info(`comfyui:model-lists counts: checkpoints=${result.checkpoints.length}, textEncoders=${result.textEncoders.length}, upscaleModels=${result.upscaleModels.length}, loras=${result.loras.length}`)
+      logger.info(`comfyui:model-lists counts: checkpoints=${result.checkpoints.length}, textEncoders=${result.textEncoders.length}, upscaleModels=${result.upscaleModels.length}, loras=${result.loras.length}, samplers=${result.samplers.length}`)
       return result
     } catch (error) {
       logger.error(`Failed to fetch model lists: ${error}`)

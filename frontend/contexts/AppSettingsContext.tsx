@@ -19,6 +19,7 @@ export interface AppSettings {
   spatialUpscaleModel: string
   temporalUpscaleModel: string
   upscaleLora: string
+  sampler: string
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -40,6 +41,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   spatialUpscaleModel: 'ltx-2.3-spatial-upscaler-x2-1.0.safetensors',
   temporalUpscaleModel: 'ltx-2.3-temporal-upscaler-x2-1.0.safetensors',
   upscaleLora: 'ltx-2.3-22b-distilled-lora-384.safetensors',
+  sampler: 'euler_ancestral',
 }
 
 interface AppSettingsContextValue {

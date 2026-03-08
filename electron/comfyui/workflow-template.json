@@ -265,5 +265,12 @@
     },
     "class_type": "RSFilmGrain",
     "_meta": { "title": "Film Grain" }
+  },
+  "27": {
+    "inputs": {
+      "sampler_name": "euler_ancestral"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": { "title": "Sampler" }
   }
 }

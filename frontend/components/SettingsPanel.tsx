@@ -10,6 +10,7 @@ export interface GenerationSettings {
   cameraMotion: string
   aspectRatio?: string
   spatialUpscale?: boolean
+  upscaleDenoise?: number
   temporalUpscale?: boolean
   filmGrain?: boolean
   filmGrainIntensity?: number
@@ -73,9 +74,9 @@ export function SettingsPanel({
             onChange={(e) => handleChange('imageSteps', parseInt(e.target.value))}
             disabled={disabled}
           >
-            <option value={4}>Fast</option>
-            <option value={8}>Balanced</option>
-            <option value={12}>High</option>
+            <option value={10}>Fast (10 steps)</option>
+            <option value={20}>Balanced (20 steps)</option>
+            <option value={40}>High (40 steps)</option>
           </Select>
         </div>
       </div>
@@ -241,6 +242,26 @@ export function SettingsPanel({
           </div>
         </label>
       </div>
+
+      {/* Upscale Denoise - shown when spatial upscale is enabled */}
+      {settings.spatialUpscale && (
+        <div>
+          <div className="flex justify-between text-[11px] mb-1">
+            <span className="text-zinc-400">Upscale Denoise</span>
+            <span className="text-zinc-500">{(settings.upscaleDenoise ?? 0.5).toFixed(2)}</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={settings.upscaleDenoise ?? 0.5}
+            onChange={(e) => handleChange('upscaleDenoise', parseFloat(e.target.value))}
+            disabled={disabled}
+            className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-violet-500"
+          />
+        </div>
+      )}
 
       {/* Film Grain */}
       <div className={`rounded-lg border transition-colors ${
