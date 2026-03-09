@@ -24,6 +24,7 @@ function AppContent() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTabId | undefined>(undefined)
   const [isLogViewerOpen, setIsLogViewerOpen] = useState(false)
+  const [hasNodeUpdates, setHasNodeUpdates] = useState(false)
   const setupCompletionInFlightRef = useRef<Promise<void> | null>(null)
 
   useEffect(() => {
@@ -34,6 +35,18 @@ function AppContent() {
     }
     window.addEventListener('open-settings', handler)
     return () => window.removeEventListener('open-settings', handler)
+  }, [])
+
+  // Check for node updates 10s after mount
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      window.electronAPI.checkNodeUpdates()
+        .then((result) => {
+          if (result.hasAnyUpdates) setHasNodeUpdates(true)
+        })
+        .catch(() => {})
+    }, 10_000)
+    return () => clearTimeout(timer)
   }, [])
 
   useEffect(() => {
@@ -157,11 +170,20 @@ function AppContent() {
             <FileText className="h-4 w-4" />
           </button>
           <button
-            onClick={() => setIsSettingsOpen(true)}
-            className="h-8 w-8 flex items-center justify-center rounded-md text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+            onClick={() => {
+              if (hasNodeUpdates) {
+                setSettingsInitialTab('about')
+                setHasNodeUpdates(false)
+              }
+              setIsSettingsOpen(true)
+            }}
+            className="relative h-8 w-8 flex items-center justify-center rounded-md text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
             title="Settings"
           >
             <Settings className="h-4 w-4" />
+            {hasNodeUpdates && (
+              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-amber-400" />
+            )}
           </button>
         </div>
       )}

@@ -1,11 +1,14 @@
 import { autoUpdater } from 'electron-updater';
 import { logger } from './logger';
+import { initAppUpdateTracking } from './ipc/update-handlers';
 
 export type UpdateChannel = 'latest' | 'beta' | 'alpha'
 
 export function initAutoUpdater(
   channel: UpdateChannel = 'latest'
 ): void {
+  initAppUpdateTracking()
+
   if (channel !== 'latest') {
     autoUpdater.channel = channel
     autoUpdater.allowPrerelease = true

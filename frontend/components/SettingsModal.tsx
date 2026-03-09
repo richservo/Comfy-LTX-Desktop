@@ -1,4 +1,4 @@
-import { Info, Package, Settings, Sliders, X } from 'lucide-react'
+import { Info, Package, Settings, Sliders, X, RefreshCw, CheckCircle, AlertTriangle, Download } from 'lucide-react'
 import React, { useEffect, useState } from 'react'
 import { Button } from './ui/button'
 import { useAppSettings, type AppSettings } from '../contexts/AppSettingsContext'
@@ -30,6 +30,13 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const [comfyOutputDirInput, setComfyOutputDirInput] = useState(settings.comfyuiOutputDir)
   const [ollamaUrlInput, setOllamaUrlInput] = useState(settings.ollamaUrl)
   const [ollamaModelInput, setOllamaModelInput] = useState(settings.ollamaModel)
+
+  // Update checker state
+  const [nodeUpdateStatus, setNodeUpdateStatus] = useState<{ results: { name: string; hasUpdate: boolean; error?: string }[]; hasAnyUpdates: boolean } | null>(null)
+  const [nodeCheckLoading, setNodeCheckLoading] = useState(false)
+  const [nodeUpdateInProgress, setNodeUpdateInProgress] = useState(false)
+  const [nodeUpdateResult, setNodeUpdateResult] = useState<{ success: boolean; error?: string } | null>(null)
+  const [appUpdateStatus, setAppUpdateStatus] = useState<{ updateAvailable: boolean; currentVersion: string; latestVersion?: string } | null>(null)
 
   useEffect(() => {
     if (isOpen && initialTab) {
@@ -139,6 +146,42 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
       logger.error(`Failed to load notices: ${e}`)
     } finally {
       setNoticesLoading(false)
+    }
+  }
+
+  const handleCheckForUpdates = async () => {
+    setNodeCheckLoading(true)
+    setNodeUpdateResult(null)
+    try {
+      const [nodeResult, appResult] = await Promise.all([
+        window.electronAPI.checkNodeUpdates(),
+        window.electronAPI.checkAppUpdate(),
+      ])
+      setNodeUpdateStatus(nodeResult)
+      setAppUpdateStatus(appResult)
+    } catch (e) {
+      logger.error(`Failed to check for updates: ${e}`)
+    } finally {
+      setNodeCheckLoading(false)
+    }
+  }
+
+  const handleUpdateNodes = async () => {
+    setNodeUpdateInProgress(true)
+    setNodeUpdateResult(null)
+    try {
+      const result = await window.electronAPI.updateNodes()
+      setNodeUpdateResult(result)
+      if (result.success) {
+        // Re-check status after successful update
+        const updated = await window.electronAPI.checkNodeUpdates()
+        setNodeUpdateStatus(updated)
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      setNodeUpdateResult({ success: false, error: message })
+    } finally {
+      setNodeUpdateInProgress(false)
     }
   }
 
@@ -577,6 +620,87 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                     <h3 className="text-lg font-bold text-white">LTX Desktop</h3>
                     <p className="text-sm text-zinc-400">Version {appVersion || '...'}</p>
                     <p className="text-xs text-zinc-500">AI Video Generation via ComfyUI</p>
+                  </div>
+
+                  {/* Updates */}
+                  <div className="bg-zinc-800/50 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-white">Updates</span>
+                      <Button
+                        size="sm"
+                        onClick={handleCheckForUpdates}
+                        disabled={nodeCheckLoading}
+                        className="bg-zinc-700 hover:bg-zinc-600 text-white text-xs gap-1.5"
+                      >
+                        <RefreshCw className={`h-3 w-3 ${nodeCheckLoading ? 'animate-spin' : ''}`} />
+                        {nodeCheckLoading ? 'Checking...' : 'Check for Updates'}
+                      </Button>
+                    </div>
+
+                    {nodeUpdateStatus && (
+                      <div className="space-y-2 pt-2 border-t border-zinc-700/50">
+                        {nodeUpdateStatus.results.map((repo) => (
+                          <div key={repo.name} className="flex items-center justify-between text-xs">
+                            <span className="text-zinc-300">{repo.name}</span>
+                            {repo.error ? (
+                              <span className="text-amber-400 flex items-center gap-1">
+                                <AlertTriangle className="h-3 w-3" />
+                                {repo.error}
+                              </span>
+                            ) : repo.hasUpdate ? (
+                              <span className="text-amber-400 flex items-center gap-1">
+                                <Download className="h-3 w-3" />
+                                Update available
+                              </span>
+                            ) : (
+                              <span className="text-emerald-400 flex items-center gap-1">
+                                <CheckCircle className="h-3 w-3" />
+                                Up to date
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {appUpdateStatus && (
+                      <div className="pt-2 border-t border-zinc-700/50">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-zinc-300">LTX Desktop</span>
+                          {appUpdateStatus.updateAvailable ? (
+                            <span className="text-amber-400 flex items-center gap-1">
+                              <Download className="h-3 w-3" />
+                              v{appUpdateStatus.latestVersion} available
+                            </span>
+                          ) : (
+                            <span className="text-emerald-400 flex items-center gap-1">
+                              <CheckCircle className="h-3 w-3" />
+                              Up to date
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {nodeUpdateStatus?.hasAnyUpdates && (
+                      <Button
+                        size="sm"
+                        onClick={handleUpdateNodes}
+                        disabled={nodeUpdateInProgress}
+                        className="w-full bg-amber-600 hover:bg-amber-500 text-white text-xs gap-1.5"
+                      >
+                        <Download className="h-3 w-3" />
+                        {nodeUpdateInProgress ? 'Updating...' : 'Update Nodes'}
+                      </Button>
+                    )}
+
+                    {nodeUpdateResult && (
+                      <div className={`text-xs rounded-md px-3 py-2 ${nodeUpdateResult.success ? 'bg-emerald-900/30 text-emerald-400' : 'bg-red-900/30 text-red-400'}`}>
+                        {nodeUpdateResult.success
+                          ? 'Nodes updated successfully. Restart ComfyUI to apply changes.'
+                          : `Update failed: ${nodeUpdateResult.error}`}
+                      </div>
+                    )}
                   </div>
 
                   <div className="bg-zinc-800/50 rounded-lg p-4 space-y-3">

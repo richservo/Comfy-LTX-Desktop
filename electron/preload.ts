@@ -154,6 +154,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendAnalyticsEvent: (eventName: string, extraDetails?: Record<string, unknown> | null): Promise<void> =>
     ipcRenderer.invoke('send-analytics-event', eventName, extraDetails),
 
+  // Update checking
+  checkNodeUpdates: (): Promise<{ results: { name: string; hasUpdate: boolean; error?: string }[]; hasAnyUpdates: boolean }> =>
+    ipcRenderer.invoke('updates:check-nodes'),
+  updateNodes: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('updates:update-nodes'),
+  checkAppUpdate: (): Promise<{ updateAvailable: boolean; currentVersion: string; latestVersion?: string }> =>
+    ipcRenderer.invoke('updates:check-app'),
+  onUpdateProgress: (callback: (_event: unknown, data: { phase: string; message: string; error?: string }) => void) => {
+    ipcRenderer.on('updates:progress', callback)
+    return () => { ipcRenderer.removeListener('updates:progress', callback) }
+  },
+
   // Platform info
   platform: process.platform,
 })
@@ -248,6 +260,10 @@ declare global {
       getAnalyticsState: () => Promise<{ analyticsEnabled: boolean; installationId: string }>
       setAnalyticsEnabled: (enabled: boolean) => Promise<void>
       sendAnalyticsEvent: (eventName: string, extraDetails?: Record<string, unknown> | null) => Promise<void>
+      checkNodeUpdates: () => Promise<{ results: { name: string; hasUpdate: boolean; error?: string }[]; hasAnyUpdates: boolean }>
+      updateNodes: () => Promise<{ success: boolean; error?: string }>
+      checkAppUpdate: () => Promise<{ updateAvailable: boolean; currentVersion: string; latestVersion?: string }>
+      onUpdateProgress: (callback: (_event: unknown, data: { phase: string; message: string; error?: string }) => void) => () => void
       platform: string
     }
   }

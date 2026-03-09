@@ -103,6 +103,10 @@ interface Window {
     getAnalyticsState: () => Promise<{ analyticsEnabled: boolean; installationId: string }>
     setAnalyticsEnabled: (enabled: boolean) => Promise<void>
     sendAnalyticsEvent: (eventName: string, extraDetails?: Record<string, unknown> | null) => Promise<void>
+    checkNodeUpdates: () => Promise<{ results: { name: string; hasUpdate: boolean; error?: string }[]; hasAnyUpdates: boolean }>
+    updateNodes: () => Promise<{ success: boolean; error?: string }>
+    checkAppUpdate: () => Promise<{ updateAvailable: boolean; currentVersion: string; latestVersion?: string }>
+    onUpdateProgress: (callback: (_event: unknown, data: { phase: string; message: string; error?: string }) => void) => () => void
     platform: string
   }
 }
