@@ -127,6 +127,13 @@ pnpm typecheck
 pnpm backend:test
 ```
 
+## Acknowledgments
+
+- [LTX Desktop](https://github.com/Lightricks/LTX-Desktop) by [Lightricks](https://github.com/Lightricks) — the original desktop app this fork is based on
+- [ComfyUI](https://github.com/comfyanonymous/ComfyUI) by [comfyanonymous](https://github.com/comfyanonymous) — the backend powering all inference
+- [RES4LYF](https://github.com/ClownsharkBatwing/RES4LYF) by [ClownsharkBatwing](https://github.com/ClownsharkBatwing) — advanced samplers including res_2s (auto-installed)
+- [LTX-Video](https://github.com/Lightricks/LTX-Video) by [Lightricks](https://github.com/Lightricks) — the LTX model architecture
+
 ## License
 
 Apache-2.0 — see [`LICENSE.txt`](LICENSE.txt).
