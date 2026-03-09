@@ -31,10 +31,26 @@ The required [rs-nodes](https://github.com/richservo/rs-nodes) custom nodes are 
 
 ## Install
 
-1. Download the latest release from [Releases](../../releases), or run from source (see Development below)
-2. Install and launch
-3. First-run setup will guide you through pointing to your ComfyUI installation
-4. Missing model weights can be downloaded during setup
+Prerequisites: [Node.js](https://nodejs.org/) (v18+), [pnpm](https://pnpm.io/), [Git](https://git-scm.com/), and [ComfyUI](https://github.com/comfyanonymous/ComfyUI) already installed and working.
+
+```bash
+# Clone this repo
+git clone https://github.com/richservo/Comfy-LTX-Desktop.git
+cd Comfy-LTX-Desktop
+
+# Install dependencies
+pnpm install
+
+# Launch
+pnpm dev
+```
+
+On first launch, the setup wizard will:
+1. Ask you to point to your ComfyUI installation directory
+2. Download any missing LTX model weights
+3. Auto-install the required [rs-nodes](https://github.com/richservo/rs-nodes) and [RES4LYF](https://github.com/ClownsharkBatwing/RES4LYF) custom nodes into ComfyUI
+
+> **Note:** ComfyUI must be running before you launch the app (default: `http://localhost:8188`).
 
 ## Architecture
 
