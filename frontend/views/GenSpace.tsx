@@ -3,14 +3,21 @@ import {
   Trash2, Download, Image, Video, X,
   Heart, Film, Volume2, VolumeX, Sparkles,
   Clock, Monitor, ChevronUp, Scissors,
-  ChevronLeft, ChevronRight, Copy, Check
+  ChevronLeft, ChevronRight, Copy, Check,
+  Menu
 } from 'lucide-react'
 import { useProjects } from '../contexts/ProjectContext'
 import type { GenSpaceRetakeSource } from '../contexts/ProjectContext'
 import { useGeneration } from '../hooks/use-generation'
 import { useRetake } from '../hooks/use-retake'
+import { useAppSettings } from '../contexts/AppSettingsContext'
 import type { Asset } from '../types/project'
 import { GenerationErrorDialog } from '../components/GenerationErrorDialog'
+import { SettingsPanel, type GenerationSettings } from '../components/SettingsPanel'
+import { ModeTabs, type GenerationMode } from '../components/ModeTabs'
+import { ImageUploader } from '../components/ImageUploader'
+import { AudioUploader } from '../components/AudioUploader'
+import { Textarea } from '../components/ui/textarea'
 import { copyToAssetFolder } from '../lib/asset-copy'
 import { fileUrlToPath } from '../lib/url-to-path'
 import { logger } from '../lib/logger'
@@ -305,15 +312,8 @@ function PromptBar({
   buttonIcon: React.ReactNode
   inputImage: string | null
   onInputImageChange: (url: string | null) => void
-  settings: {
-    duration: number
-    videoResolution: string
-    fps: number
-    aspectRatio: string
-    spatialUpscale: boolean
-    temporalUpscale: boolean
-  }
-  onSettingsChange: (settings: Record<string, unknown>) => void
+  settings: GenerationSettings
+  onSettingsChange: (settings: GenerationSettings) => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -486,7 +486,7 @@ function PromptBar({
             {/* Aspect Ratio dropdown */}
             <SettingsDropdown
               title="ASPECT RATIO"
-              value={settings.aspectRatio}
+              value={settings.aspectRatio || '16:9'}
               onChange={(v) => onSettingsChange({ ...settings, aspectRatio: v })}
               options={[
                 { value: '16:9', label: '16:9' },
@@ -495,7 +495,7 @@ function PromptBar({
               trigger={
                 <>
                   <AspectIcon className="h-3.5 w-3.5" />
-                  <span>{settings.aspectRatio}</span>
+                  <span>{settings.aspectRatio || '16:9'}</span>
                 </>
               }
             />
@@ -600,26 +600,37 @@ const gallerySizeClasses: Record<GallerySize, string> = {
   large: 'grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3',
 }
 
-const DEFAULT_VIDEO_SETTINGS = {
+const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
+  model: 'fast',
   duration: 5,
   videoResolution: '540p',
   fps: 24,
+  audio: true,
+  cameraMotion: 'none',
   aspectRatio: '16:9',
-  spatialUpscale: false,
-  temporalUpscale: false,
+  imageResolution: '1080p',
+  imageAspectRatio: '16:9',
+  imageSteps: 20,
 }
 
 export function GenSpace() {
-  const { currentProject, currentProjectId, addAsset, addTakeToAsset, deleteAsset, toggleFavorite, genSpaceEditImageUrl, setGenSpaceEditImageUrl, setGenSpaceEditMode, genSpaceRetakeSource, setGenSpaceRetakeSource, setPendingRetakeUpdate } = useProjects()
+  const { currentProject, currentProjectId, addAsset, addTakeToAsset, deleteAsset, toggleFavorite, genSpaceEditImageUrl, setGenSpaceEditImageUrl, setGenSpaceEditMode, genSpaceRetakeSource, setGenSpaceRetakeSource, setPendingRetakeUpdate, updateProjectGenerationSettings } = useProjects()
+  const { settings: appSettings, updateSettings: updateAppSettings } = useAppSettings()
   const [mode, setMode] = useState<'video' | 'retake'>('video')
+  const [genMode, setGenMode] = useState<GenerationMode>('text-to-video')
   const [prompt, setPrompt] = useState('')
   const [inputImage, setInputImage] = useState<string | null>(null)
+  const [selectedLastImage, setSelectedLastImage] = useState<string | null>(null)
+  const [selectedAudio, setSelectedAudio] = useState<string | null>(null)
+  const [firstStrength, setFirstStrength] = useState(1)
+  const [lastStrength, setLastStrength] = useState(1)
   const [localError, setLocalError] = useState<string | null>(null)
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
   const [copiedPrompt, setCopiedPrompt] = useState(false)
   const [showFavorites, setShowFavorites] = useState(false)
   const [gallerySize, setGallerySize] = useState<GallerySize>('medium')
   const [showSizeMenu, setShowSizeMenu] = useState(false)
+  const [isPanelOpen, setIsPanelOpen] = useState(false)
   const sizeMenuRef = useRef<HTMLDivElement>(null)
   const persistedVideoKeyRef = useRef<string | null>(null)
   const retakeSubmissionRef = useRef<{
@@ -631,15 +642,26 @@ export function GenSpace() {
       videoDuration: number
     }
   } | null>(null)
-  const [settings, setSettings] = useState(() => ({ ...DEFAULT_VIDEO_SETTINGS }))
+  const [settings, setSettings] = useState<GenerationSettings>(() => {
+    const projectSettings = currentProject?.generationSettings
+    if (projectSettings) return { ...projectSettings }
+    return {
+      ...DEFAULT_GENERATION_SETTINGS,
+      filmGrain: appSettings.filmGrain,
+      filmGrainIntensity: appSettings.filmGrainIntensity,
+      filmGrainSize: appSettings.filmGrainSize,
+    }
+  })
 
   const {
     generate,
+    generateImage,
     isGenerating,
     progress,
     statusMessage,
     videoUrl,
     videoPath,
+    imageUrl,
     error,
     reset,
   } = useGeneration()
@@ -668,6 +690,42 @@ export function GenSpace() {
     duration?: number
   }>({ videoUrl: null, videoPath: null, duration: undefined })
   const [activeRetakeSource, setActiveRetakeSource] = useState<GenSpaceRetakeSource | null>(null)
+
+  // Handle settings change with film grain sync and project persistence
+  const handleSettingsChange = useCallback((next: GenerationSettings) => {
+    setSettings(next)
+    if (
+      next.filmGrain !== settings.filmGrain ||
+      next.filmGrainIntensity !== settings.filmGrainIntensity ||
+      next.filmGrainSize !== settings.filmGrainSize
+    ) {
+      updateAppSettings({
+        filmGrain: next.filmGrain ?? false,
+        filmGrainIntensity: next.filmGrainIntensity ?? 0.05,
+        filmGrainSize: next.filmGrainSize ?? 1.2,
+      })
+    }
+    if (currentProjectId) {
+      updateProjectGenerationSettings(currentProjectId, next)
+    }
+  }, [settings, currentProjectId, updateProjectGenerationSettings, updateAppSettings])
+
+  // Handle mode change from the panel ModeTabs
+  const handleGenModeChange = (newMode: GenerationMode) => {
+    setGenMode(newMode)
+    if (newMode === 'retake') {
+      setMode('retake')
+    } else {
+      setMode('video')
+    }
+  }
+
+  // Force pro model when audio is attached
+  useEffect(() => {
+    if (selectedAudio && genMode !== 'text-to-image') {
+      setSettings(prev => prev.model !== 'pro' ? { ...prev, model: 'pro' } : prev)
+    }
+  }, [genMode, selectedAudio])
 
   // Handle incoming frame from the Video Editor for editing
   useEffect(() => {
@@ -729,13 +787,14 @@ export function GenSpace() {
           generationParams: {
             mode: genMode as 'text-to-video' | 'image-to-video',
             prompt: lastPrompt,
-            model: 'fast',
+            model: settings.model,
             duration: settings.duration,
             resolution: settings.videoResolution,
             fps: settings.fps,
-            audio: false,
-            cameraMotion: 'none',
+            audio: settings.audio,
+            cameraMotion: settings.cameraMotion,
             inputImageUrl: inputImage || undefined,
+            inputAudioUrl: selectedAudio || undefined,
           },
           takes: [{
             url: finalUrl,
@@ -750,7 +809,38 @@ export function GenSpace() {
         logger.error(`Failed to persist generated video asset: ${err}`)
       }
     })()
-  }, [videoUrl, videoPath, currentProjectId, isGenerating, settings, inputImage, assetSavePath, lastPrompt, addAsset, reset])
+  }, [videoUrl, videoPath, currentProjectId, isGenerating, settings, inputImage, selectedAudio, assetSavePath, lastPrompt, addAsset, reset])
+
+  // When image generation completes, add to project assets
+  const persistedImageKeyRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!imageUrl || !currentProjectId || isGenerating) return
+
+    if (persistedImageKeyRef.current === imageUrl) return
+    persistedImageKeyRef.current = imageUrl
+
+    const imagePath = fileUrlToPath(imageUrl) || imageUrl
+    addAsset(currentProjectId, {
+      type: 'image',
+      path: imagePath,
+      url: imageUrl,
+      prompt: lastPrompt,
+      resolution: settings.imageResolution || '1080p',
+      generationParams: {
+        mode: 'text-to-image',
+        prompt: lastPrompt,
+        model: settings.model,
+        duration: 0,
+        resolution: settings.imageResolution || '1080p',
+        fps: 0,
+        audio: false,
+        cameraMotion: 'none',
+        imageAspectRatio: settings.imageAspectRatio,
+        imageSteps: settings.imageSteps,
+      },
+    })
+    reset()
+  }, [imageUrl, currentProjectId, isGenerating, settings, lastPrompt, addAsset, reset])
 
   // When retake completes, add as take or new asset
   useEffect(() => {
@@ -841,23 +931,28 @@ export function GenSpace() {
     // Save the prompt before generation starts
     setLastPrompt(prompt)
 
+    if (genMode === 'text-to-image') {
+      generateImage(prompt, settings)
+      return
+    }
+
     // Generate video (t2v if no image, i2v if image)
     const imagePath = inputImage ? fileUrlToPath(inputImage) : null
+    const lastImagePath = selectedLastImage ? fileUrlToPath(selectedLastImage) : null
+    const audioPath = selectedAudio ? fileUrlToPath(selectedAudio) : null
+    const effectiveSettings = { ...settings }
+    if (audioPath) effectiveSettings.model = 'pro'
 
     generate(
       prompt,
       imagePath,
+      effectiveSettings,
+      audioPath,
+      null,
+      lastImagePath,
       {
-        model: 'fast' as 'fast' | 'pro',
-        duration: settings.duration,
-        videoResolution: settings.videoResolution,
-        fps: settings.fps,
-        audio: false,
-        cameraMotion: 'none',
-        aspectRatio: settings.aspectRatio,
-        imageResolution: '1080p',
-        imageAspectRatio: settings.aspectRatio,
-        imageSteps: 4,
+        first: firstStrength,
+        last: lastStrength,
       },
     )
   }
@@ -893,6 +988,8 @@ export function GenSpace() {
   }
 
   const isRetakeMode = mode === 'retake'
+  const isVideoMode = genMode === 'text-to-video' || genMode === 'image-to-video'
+  const isBusy = isRetakeMode ? isRetaking : isGenerating
   const canSubmit = isRetakeMode
     ? retakeInput.ready && !!retakeInput.videoPath && !isRetaking
     : !!prompt.trim()
@@ -945,6 +1042,116 @@ export function GenSpace() {
 
   return (
     <div className="h-full relative bg-zinc-950">
+
+      {/* Hamburger button — left edge */}
+      <button
+        onClick={() => setIsPanelOpen(true)}
+        className="absolute top-4 left-4 z-30 p-2 rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors backdrop-blur-sm"
+        title="Advanced Settings"
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+
+      {/* Slide-out panel backdrop */}
+      {isPanelOpen && (
+        <div
+          className="absolute inset-0 z-40 bg-black/40 backdrop-blur-sm"
+          onClick={() => setIsPanelOpen(false)}
+        />
+      )}
+
+      {/* Slide-out settings panel */}
+      <div
+        className={`absolute top-0 left-0 bottom-0 z-50 w-[500px] bg-zinc-900 border-r border-zinc-700 shadow-2xl transform transition-transform duration-300 ease-in-out ${
+          isPanelOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="h-full flex flex-col overflow-hidden">
+          {/* Panel header */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
+            <h2 className="text-lg font-semibold text-white">Advanced Settings</h2>
+            <button
+              onClick={() => setIsPanelOpen(false)}
+              className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {/* Panel content */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* Mode Tabs */}
+            <ModeTabs
+              mode={genMode}
+              onModeChange={handleGenModeChange}
+              disabled={isBusy}
+            />
+
+            {/* Image uploaders - shown in video modes */}
+            {isVideoMode && (
+              <>
+                <ImageUploader
+                  label="First Frame"
+                  selectedImage={inputImage}
+                  onImageSelect={setInputImage}
+                  strength={firstStrength}
+                  onStrengthChange={setFirstStrength}
+                />
+
+                <ImageUploader
+                  label="Last Frame"
+                  selectedImage={selectedLastImage}
+                  onImageSelect={setSelectedLastImage}
+                  strength={lastStrength}
+                  onStrengthChange={setLastStrength}
+                />
+
+                <AudioUploader
+                  selectedAudio={selectedAudio}
+                  onAudioSelect={setSelectedAudio}
+                />
+              </>
+            )}
+
+            {/* Prompt */}
+            <Textarea
+              label="Prompt"
+              placeholder="Write a prompt..."
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              helperText="Longer, detailed prompts lead to better, more accurate results."
+              charCount={prompt.length}
+              maxChars={5000}
+              disabled={isBusy}
+            />
+
+            {/* Settings Panel */}
+            {genMode !== 'retake' && (
+              <SettingsPanel
+                settings={settings}
+                onSettingsChange={handleSettingsChange}
+                disabled={isBusy}
+                mode={genMode}
+                hasAudio={!!selectedAudio}
+              />
+            )}
+
+            {/* Generate button */}
+            <button
+              onClick={() => { handleGenerate(); setIsPanelOpen(false) }}
+              disabled={isGenerating || !canSubmit}
+              className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                isGenerating || !canSubmit
+                  ? 'bg-zinc-700 text-zinc-500 cursor-not-allowed'
+                  : 'bg-white text-black hover:bg-zinc-200'
+              }`}
+            >
+              <Sparkles className={`h-4 w-4 ${isGenerating ? 'animate-pulse' : ''}`} />
+              {genMode === 'text-to-image' ? 'Generate Image' : 'Generate Video'}
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* Empty state */}
       {mode !== 'retake' && assets.length === 0 && !isGenerating && (
@@ -1095,7 +1302,10 @@ export function GenSpace() {
       <div className="absolute bottom-5 left-1/2 w-[min(700px,calc(100%-2rem))] -translate-x-1/2">
         <PromptBar
           mode={mode}
-          onModeChange={setMode}
+          onModeChange={(m) => {
+            setMode(m)
+            setGenMode(m === 'retake' ? 'retake' : 'text-to-video')
+          }}
           prompt={prompt}
           onPromptChange={setPrompt}
           onGenerate={handleGenerate}
@@ -1106,7 +1316,7 @@ export function GenSpace() {
           inputImage={inputImage}
           onInputImageChange={setInputImage}
           settings={settings}
-          onSettingsChange={(nextSettings) => setSettings(nextSettings as typeof settings)}
+          onSettingsChange={handleSettingsChange}
         />
       </div>
 

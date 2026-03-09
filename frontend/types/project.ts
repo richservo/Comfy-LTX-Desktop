@@ -1,4 +1,5 @@
 // Project and Asset types for LTX Desktop
+import type { GenerationSettings } from '../components/SettingsPanel'
 
 // Parameters needed to regenerate a shot
 export interface GenerationParams {
@@ -408,6 +409,7 @@ export interface Project {
   timelines: Timeline[]
   activeTimelineId?: string
   assetSavePath?: string // Folder where generated assets are saved (default: Downloads/Ltx Desktop Assets/{name})
+  generationSettings?: GenerationSettings // Per-project generation settings for Gen Space
 }
 
 export type ViewType = 'home' | 'project' | 'playground'

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import type { Project, Asset, AssetTake, ViewType, ProjectTab, Timeline } from '../types/project'
+import type { GenerationSettings } from '../components/SettingsPanel'
 import { createDefaultTimeline } from '../types/project'
 import { logger } from '../lib/logger'
 
@@ -19,6 +20,7 @@ interface ProjectContextType {
   deleteProject: (id: string) => void
   renameProject: (id: string, name: string) => void
   updateProject: (id: string, updates: Partial<Pick<Project, 'assetSavePath'>>) => void
+  updateProjectGenerationSettings: (id: string, settings: GenerationSettings) => void
   
   // Assets
   addAsset: (projectId: string, asset: Omit<Asset, 'id' | 'createdAt'>) => Asset
@@ -216,6 +218,12 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const updateProject = useCallback((id: string, updates: Partial<Pick<Project, 'assetSavePath'>>) => {
     setProjects(prev => prev.map(p =>
       p.id === id ? { ...p, ...updates, updatedAt: Date.now() } : p
+    ))
+  }, [])
+
+  const updateProjectGenerationSettings = useCallback((id: string, genSettings: GenerationSettings) => {
+    setProjects(prev => prev.map(p =>
+      p.id === id ? { ...p, generationSettings: genSettings, updatedAt: Date.now() } : p
     ))
   }, [])
   
@@ -496,6 +504,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       deleteProject,
       renameProject,
       updateProject,
+      updateProjectGenerationSettings,
       addAsset,
       deleteAsset,
       updateAsset,
