@@ -54,6 +54,7 @@ interface CustomNodeRepo {
 const CUSTOM_NODE_REPOS: CustomNodeRepo[] = [
   { name: 'rs-nodes', url: 'https://github.com/richservo/rs-nodes.git', dir: 'rs-nodes' },
   { name: 'RES4LYF', url: 'https://github.com/ClownsharkBatwing/RES4LYF.git', dir: 'RES4LYF' },
+  { name: 'VideoHelperSuite', url: 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git', dir: 'ComfyUI-VideoHelperSuite' },
 ]
 
 async function installCustomNode(
@@ -73,6 +74,9 @@ async function installCustomNode(
     } catch (err) {
       logger.warn(`git pull failed for ${repo.name}, continuing: ${err}`)
     }
+  } else if (fs.existsSync(nodeDir)) {
+    // Directory exists but not a git repo (e.g. installed via ComfyUI Manager) — skip
+    logger.info(`${repo.name} already installed (non-git), skipping`)
   } else {
     onProgress({ phase: 'cloning', message: `Cloning ${repo.name}...` })
     await execPromise(

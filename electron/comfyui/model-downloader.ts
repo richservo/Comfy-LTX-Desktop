@@ -67,14 +67,46 @@ export interface ModelCheckResult {
   totalBytes: number
 }
 
+/**
+ * Recursively search a directory for a file by name.
+ * Returns the full path if found, or null. Skips symlink loops
+ * and directories that can't be read.
+ */
+function findFileRecursive(dir: string, filename: string, maxDepth = 5): string | null {
+  if (maxDepth <= 0) return null
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return null
+  }
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name)
+    if (entry.isFile() && entry.name === filename) {
+      return fullPath
+    }
+    if (entry.isDirectory()) {
+      const found = findFileRecursive(fullPath, filename, maxDepth - 1)
+      if (found) return found
+    }
+  }
+  return null
+}
+
 /** Check which models already exist in the ComfyUI folder */
 export function checkExistingModels(comfyPath: string): ModelCheckResult {
   const missing: ModelEntry[] = []
   const present: ModelEntry[] = []
+  const modelsDir = path.join(comfyPath, 'models')
 
   for (const entry of MODEL_MANIFEST) {
+    // First check the expected location
     const destFile = path.join(comfyPath, entry.destSubdir, entry.filename)
     if (fs.existsSync(destFile)) {
+      present.push(entry)
+    } else if (fs.existsSync(modelsDir) && findFileRecursive(modelsDir, entry.filename)) {
+      // Found in a non-standard subdirectory
+      logger.info(`Found ${entry.filename} in non-standard location`)
       present.push(entry)
     } else {
       missing.push(entry)

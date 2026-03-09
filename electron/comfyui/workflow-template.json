@@ -81,7 +81,8 @@
       "positive": ["7", 0],
       "negative": ["8", 0],
       "vae": ["1", 2],
-      "audio_vae": ["5", 0]
+      "audio_vae": ["5", 0],
+      "sampler": ["27", 0]
     },
     "class_type": "RSLTXVGenerate",
     "_meta": { "title": "RS LTXV Generate" }
@@ -136,7 +137,29 @@
       "max_new_tokens": 4096,
       "head_handle": 0,
       "tail_handle": 0,
+      "pause_before_1": 0,
+      "start_time_1": 0, "end_time_1": 0, "pause_after_1": 0,
+      "start_time_2": 0, "end_time_2": 0, "pause_after_2": 0,
+      "start_time_3": 0, "end_time_3": 0, "pause_after_3": 0,
+      "start_time_4": 0, "end_time_4": 0, "pause_after_4": 0,
+      "start_time_5": 0, "end_time_5": 0, "pause_after_5": 0,
+      "start_time_6": 0, "end_time_6": 0, "pause_after_6": 0,
+      "start_time_7": 0, "end_time_7": 0, "pause_after_7": 0,
+      "start_time_8": 0, "end_time_8": 0, "pause_after_8": 0,
+      "start_time_9": 0, "end_time_9": 0, "pause_after_9": 0,
+      "start_time_10": 0, "end_time_10": 0, "pause_after_10": 0,
+      "start_time_11": 0, "end_time_11": 0, "pause_after_11": 0,
+      "start_time_12": 0, "end_time_12": 0, "pause_after_12": 0,
+      "start_time_13": 0, "end_time_13": 0, "pause_after_13": 0,
+      "start_time_14": 0, "end_time_14": 0, "pause_after_14": 0,
+      "start_time_15": 0, "end_time_15": 0, "pause_after_15": 0,
+      "start_time_16": 0, "end_time_16": 0, "pause_after_16": 0,
+      "start_time_17": 0, "end_time_17": 0, "pause_after_17": 0,
+      "start_time_18": 0, "end_time_18": 0, "pause_after_18": 0,
+      "start_time_19": 0, "end_time_19": 0, "pause_after_19": 0,
+      "start_time_20": 0, "end_time_20": 0, "pause_after_20": 0,
       "moss_pipe": ["9", 0],
+      "dialogue_list": ["14", 4],
       "reference_audio": ["10", 0]
     },
     "class_type": "RSMossTTSSave",
@@ -170,7 +193,7 @@
       "output_dir": ""
     },
     "class_type": "RSPromptFormatter",
-    "_meta": { "title": "RS Prompt Formatter (Positive)" }
+    "_meta": { "title": "RS Prompt Formatter" }
   },
   "18": {
     "inputs": {
@@ -248,5 +271,56 @@
     },
     "class_type": "KSamplerSelect",
     "_meta": { "title": "Sampler" }
+  },
+  "28": {
+    "inputs": {
+      "frame_rate": ["24", 0],
+      "upscale_lora": "ltx-2.3-22b-distilled-lora-384.safetensors",
+      "upscale_lora_strength": 1,
+      "upscale_steps": 6,
+      "upscale_cfg": 1,
+      "upscale_denoise": 0.5,
+      "max_shift": 2.05,
+      "base_shift": 0.95,
+      "decode": true,
+      "tile_t": 0,
+      "attention_mode": "auto",
+      "ffn_chunks": 4,
+      "video_attn_scale": 1.03,
+      "model": ["1", 0],
+      "positive": ["7", 0],
+      "negative": ["8", 0],
+      "vae": ["1", 2],
+      "images": ["29", 0],
+      "upscale_model": ["2", 0],
+      "audio": ["29", 2],
+      "audio_vae": ["5", 0]
+    },
+    "class_type": "RSLTXVUpscale",
+    "_meta": { "title": "RS LTXV Upscale" }
+  },
+  "29": {
+    "inputs": {
+      "video": "",
+      "force_rate": 0,
+      "custom_width": 0,
+      "custom_height": 0,
+      "frame_load_cap": 0,
+      "skip_first_frames": 0,
+      "select_every_nth": 1,
+      "format": "AnimateDiff"
+    },
+    "class_type": "VHS_LoadVideo",
+    "_meta": { "title": "Video To Upscale" }
+  },
+  "30": {
+    "inputs": {
+      "indexes": "0",
+      "err_if_missing": true,
+      "err_if_empty": true,
+      "image": ["29", 0]
+    },
+    "class_type": "VHS_SelectImages",
+    "_meta": { "title": "Video First Frame" }
   }
 }

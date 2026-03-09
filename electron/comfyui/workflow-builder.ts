@@ -122,6 +122,9 @@ const OPTIONAL_NODE_IDS = {
   middleFrame: '21',
   lastFrame: '22',
   filmGrain: '26',
+  upscaleNode: '28',
+  loadVideo: '29',
+  videoFirstFrame: '30',
 }
 
 const PROMPT_FORMATTER_NODES = [
@@ -144,6 +147,11 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   nodesToRemove.add(OPTIONAL_NODE_IDS.mossTtsRefAudio)
   nodesToRemove.add(OPTIONAL_NODE_IDS.mossTtsSave)
   nodesToRemove.add(OPTIONAL_NODE_IDS.uploadAudio)
+
+  // Standalone upscale nodes — always remove for now (not yet wired to UI)
+  nodesToRemove.add(OPTIONAL_NODE_IDS.upscaleNode)
+  nodesToRemove.add(OPTIONAL_NODE_IDS.loadVideo)
+  nodesToRemove.add(OPTIONAL_NODE_IDS.videoFirstFrame)
 
   // Upscaler nodes — only include if enabled
   if (!params.spatialUpscale) nodesToRemove.add(OPTIONAL_NODE_IDS.spatialUpscaler)

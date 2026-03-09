@@ -32,6 +32,7 @@ let appLatestVersion: string | undefined
 const REPOS = [
   { name: 'rs-nodes', dir: 'rs-nodes' },
   { name: 'RES4LYF', dir: 'RES4LYF' },
+  { name: 'VideoHelperSuite', dir: 'ComfyUI-VideoHelperSuite' },
 ]
 
 function execPromise(cmd: string, args: string[], options: { cwd?: string }): Promise<string> {
@@ -49,8 +50,13 @@ function execPromise(cmd: string, args: string[], options: { cwd?: string }): Pr
 async function checkSingleNodeRepo(comfyPath: string, repo: { name: string; dir: string }): Promise<NodeRepoStatus> {
   const nodeDir = path.join(comfyPath, 'custom_nodes', repo.dir)
 
+  if (!fs.existsSync(nodeDir)) {
+    return { name: repo.name, hasUpdate: true, error: 'Not installed' }
+  }
+
   if (!fs.existsSync(path.join(nodeDir, '.git'))) {
-    return { name: repo.name, hasUpdate: false, error: 'Not installed' }
+    // Directory exists but not a git repo (e.g. installed via ComfyUI Manager)
+    return { name: repo.name, hasUpdate: false }
   }
 
   try {

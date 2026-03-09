@@ -642,7 +642,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                         {nodeUpdateStatus.results.map((repo) => (
                           <div key={repo.name} className="flex items-center justify-between text-xs">
                             <span className="text-zinc-300">{repo.name}</span>
-                            {repo.error ? (
+                            {repo.error && !repo.hasUpdate ? (
                               <span className="text-amber-400 flex items-center gap-1">
                                 <AlertTriangle className="h-3 w-3" />
                                 {repo.error}
