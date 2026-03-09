@@ -57,6 +57,8 @@ export interface WorkflowParams {
   upscaleLora?: string
   /** Sampler name (e.g. euler_ancestral) */
   sampler?: string
+  /** Text encoder for the local prompt formatter */
+  promptFormatterTextEncoder?: string
 }
 
 type WorkflowNode = { class_type: string; inputs: Record<string, unknown>; _meta?: { title: string } }
@@ -116,8 +118,8 @@ const OPTIONAL_NODE_IDS = {
   mossTtsSave: '11',
   uploadAudio: '12',
   promptParser: '14',
-  positiveFormatter: '17',
-  negativeFormatter: '18',
+  ollamaPositiveFormatter: '17',
+  ollamaNegativeFormatter: '18',
   firstFrame: '20',
   middleFrame: '21',
   lastFrame: '22',
@@ -125,12 +127,24 @@ const OPTIONAL_NODE_IDS = {
   upscaleNode: '28',
   loadVideo: '29',
   videoFirstFrame: '30',
+  localPositiveFormatter: '36',
+  localNegativeFormatter: '37',
 }
 
-const PROMPT_FORMATTER_NODES = [
+const OLLAMA_FORMATTER_NODES = [
+  OPTIONAL_NODE_IDS.ollamaPositiveFormatter,
+  OPTIONAL_NODE_IDS.ollamaNegativeFormatter,
+]
+
+const LOCAL_FORMATTER_NODES = [
+  OPTIONAL_NODE_IDS.localPositiveFormatter,
+  OPTIONAL_NODE_IDS.localNegativeFormatter,
+]
+
+const ALL_FORMATTER_NODES = [
   OPTIONAL_NODE_IDS.promptParser,
-  OPTIONAL_NODE_IDS.positiveFormatter,
-  OPTIONAL_NODE_IDS.negativeFormatter,
+  ...OLLAMA_FORMATTER_NODES,
+  ...LOCAL_FORMATTER_NODES,
 ]
 
 const DEFAULT_NEGATIVE_PROMPT = 'worst quality, low quality, blurry, jittery, distorted, cropped, watermark, watermarked, extra fingers, missing fingers, fused fingers, mutated hands, deformed hands, extra limbs, missing limbs, deformed limbs, extra arms, extra legs, malformed limbs, disfigured, bad anatomy, bad proportions, ugly, duplicate, morbid, mutilated, poorly drawn face, poorly drawn hands, inconsistent motion'
@@ -252,10 +266,12 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   }
 
   // --- Patch prompt / prompt formatter chain ---
-  if (params.ollamaEnabled !== false) {
-    // Ollama enabled: route through prompt formatter chain
+  if (params.ollamaEnabled) {
+    // Ollama enabled: route through Ollama formatter chain
     // Node 17 (RSPromptFormatter) → Node 14 (RSPromptParser) → Node 7 (CLIP positive)
     // Node 14 → Node 18 (negative formatter) → Node 8 (CLIP negative)
+    for (const id of LOCAL_FORMATTER_NODES) delete workflow[id]
+
     workflow['17'].inputs['prompt'] = params.prompt
     if (params.ollamaUrl) workflow['17'].inputs['ollama_url'] = params.ollamaUrl
     if (params.ollamaModel) workflow['17'].inputs['model'] = params.ollamaModel
@@ -268,12 +284,27 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
       workflow['18'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
     }
   } else {
-    // Ollama disabled: remove prompt formatter nodes, feed text directly to CLIP
-    for (const id of PROMPT_FORMATTER_NODES) {
-      delete workflow[id]
+    // Ollama disabled (default): use local prompt formatter via text encoder weights
+    // Node 36 (RSPromptFormatterLocal) → Node 14 (RSPromptParser) → Node 7 (CLIP positive)
+    // Node 14 → Node 37 (local negative formatter) → Node 8 (CLIP negative)
+    for (const id of OLLAMA_FORMATTER_NODES) delete workflow[id]
+
+    workflow['36'].inputs['prompt'] = params.prompt
+    if (params.promptFormatterTextEncoder) {
+      workflow['36'].inputs['text_encoder'] = params.promptFormatterTextEncoder
+      workflow['37'].inputs['text_encoder'] = params.promptFormatterTextEncoder
     }
-    workflow['7'].inputs['text'] = params.prompt
-    workflow['8'].inputs['text'] = params.negativePrompt || DEFAULT_NEGATIVE_PROMPT
+
+    // Wire parser to local formatter instead of Ollama formatter
+    workflow['14'].inputs['script'] = ['36', 0]
+    // Wire CLIP negative to local negative formatter
+    workflow['8'].inputs['text'] = ['37', 0]
+
+    // If first image is provided, connect it to the prompt formatters as reference
+    if (params.firstImage) {
+      workflow['36'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+      workflow['37'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+    }
   }
 
   // --- Film grain: wire between node 6 images and node 23 ---

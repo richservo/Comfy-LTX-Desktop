@@ -25,6 +25,7 @@ export interface ComfyUISettings {
   temporalUpscaleModel: string
   upscaleLora: string
   sampler: string
+  promptFormatterTextEncoder: string
 }
 
 function getDefaultSettings(): ComfyUISettings {
@@ -37,7 +38,7 @@ function getDefaultSettings(): ComfyUISettings {
     lockedSeed: 42,
     steps: 30,
     cfg: 3,
-    ollamaEnabled: true,
+    ollamaEnabled: false,
     ollamaUrl: 'http://localhost:11434',
     ollamaModel: 'gemma3:12b',
     filmGrain: false,
@@ -50,6 +51,7 @@ function getDefaultSettings(): ComfyUISettings {
     temporalUpscaleModel: 'ltx-2.3-temporal-upscaler-x2-1.0.safetensors',
     upscaleLora: 'ltx-2.3-22b-distilled-lora-384.safetensors',
     sampler: 'euler_ancestral',
+    promptFormatterTextEncoder: 'gemma_3_12B_it_fp4_mixed.safetensors',
   }
 }
 

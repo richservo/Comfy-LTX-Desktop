@@ -14,6 +14,8 @@ export interface GenerationContext {
   hasFirstImage: boolean
   hasUpscale: boolean
   imageMode: boolean
+  /** Node IDs that are prompt formatters (show "Enhancing prompt" phase) */
+  formatterNodeIds?: string[]
 }
 
 const INITIAL_PROGRESS: GenerationProgress = {
@@ -36,6 +38,7 @@ export class ComfyUIProgressTracker {
   private stageIndex = 0
   private lastValue: number | null = null
   private stageLabels: string[] = ['Generating...']
+  private formatterNodeIds = new Set<string>()
 
   constructor(baseUrl = 'ws://localhost:8188') {
     this.baseUrl = baseUrl.replace(/^http/, 'ws').replace(/\/$/, '')
@@ -61,6 +64,7 @@ export class ComfyUIProgressTracker {
     }
     this.stageIndex = 0
     this.lastValue = null
+    this.formatterNodeIds = new Set(ctx.formatterNodeIds ?? [])
   }
 
   connect(clientId: string): void {
@@ -143,6 +147,12 @@ export class ComfyUIProgressTracker {
             errorMessage: null,
           }
           this.resolveCompletion()
+        } else if (this.formatterNodeIds.has(node)) {
+          this.progress = {
+            ...this.progress,
+            status: 'running',
+            phase: 'Enhancing prompt',
+          }
         }
         break
       }

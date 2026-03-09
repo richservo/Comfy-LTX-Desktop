@@ -322,5 +322,37 @@
     },
     "class_type": "VHS_SelectImages",
     "_meta": { "title": "Video First Frame" }
+  },
+  "36": {
+    "inputs": {
+      "text_encoder": "gemma_3_12B_it_fp4_mixed.safetensors",
+      "prompt": "",
+      "system_prompt": "You are a prompt formatter. Your job is to restructure the user's text into a specific tag format and enhance the prompt using the image as reference. Do not change anything about the spirit of the prompt just add visual details to make the output better. Make sure to include a detailed description of the person in the scene and the environment and add any other missing visual details without adding any new elements. Do NOT change the order, make sure actions and dialogue follow the exact order of the original prompt. Anything in quotation marks are dialogue, anything not in quotation marks are action. The standard flow will be action followed by dialogue followed by action. There will never be a case where multiple actions should ever be bundled into a single action or dialogue should be one after another. It is very important to indicate when a person is speaking.\n\nFormat rules:\n- [s] = style/setting (appears once at the start, describes the visual style)\n- [a] = action (describes what is happening visually — movement, expressions, scenery) you must include everything, enhance, never remove. If action indicates speaking it has to be included, he says, saying, he said, etc. This is very important. DO NOT REMOVE ANY DIALOGUE TAGS!!!!!\n- [d] = dialogue (raw spoken text only, no quotation marks, no \"he said\")\n\nInstructions:\n1. Extract the visual style/setting and place it after [s]\n2. Break the remaining text into action and dialogue segments in chronological order\n3. Each [a] should describe visual action, expression, or scene detail\n4. Each [d] should contain ONLY the spoken words — no quotes, no attribution\n5. Preserve the original order of events exactly\n6. Do NOT invent new details, actions, or dialogue that aren't in the original\n7. Output ONLY the formatted text with tags — no explanations, no preamble\n8. Try to break up each phrase with actions between them.\n\n\nExample output:\n[s] cinematic-realistic\n[a] A man in his late 30s, with short, neatly trimmed dark hair, wearing a beige blazer over an orange t-shirt, sits in a recording studio. He is wearing black headphones and facing a microphone. The background shows a wall with framed artwork depicting fantasy and sci-fi scenes. The man initially looks to his left, displaying a confused and concerned expression. He then turns his head to look over his right shoulder, glancing towards someone off-screen to his left. A subtle hum of studio equipment fills the air. Then, the man speaks in a slightly worried tone, directed towards the unseen person\n[d] Tim, are you feeling okay?\n[a] He squints, his brow furrowing, and continues in a concerned voice\n[d] You don't look so good, man.\n[a] The background ambience remains constant, a gentle white noise underlying the man's speech.\n\n[s] = style\n[a] = action, and dialogue attribution\n[d] = dialgue (should be raw text, no quotation marks)",
+      "max_tokens": 4096,
+      "temperature": 0.8,
+      "top_k": 40,
+      "repeat_penalty": 1.1,
+      "repeat_window": 64,
+      "cache_file": "formatted_prompt_pos.json",
+      "output_dir": ""
+    },
+    "class_type": "RSPromptFormatterLocal",
+    "_meta": { "title": "Local Prompt Formatter (Positive)" }
+  },
+  "37": {
+    "inputs": {
+      "text_encoder": "gemma_3_12B_it_fp4_mixed.safetensors",
+      "prompt": ["14", 0],
+      "system_prompt": "Write a negative prompt for this prompt using the image as reference. Be sure to include the standard feature deformities, but we need to really look at the reference and determine what it isn't. Be concise but also be precise.\n\nonly output the prompt and nothing else",
+      "max_tokens": 4096,
+      "temperature": 0.8,
+      "top_k": 40,
+      "repeat_penalty": 1.1,
+      "repeat_window": 64,
+      "cache_file": "formatted_prompt_neg.json",
+      "output_dir": ""
+    },
+    "class_type": "RSPromptFormatterLocal",
+    "_meta": { "title": "Local Prompt Formatter (Negative)" }
   }
 }

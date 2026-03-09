@@ -398,7 +398,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                 <div className="bg-zinc-800/30 rounded-lg p-3">
                   <p className="text-xs text-zinc-400">
                     <span className="text-blue-400 font-medium">Tip:</span> These values are sent to the RSLTXVGenerate node in ComfyUI.
-                    Default: 8 steps, 1.0 CFG.
+                    Default: 20 steps, 3.0 CFG.
                   </p>
                 </div>
               </div>
@@ -408,7 +408,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1">
                     <h3 className="text-sm font-semibold text-white">Ollama Prompt Formatter</h3>
-                    <p className="text-xs text-zinc-500">Uses a local LLM to generate optimized positive and negative prompts for better results.</p>
+                    <p className="text-xs text-zinc-500">Use an Ollama server instead of the built-in local prompt formatter.</p>
                   </div>
                   <button
                     onClick={() => updateSettings({ ollamaEnabled: !settings.ollamaEnabled })}
@@ -475,7 +475,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                 {!settings.ollamaEnabled && (
                   <div className="bg-zinc-800/30 rounded-lg p-3">
                     <p className="text-xs text-zinc-400">
-                      <span className="text-amber-400 font-medium">Note:</span> When disabled, a default negative prompt is used to prevent common artifacts.
+                      <span className="text-blue-400 font-medium">Tip:</span> The built-in local prompt formatter uses your text encoder weights directly — no Ollama server needed.
                     </p>
                   </div>
                 )}
@@ -561,6 +561,19 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                         className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
                         {modelLists.upscaleModels.map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-400 mb-1 block">Prompt Formatter Text Encoder</label>
+                      <p className="text-xs text-zinc-500 mb-1">Used by the local prompt formatter (not CLIP)</p>
+                      <select
+                        value={settings.promptFormatterTextEncoder}
+                        onChange={(e) => updateSettings({ promptFormatterTextEncoder: e.target.value })}
+                        className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {modelLists.textEncoders.map((m) => (
                           <option key={m} value={m}>{m}</option>
                         ))}
                       </select>

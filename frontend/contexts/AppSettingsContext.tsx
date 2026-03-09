@@ -20,6 +20,7 @@ export interface AppSettings {
   temporalUpscaleModel: string
   upscaleLora: string
   sampler: string
+  promptFormatterTextEncoder: string
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -27,9 +28,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   comfyuiOutputDir: '',
   seedLocked: false,
   lockedSeed: 42,
-  steps: 8,
-  cfg: 1.0,
-  ollamaEnabled: true,
+  steps: 20,
+  cfg: 3,
+  ollamaEnabled: false,
   ollamaUrl: 'http://localhost:11434',
   ollamaModel: 'gemma3:12b',
   filmGrain: false,
@@ -42,6 +43,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   temporalUpscaleModel: 'ltx-2.3-temporal-upscaler-x2-1.0.safetensors',
   upscaleLora: 'ltx-2.3-22b-distilled-lora-384.safetensors',
   sampler: 'euler_ancestral',
+  promptFormatterTextEncoder: 'gemma_3_12B_it_fp4_mixed.safetensors',
 }
 
 interface AppSettingsContextValue {

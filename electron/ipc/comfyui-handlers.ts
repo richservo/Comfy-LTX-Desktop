@@ -120,7 +120,7 @@ export function registerComfyUIHandlers(): void {
         spatialUpscale: params.imageMode ? false : (params.spatialUpscale ?? false),
         upscaleDenoise: params.imageMode ? undefined : params.upscaleDenoise,
         temporalUpscale: params.imageMode ? false : (params.temporalUpscale ?? false),
-        ollamaEnabled: settings.ollamaEnabled ?? true,
+        ollamaEnabled: settings.ollamaEnabled ?? false,
         ollamaUrl: settings.ollamaUrl,
         ollamaModel: settings.ollamaModel,
         filmGrain: params.filmGrain ?? false,
@@ -134,7 +134,8 @@ export function registerComfyUIHandlers(): void {
         spatialUpscaleModel: settings.spatialUpscaleModel,
         temporalUpscaleModel: settings.temporalUpscaleModel,
         upscaleLora: settings.upscaleLora,
-        sampler: settings.sampler,
+        sampler: params.imageMode ? 'res_2s' : settings.sampler,
+        promptFormatterTextEncoder: settings.promptFormatterTextEncoder,
       })
 
       // Debug: log key workflow params
@@ -146,10 +147,12 @@ export function registerComfyUIHandlers(): void {
 
       // 6. Connect WebSocket for progress
       progressTracker.setBaseUrl(settings.comfyuiUrl)
+      const ollamaEnabled = settings.ollamaEnabled ?? false
       progressTracker.setGenerationContext({
         hasFirstImage: !!uploadedImage,
         hasUpscale: !!(params.spatialUpscale),
         imageMode: !!params.imageMode,
+        formatterNodeIds: ollamaEnabled ? ['17', '18'] : ['36', '37'],
       })
       progressTracker.connect(clientId)
 
