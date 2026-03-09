@@ -72,6 +72,8 @@ Frontend (React) ──IPC──> Electron Main ──HTTP/WS──> ComfyUI
 - **Sampler** — noise sampling algorithm (fetched from ComfyUI, default: euler_ancestral)
 - **Ollama Prompt Formatter** — toggle + URL/model config
 
+> **Quality tip:** The defaults are tuned for speed. For significantly higher quality, try **30 steps** with **res_2s** sampling (included with rs-nodes, which is auto-installed on first launch). It takes roughly 50% longer but the quality improvement is dramatic.
+
 ### Models (Settings > Models)
 
 Dropdowns populated from ComfyUI's `/object_info` API:

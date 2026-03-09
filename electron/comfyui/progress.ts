@@ -34,7 +34,7 @@ export class ComfyUIProgressTracker {
   private completionReject: ((reason: Error) => void) | null = null
 
   private stageIndex = 0
-  private lastMax: number | null = null
+  private lastValue: number | null = null
   private stageLabels: string[] = ['Generating...']
 
   constructor(baseUrl = 'ws://localhost:8188') {
@@ -60,14 +60,14 @@ export class ComfyUIProgressTracker {
         : ['Generating first frame', 'Generating video']
     }
     this.stageIndex = 0
-    this.lastMax = null
+    this.lastValue = null
   }
 
   connect(clientId: string): void {
     this.disconnect()
     this.progress = { ...INITIAL_PROGRESS }
     this.stageIndex = 0
-    this.lastMax = null
+    this.lastValue = null
 
     const wsUrl = `${this.baseUrl}/ws?clientId=${clientId}`
     logger.info(`ComfyUI WebSocket connecting to ${wsUrl}`)
@@ -151,12 +151,12 @@ export class ComfyUIProgressTracker {
         const value = data?.['value'] as number | undefined
         const max = data?.['max'] as number | undefined
         if (value !== undefined && max !== undefined && max > 0) {
-          // Detect stage transition: max changed (new diffusion pass)
-          if (this.lastMax !== null && max !== this.lastMax) {
+          // Detect stage transition: value reset (new diffusion pass)
+          if (this.lastValue !== null && value < this.lastValue) {
             this.stageIndex++
             logger.info(`Progress stage transition → ${this.stageIndex}: ${this.getStageLabel()}`)
           }
-          this.lastMax = max
+          this.lastValue = value
 
           this.progress = {
             status: 'running',
@@ -247,7 +247,7 @@ export class ComfyUIProgressTracker {
     this.completionResolve = null
     this.completionReject = null
     this.stageIndex = 0
-    this.lastMax = null
+    this.lastValue = null
   }
 
   getActivePromptId(): string | null {

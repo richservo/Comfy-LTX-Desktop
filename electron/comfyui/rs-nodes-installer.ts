@@ -45,47 +45,65 @@ function execPromise(
   })
 }
 
-export async function installRsNodes(
+interface CustomNodeRepo {
+  name: string
+  url: string
+  dir: string
+}
+
+const CUSTOM_NODE_REPOS: CustomNodeRepo[] = [
+  { name: 'rs-nodes', url: 'https://github.com/richservo/rs-nodes.git', dir: 'rs-nodes' },
+  { name: 'RES4LYF', url: 'https://github.com/ClownsharkBatwing/RES4LYF.git', dir: 'RES4LYF' },
+]
+
+async function installCustomNode(
   comfyPath: string,
+  repo: CustomNodeRepo,
   onProgress: (progress: RsNodesProgress) => void,
 ): Promise<void> {
   const customNodesDir = path.join(comfyPath, 'custom_nodes')
-  const rsNodesDir = path.join(customNodesDir, 'rs-nodes')
+  const nodeDir = path.join(customNodesDir, repo.dir)
 
-  // Ensure custom_nodes directory exists
   fs.mkdirSync(customNodesDir, { recursive: true })
 
-  if (fs.existsSync(path.join(rsNodesDir, '.git'))) {
-    // Update existing
-    onProgress({ phase: 'updating', message: 'Updating rs-nodes...' })
+  if (fs.existsSync(path.join(nodeDir, '.git'))) {
+    onProgress({ phase: 'updating', message: `Updating ${repo.name}...` })
     try {
-      await execPromise('git', ['pull'], { cwd: rsNodesDir })
+      await execPromise('git', ['pull'], { cwd: nodeDir })
     } catch (err) {
-      logger.warn(`git pull failed for rs-nodes, continuing: ${err}`)
+      logger.warn(`git pull failed for ${repo.name}, continuing: ${err}`)
     }
   } else {
-    // Fresh clone
-    onProgress({ phase: 'cloning', message: 'Cloning rs-nodes...' })
+    onProgress({ phase: 'cloning', message: `Cloning ${repo.name}...` })
     await execPromise(
       'git',
-      ['clone', 'https://github.com/richservo/rs-nodes.git', rsNodesDir],
+      ['clone', repo.url, nodeDir],
       { cwd: customNodesDir },
     )
   }
 
   // Install pip requirements if requirements.txt exists
-  const reqFile = path.join(rsNodesDir, 'requirements.txt')
+  const reqFile = path.join(nodeDir, 'requirements.txt')
   if (fs.existsSync(reqFile)) {
-    onProgress({ phase: 'installing-deps', message: 'Installing rs-nodes dependencies...' })
+    onProgress({ phase: 'installing-deps', message: `Installing ${repo.name} dependencies...` })
     const python = findComfyPython(comfyPath)
     if (python) {
       await execPromise(python, ['-m', 'pip', 'install', '-r', reqFile], {
-        cwd: rsNodesDir,
+        cwd: nodeDir,
       })
     } else {
-      logger.warn('Could not find ComfyUI Python venv — skipping pip install for rs-nodes')
+      logger.warn(`Could not find ComfyUI Python venv — skipping pip install for ${repo.name}`)
     }
   }
+}
 
-  onProgress({ phase: 'complete', message: 'rs-nodes installed successfully' })
+export async function installRsNodes(
+  comfyPath: string,
+  onProgress: (progress: RsNodesProgress) => void,
+): Promise<void> {
+  for (const repo of CUSTOM_NODE_REPOS) {
+    await installCustomNode(comfyPath, repo, onProgress)
+  }
+
+  onProgress({ phase: 'complete', message: 'Custom nodes installed successfully' })
 }
