@@ -31,19 +31,30 @@ The required [rs-nodes](https://github.com/richservo/rs-nodes) custom nodes are 
 
 ## Install
 
-Prerequisites: [Node.js](https://nodejs.org/) (v18+), [pnpm](https://pnpm.io/), [Git](https://git-scm.com/), and [ComfyUI](https://github.com/comfyanonymous/ComfyUI) already installed and working.
+Prerequisites: [Node.js](https://nodejs.org/) (v18+), [Git](https://git-scm.com/), and [ComfyUI](https://github.com/comfyanonymous/ComfyUI) already installed and working.
+
+### Windows (easy)
+
+1. Install [Node.js](https://nodejs.org/) (LTS) and [Git](https://git-scm.com/) if you don't have them
+2. Clone this repo (or download ZIP and extract):
+   ```
+   git clone https://github.com/richservo/Comfy-LTX-Desktop.git
+   ```
+3. Double-click **`start.bat`** — it installs everything and launches the app
+
+To launch again later, just double-click `start.bat` again.
+
+### Manual / macOS / Linux
 
 ```bash
-# Clone this repo
 git clone https://github.com/richservo/Comfy-LTX-Desktop.git
 cd Comfy-LTX-Desktop
-
-# Install dependencies
+npm install -g pnpm   # if you don't have pnpm
 pnpm install
-
-# Launch
 pnpm dev
 ```
+
+### First launch
 
 On first launch, the setup wizard will:
 1. Ask you to point to your ComfyUI installation directory
