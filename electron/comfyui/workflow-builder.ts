@@ -116,11 +116,8 @@ const OPTIONAL_NODE_IDS = {
   mossTtsSave: '11',
   uploadAudio: '12',
   promptParser: '14',
-  promptPreview: '15',
-  positivePreview: '16',
   positiveFormatter: '17',
   negativeFormatter: '18',
-  negativePreview: '19',
   firstFrame: '20',
   middleFrame: '21',
   lastFrame: '22',
@@ -129,14 +126,11 @@ const OPTIONAL_NODE_IDS = {
 
 const PROMPT_FORMATTER_NODES = [
   OPTIONAL_NODE_IDS.promptParser,
-  OPTIONAL_NODE_IDS.promptPreview,
-  OPTIONAL_NODE_IDS.positivePreview,
   OPTIONAL_NODE_IDS.positiveFormatter,
   OPTIONAL_NODE_IDS.negativeFormatter,
-  OPTIONAL_NODE_IDS.negativePreview,
 ]
 
-const DEFAULT_NEGATIVE_PROMPT = 'worst quality, inconsistent motion, blurry, jittery, distorted, cropped, watermark, watermarked'
+const DEFAULT_NEGATIVE_PROMPT = 'worst quality, low quality, blurry, jittery, distorted, cropped, watermark, watermarked, extra fingers, missing fingers, fused fingers, mutated hands, deformed hands, extra limbs, missing limbs, deformed limbs, extra arms, extra legs, malformed limbs, disfigured, bad anatomy, bad proportions, ugly, duplicate, morbid, mutilated, poorly drawn face, poorly drawn hands, inconsistent motion'
 
 export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   // Deep clone the template
@@ -252,9 +246,8 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   // --- Patch prompt / prompt formatter chain ---
   if (params.ollamaEnabled !== false) {
     // Ollama enabled: route through prompt formatter chain
-    // Node 17 (RSPromptFormatter) → Ollama → Node 15 (preview) → Node 14 (parser)
-    // → Node 16 (positive preview) → Node 7 (CLIP positive)
-    // Node 18 (negative formatter) → Node 19 (negative preview) → Node 8 (CLIP negative)
+    // Node 17 (RSPromptFormatter) → Node 14 (RSPromptParser) → Node 7 (CLIP positive)
+    // Node 14 → Node 18 (negative formatter) → Node 8 (CLIP negative)
     workflow['17'].inputs['prompt'] = params.prompt
     if (params.ollamaUrl) workflow['17'].inputs['ollama_url'] = params.ollamaUrl
     if (params.ollamaModel) workflow['17'].inputs['model'] = params.ollamaModel

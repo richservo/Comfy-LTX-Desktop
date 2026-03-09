@@ -88,19 +88,19 @@
   },
   "7": {
     "inputs": {
-      "text": ["16", 0],
+      "text": ["14", 0],
       "clip": ["4", 0]
     },
     "class_type": "CLIPTextEncode",
-    "_meta": { "title": "Positive Prompt" }
+    "_meta": { "title": "CLIP Positive" }
   },
   "8": {
     "inputs": {
-      "text": ["19", 0],
+      "text": ["18", 0],
       "clip": ["4", 0]
     },
     "class_type": "CLIPTextEncode",
-    "_meta": { "title": "Negative Prompt" }
+    "_meta": { "title": "CLIP Negative" }
   },
   "9": {
     "inputs": {
@@ -153,27 +153,11 @@
   },
   "14": {
     "inputs": {
-      "script": ["15", 0],
+      "script": ["17", 0],
       "dialogue_mode": "all",
       "dialogue_index": 1
     },
     "class_type": "RSPromptParser",
-    "_meta": { "title": "RS Prompt Parser" }
-  },
-  "15": {
-    "inputs": {
-      "PreviewTextNode_0": "",
-      "text": ["17", 0]
-    },
-    "class_type": "PreviewTextNode",
-    "_meta": { "title": "Formatted Prompt Preview" }
-  },
-  "16": {
-    "inputs": {
-      "PreviewTextNode_1": "",
-      "text": ["14", 0]
-    },
-    "class_type": "PreviewTextNode",
     "_meta": { "title": "Positive Prompt" }
   },
   "17": {
@@ -190,7 +174,7 @@
   },
   "18": {
     "inputs": {
-      "prompt": ["16", 0],
+      "prompt": ["14", 0],
       "system_prompt": "Write a negative prompt for this prompt using the image as reference. Be sure to include the standard feature deformities, but we need to really look at the reference and determine what it isn't. Be concise but also be precise.\n\nonly output the prompt and nothing else",
       "model": "gemma3:12b",
       "ollama_url": "http://localhost:11434",
@@ -198,14 +182,6 @@
       "output_dir": ""
     },
     "class_type": "RSPromptFormatter",
-    "_meta": { "title": "RS Prompt Formatter (Negative)" }
-  },
-  "19": {
-    "inputs": {
-      "PreviewTextNode_2": "",
-      "text": ["18", 0]
-    },
-    "class_type": "PreviewTextNode",
     "_meta": { "title": "Negative Prompt" }
   },
   "20": {
