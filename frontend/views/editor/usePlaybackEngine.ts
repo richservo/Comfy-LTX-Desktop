@@ -60,6 +60,8 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
   } = params
 
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
+  const scrubAudioTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastScrubTimeRef = useRef<number>(-1)
 
   // ─── Unified playback engine (rAF) ───────────────────────────────────
   // During playback this loop is the SINGLE authority for:
@@ -237,7 +239,18 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
                   : Math.max(0, Math.min(vd, outClip.trimStart + timeInClip * outClip.speed))
                 if (outClip.reversed) {
                   if (!outVid.paused) outVid.pause()
-                  if (!isNaN(tt) && Math.abs(outVid.currentTime - tt) > 0.04) outVid.currentTime = tt
+                  // seeked-event gated seeking for dissolve reverse
+                  if (!isNaN(tt) && Math.abs(outVid.currentTime - tt) > 0.04) {
+                    if (!(outVid as any).__reverseSeekPending) {
+                      (outVid as any).__reverseSeekPending = true
+                      outVid.currentTime = tt
+                      const onSeeked = () => {
+                        outVid.removeEventListener('seeked', onSeeked)
+                        ;(outVid as any).__reverseSeekPending = false
+                      }
+                      outVid.addEventListener('seeked', onSeeked)
+                    }
+                  }
                 } else {
                   if (!isNaN(tt) && Math.abs(outVid.currentTime - tt) > 0.3) outVid.currentTime = tt
                   if (outVid.paused) outVid.play().catch(() => {})
@@ -328,9 +341,17 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
                 if (syncClip.reversed) {
                   if (!v.paused) v.pause()
                   v.playbackRate = 1
+                  // seeked-event gated seeking: only seek when the previous seek has completed
                   if (!isNaN(targetTime) && Math.abs(v.currentTime - targetTime) > 0.04) {
-                    if (typeof (v as any).fastSeek === 'function') (v as any).fastSeek(targetTime)
-                    else v.currentTime = targetTime
+                    if (!(v as any).__reverseSeekPending) {
+                      (v as any).__reverseSeekPending = true
+                      v.currentTime = targetTime
+                      const onSeeked = () => {
+                        v.removeEventListener('seeked', onSeeked)
+                        ;(v as any).__reverseSeekPending = false
+                      }
+                      v.addEventListener('seeked', onSeeked)
+                    }
                   }
                 } else {
                   v.playbackRate = syncClip.speed
@@ -557,6 +578,31 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       animFrameId = requestAnimationFrame(tick)
     }
     
+    // Sync the ref to where the user last scrubbed/seeked so first tick starts there
+    playbackTimeRef.current = currentTime
+
+    // Pre-seek all active audio elements to the correct starting position
+    {
+      const allClips = clipsRef.current
+      const trks = tracksRef.current
+      for (const c of allClips) {
+        if (c.type === 'adjustment' || c.type === 'text' || c.type === 'image') continue
+        if (currentTime < c.startTime || currentTime >= c.startTime + c.duration) continue
+        if (trks[c.trackIndex]?.enabled === false) continue
+        if (c.type === 'video' && (!c.linkedClipIds || !c.linkedClipIds.some(lid => allClips.some(ac => ac.id === lid && ac.type === 'audio')))) continue
+
+        const el = audioElementsRef.current.get(c.id)
+        if (el && el.readyState >= 2) {
+          const assetDur = el.duration || c.duration
+          const timeInClip = currentTime - c.startTime
+          const target = c.reversed
+            ? Math.max(0, assetDur - c.trimEnd - timeInClip * c.speed)
+            : Math.max(0, c.trimStart + timeInClip * c.speed)
+          el.currentTime = target
+        }
+      }
+    }
+
     animFrameId = requestAnimationFrame(tick)
     return () => {
       cancelAnimationFrame(animFrameId)
@@ -866,15 +912,12 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     // During playback, the rAF loop handles audio sync directly for zero-latency.
     // This effect only handles scrubbing / seeking (when NOT playing).
     if (isPlaying) return
-    
-    // Pause all audio elements when not playing and reset sync flags.
-    // IMPORTANT: Don't destroy elements (no el.src = '') — keep buffers alive
-    // so playback can resume instantly without reloading.
+
+    // Reset sync flags so the rAF loop does a fresh seek+play on next playback start.
     for (const [, el] of audioElementsRef.current) {
-      if (!el.paused) el.pause()
       ;(el as any).__audioPlaying = false
     }
-    
+
     // Helper to get the live URL for a clip (from project context, respecting takes)
     const getAudioClipUrl = (clip: TimelineClip): string | null => {
       if (clip.assetId) {
@@ -889,7 +932,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       }
       return clip.asset?.url || clip.importedUrl || null
     }
-    
+
     // Pre-create audio elements for audio clips and video clips that have linked audio.
     // Video clips without a linked audio clip (e.g. added with audio tracks unpatched)
     // should not produce any audio output.
@@ -900,7 +943,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       return true
     })
     const allAudioClipIds = new Set(allAudioClips.map(c => c.id))
-    
+
     // Remove elements for clips that no longer exist on the timeline
     for (const [id, el] of audioElementsRef.current) {
       if (!allAudioClipIds.has(id)) {
@@ -909,12 +952,15 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         audioElementsRef.current.delete(id)
       }
     }
-    
+
+    // Track which clip IDs are at the playhead for selective pause
+    const atPlayheadIds = new Set<string>()
+
     // Pre-create / seek audio elements
     for (const clip of allAudioClips) {
       const clipUrl = getAudioClipUrl(clip)!
       let el = audioElementsRef.current.get(clip.id)
-      
+
       if (!el) {
         el = document.createElement('audio')
         el.src = clipUrl
@@ -925,33 +971,56 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         el.src = clipUrl
         ;(el as any).__intendedSrc = clipUrl
       }
-      
+
       const isAtPlayhead = currentTime >= clip.startTime && currentTime < clip.startTime + clip.duration
       if (!isAtPlayhead) continue
-      
+      atPlayheadIds.add(clip.id)
+
       const liveAsset = clip.assetId ? assets.find(a => a.id === clip.assetId) : null
       const assetDuration = liveAsset?.duration || clip.asset?.duration || clip.duration
       const timeInClip = currentTime - clip.startTime
       const targetTime = clip.reversed
         ? Math.max(0, assetDuration - clip.trimEnd - timeInClip * clip.speed)
         : Math.max(0, clip.trimStart + timeInClip * clip.speed)
-      
+
       const anySoloedScrub = tracks.some(t => t.solo)
       const scrubTrack = tracks[clip.trackIndex]
       const isSoloMutedScrub = anySoloedScrub && !scrubTrack?.solo
       el.muted = clip.muted || scrubTrack?.muted || isSoloMutedScrub || false
       el.volume = clip.volume
-      
-      // Seek to correct position (paused — only for scrub preview)
-      if (el.readyState >= 2 && Math.abs(el.currentTime - targetTime) > 0.05) {
+
+      // Audio scrubbing: seek and play a short snippet at the current position.
+      // Only trigger when the playhead actually moved (not on re-renders with same time).
+      if (el.readyState >= 2 && lastScrubTimeRef.current !== currentTime) {
+        el.currentTime = targetTime
+        el.play().catch(() => {})
+        // Clear any previous scrub timeout and set a new one
+        if (scrubAudioTimerRef.current) clearTimeout(scrubAudioTimerRef.current)
+        scrubAudioTimerRef.current = setTimeout(() => {
+          // Don't pause if playback started mid-scrub
+          if (!isPlayingRef.current && !el.paused) el.pause()
+          scrubAudioTimerRef.current = null
+        }, 80)
+      } else if (el.readyState >= 2 && Math.abs(el.currentTime - targetTime) > 0.05) {
+        // Just seek without playing (same position re-render)
         el.currentTime = targetTime
       }
     }
+
+    // Pause elements NOT at playhead (don't touch scrubbing ones at playhead)
+    for (const [id, el] of audioElementsRef.current) {
+      if (!atPlayheadIds.has(id) && !el.paused) {
+        el.pause()
+      }
+    }
+
+    lastScrubTimeRef.current = currentTime
   }, [currentTime, isPlaying, clips, tracks, assets])
   
-  // Clean up all audio elements on unmount
+  // Clean up all audio elements and scrub timer on unmount
   useEffect(() => {
     return () => {
+      if (scrubAudioTimerRef.current) clearTimeout(scrubAudioTimerRef.current)
       for (const [, el] of audioElementsRef.current) {
         el.pause()
         el.src = ''

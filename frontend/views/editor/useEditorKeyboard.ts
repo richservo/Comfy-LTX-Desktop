@@ -28,6 +28,7 @@ interface KeyboardRefs {
   sourceVideoRef: React.MutableRefObject<HTMLVideoElement | null>
   sourceIsPlayingRef: React.MutableRefObject<boolean>
   sourceTimeRef: React.MutableRefObject<number>
+  sourceSpeedRef: React.MutableRefObject<number>
   centerOnPlayheadRef: React.MutableRefObject<boolean>
   getMinZoomRef: React.MutableRefObject<() => number>
   gapGenerateModeRef: React.MutableRefObject<'text-to-video' | 'image-to-video' | 'text-to-image' | null>
@@ -57,6 +58,9 @@ interface KeyboardSetters {
   setSourceTime: (v: number) => void
   setSourceIn: React.Dispatch<React.SetStateAction<number | null>>
   setSourceOut: React.Dispatch<React.SetStateAction<number | null>>
+  sourceShuttleForward: () => void
+  sourceShuttleReverse: () => void
+  sourceShuttleStop: () => void
   setInPoint: (updater: (prev: number | null) => number | null) => void
   setOutPoint: (updater: (prev: number | null) => number | null) => void
   clearInOut: () => void
@@ -138,11 +142,17 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
 
         case 'transport.shuttleReverse':
           if (refs.activePanelRef.current === 'source') {
-            if (refs.sourceVideoRef.current) {
-              refs.sourceVideoRef.current.pause()
-              setters.setSourceIsPlaying(false)
-              refs.sourceVideoRef.current.currentTime = Math.max(0, refs.sourceVideoRef.current.currentTime - FRAME_DURATION)
-              setters.setSourceTime(refs.sourceVideoRef.current.currentTime)
+            if (kHeldRef.current) {
+              // K+J = step back one frame
+              setters.sourceShuttleStop()
+              if (refs.sourceVideoRef.current) {
+                const kjTime = Math.max(0, refs.sourceTimeRef.current - FRAME_DURATION)
+                refs.sourceTimeRef.current = kjTime
+                refs.sourceVideoRef.current.currentTime = kjTime
+                setters.setSourceTime(kjTime)
+              }
+            } else {
+              setters.sourceShuttleReverse()
             }
           } else {
             if (kHeldRef.current) {
@@ -162,8 +172,8 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
 
         case 'transport.shuttleStop':
           if (refs.activePanelRef.current === 'source') {
-            refs.sourceVideoRef.current?.pause()
-            setters.setSourceIsPlaying(false)
+            kHeldRef.current = true
+            setters.sourceShuttleStop()
           } else {
             kHeldRef.current = true
             setters.setShuttleSpeed(0)
@@ -173,16 +183,17 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
 
         case 'transport.shuttleForward':
           if (refs.activePanelRef.current === 'source') {
-            if (refs.sourceVideoRef.current) {
-              if (kHeldRef.current) {
-                refs.sourceVideoRef.current.pause()
-                setters.setSourceIsPlaying(false)
-                refs.sourceVideoRef.current.currentTime = Math.min(refs.sourceVideoRef.current.duration || 0, refs.sourceVideoRef.current.currentTime + FRAME_DURATION)
-                setters.setSourceTime(refs.sourceVideoRef.current.currentTime)
-              } else {
-                refs.sourceVideoRef.current.play().catch(() => {})
-                setters.setSourceIsPlaying(true)
+            if (kHeldRef.current) {
+              // K+L = step forward one frame
+              setters.sourceShuttleStop()
+              if (refs.sourceVideoRef.current) {
+                const klTime = Math.min(refs.sourceVideoRef.current.duration || 0, refs.sourceTimeRef.current + FRAME_DURATION)
+                refs.sourceTimeRef.current = klTime
+                refs.sourceVideoRef.current.currentTime = klTime
+                setters.setSourceTime(klTime)
               }
+            } else {
+              setters.sourceShuttleForward()
             }
           } else {
             if (kHeldRef.current) {
@@ -202,8 +213,11 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
 
         case 'transport.stepBackward':
           if (refs.activePanelRef.current === 'source' && refs.sourceVideoRef.current) {
-            refs.sourceVideoRef.current.currentTime = Math.max(0, refs.sourceVideoRef.current.currentTime - FRAME_DURATION)
-            setters.setSourceTime(refs.sourceVideoRef.current.currentTime)
+            // Update ref immediately so rapid key repeat works (React setState is async)
+            const stepBackTime = Math.max(0, refs.sourceTimeRef.current - FRAME_DURATION)
+            refs.sourceTimeRef.current = stepBackTime
+            refs.sourceVideoRef.current.currentTime = stepBackTime
+            setters.setSourceTime(stepBackTime)
           } else {
             setters.setCurrentTime(prev => Math.max(0, prev - FRAME_DURATION))
           }
@@ -211,8 +225,10 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
 
         case 'transport.stepForward':
           if (refs.activePanelRef.current === 'source' && refs.sourceVideoRef.current) {
-            refs.sourceVideoRef.current.currentTime = Math.min(refs.sourceVideoRef.current.duration || 0, refs.sourceVideoRef.current.currentTime + FRAME_DURATION)
-            setters.setSourceTime(refs.sourceVideoRef.current.currentTime)
+            const stepFwdTime = Math.min(refs.sourceVideoRef.current.duration || 0, refs.sourceTimeRef.current + FRAME_DURATION)
+            refs.sourceTimeRef.current = stepFwdTime
+            refs.sourceVideoRef.current.currentTime = stepFwdTime
+            setters.setSourceTime(stepFwdTime)
           } else {
             setters.setCurrentTime(prev => Math.min(td, prev + FRAME_DURATION))
           }

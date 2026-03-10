@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { Play, Pause, Square, SkipBack, SkipForward, ChevronLeft, ChevronRight, Video, Music, X } from 'lucide-react'
 import type { Asset } from '../../types/project'
 import { formatTime } from './video-editor-utils'
@@ -10,6 +10,8 @@ export interface SourceMonitorProps {
   setSourceTime: (t: number | ((prev: number) => number)) => void
   sourceIsPlaying: boolean
   setSourceIsPlaying: (v: boolean) => void
+  sourceSpeed: number
+  setSourceSpeed: (v: number) => void
   sourceIn: number | null
   sourceOut: number | null
   setSourceIn: (v: number | null | ((prev: number | null) => number | null)) => void
@@ -29,8 +31,10 @@ export function SourceMonitor({
   sourceAsset,
   sourceTime,
   setSourceTime,
-  sourceIsPlaying,
-  setSourceIsPlaying,
+  sourceIsPlaying: _sourceIsPlaying,
+  setSourceIsPlaying: _setSourceIsPlaying,
+  sourceSpeed,
+  setSourceSpeed,
   sourceIn,
   sourceOut,
   setSourceIn,
@@ -44,33 +48,23 @@ export function SourceMonitor({
   onInsertEdit,
   onOverwriteEdit,
 }: SourceMonitorProps) {
-  const [sourceReversePlaying, setSourceReversePlaying] = useState(false)
-  const reverseRafRef = useRef<number | null>(null)
-  const reverseLastRef = useRef<number | null>(null)
+  const [videoDuration, setVideoDuration] = useState<number>(0)
 
+  // Reset video duration when asset changes
   useEffect(() => {
-    if (!sourceReversePlaying) {
-      if (reverseRafRef.current) cancelAnimationFrame(reverseRafRef.current)
-      reverseRafRef.current = null
-      reverseLastRef.current = null
-      return
-    }
-    sourceVideoRef.current?.pause()
-    const tick = (ts: number) => {
-      if (!sourceReversePlaying) return
-      if (reverseLastRef.current !== null) {
-        const delta = (ts - reverseLastRef.current) / 1000
-        const next = Math.max(0, (sourceVideoRef.current?.currentTime ?? sourceTime) - delta)
-        if (sourceVideoRef.current) sourceVideoRef.current.currentTime = next
-        setSourceTime(next)
-        if (next <= 0) { setSourceReversePlaying(false); return }
-      }
-      reverseLastRef.current = ts
-      reverseRafRef.current = requestAnimationFrame(tick)
-    }
-    reverseRafRef.current = requestAnimationFrame(tick)
-    return () => { if (reverseRafRef.current) cancelAnimationFrame(reverseRafRef.current) }
-  }, [sourceReversePlaying])
+    setVideoDuration(0)
+  }, [sourceAsset?.id])
+
+  // Use actual video element duration, then asset metadata, then fallback
+  const effectiveDuration = videoDuration || sourceAsset?.duration || 5
+
+  // Speed label for overlay (only show when not at normal speed)
+  const speedLabel = sourceSpeed === 0 || sourceSpeed === 1 ? null
+    : `${sourceSpeed > 0 ? '' : ''}${sourceSpeed}x`
+
+  const handleStop = useCallback(() => {
+    setSourceSpeed(0)
+  }, [setSourceSpeed])
 
   return (
     <div
@@ -82,7 +76,7 @@ export function SourceMonitor({
       <div className="h-7 bg-zinc-900 border-b border-zinc-800 flex items-center justify-between px-3 flex-shrink-0">
         <span className="text-[11px] font-semibold text-zinc-400 tracking-wide">Clip Viewer</span>
         <Tooltip content="Close clip viewer" side="left">
-          <button onClick={() => { setShowSourceMonitor(false); setSourceIsPlaying(false) }} className="text-zinc-500 hover:text-white">
+          <button onClick={() => { setShowSourceMonitor(false); handleStop() }} className="text-zinc-500 hover:text-white">
             <X className="h-3.5 w-3.5" />
           </button>
         </Tooltip>
@@ -96,10 +90,18 @@ export function SourceMonitor({
                 ref={sourceVideoRef as React.RefObject<HTMLVideoElement>}
                 src={sourceAsset.url}
                 className="max-w-full max-h-full object-contain"
-                onTimeUpdate={() => {
-                  if (sourceVideoRef.current) setSourceTime(sourceVideoRef.current.currentTime)
+                onLoadedMetadata={() => {
+                  if (sourceVideoRef.current && sourceVideoRef.current.duration && isFinite(sourceVideoRef.current.duration)) {
+                    setVideoDuration(sourceVideoRef.current.duration)
+                  }
                 }}
-                onEnded={() => setSourceIsPlaying(false)}
+                onTimeUpdate={() => {
+                  // Only sync from native playback (forward), not during reverse rAF
+                  if (sourceVideoRef.current && sourceSpeed >= 0) {
+                    setSourceTime(sourceVideoRef.current.currentTime)
+                  }
+                }}
+                onEnded={() => setSourceSpeed(0)}
                 playsInline
               />
             ) : sourceAsset.type === 'image' ? (
@@ -110,7 +112,6 @@ export function SourceMonitor({
                 <p className="text-sm">{sourceAsset.path?.split('/').pop() || 'Audio'}</p>
               </div>
             )}
-            {/* Timecode overlays moved to bottom status bar */}
           </>
         ) : (
           <div className="text-center text-zinc-600">
@@ -118,9 +119,14 @@ export function SourceMonitor({
             <p className="text-xs">Double-click an asset to load it here</p>
           </div>
         )}
+        {/* Speed indicator overlay */}
+        {speedLabel && (
+          <div className="absolute top-2 right-2 bg-black/70 px-1.5 py-0.5 rounded text-[11px] font-mono text-blue-400 pointer-events-none">
+            {speedLabel}
+          </div>
+        )}
       </div>
       {/* Scrub bar with In/Out markers */}
-      {/* Premiere-style scrub bar with In/Out range */}
       {sourceAsset && (sourceAsset.type === 'video' || sourceAsset.type === 'audio') && (
         <div className="bg-zinc-900 border-t border-zinc-800 flex-shrink-0 relative px-2 py-1">
           {/* Scrub track */}
@@ -130,10 +136,11 @@ export function SourceMonitor({
             onMouseDown={(e) => {
               const bar = e.currentTarget
               const rect = bar.getBoundingClientRect()
-              const dur = sourceAsset.duration || 5
+              // Stop playback when scrubbing
+              setSourceSpeed(0)
               const seek = (clientX: number) => {
                 const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-                const t = frac * dur
+                const t = frac * effectiveDuration
                 setSourceTime(t)
                 if (sourceVideoRef.current) sourceVideoRef.current.currentTime = t
               }
@@ -151,13 +158,13 @@ export function SourceMonitor({
             {sourceIn !== null && (
               <div
                 className="absolute top-0 bottom-0 left-0 bg-black/50 rounded-l"
-                style={{ width: `${(sourceIn / (sourceAsset.duration || 5)) * 100}%` }}
+                style={{ width: `${(sourceIn / effectiveDuration) * 100}%` }}
               />
             )}
             {sourceOut !== null && (
               <div
                 className="absolute top-0 bottom-0 right-0 bg-black/50 rounded-r"
-                style={{ width: `${100 - (sourceOut / (sourceAsset.duration || 5)) * 100}%` }}
+                style={{ width: `${100 - (sourceOut / effectiveDuration) * 100}%` }}
               />
             )}
 
@@ -166,8 +173,8 @@ export function SourceMonitor({
               <div
                 className="absolute top-0 bottom-0 border-t-2 border-b-2 border-blue-400/70"
                 style={{
-                  left: `${((sourceIn ?? 0) / (sourceAsset!.duration || 5)) * 100}%`,
-                  width: `${(((sourceOut ?? sourceAsset!.duration ?? 5) - (sourceIn ?? 0)) / (sourceAsset!.duration || 5)) * 100}%`,
+                  left: `${((sourceIn ?? 0) / effectiveDuration) * 100}%`,
+                  width: `${(((sourceOut ?? effectiveDuration) - (sourceIn ?? 0)) / effectiveDuration) * 100}%`,
                 }}
               >
                 <div className="absolute inset-0 top-1/2 -translate-y-1/2 h-1 bg-blue-400/40 rounded-full" />
@@ -178,7 +185,7 @@ export function SourceMonitor({
             {sourceIn !== null && (
               <div
                 className="absolute top-0 bottom-0 flex items-center z-10 cursor-ew-resize"
-                style={{ left: `calc(${(sourceIn / (sourceAsset!.duration || 5)) * 100}% - 8px)`, width: 14 }}
+                style={{ left: `calc(${(sourceIn / effectiveDuration) * 100}% - 8px)`, width: 14 }}
                 onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggingMarker('sourceIn') }}
               >
                 <div className="w-1.5 h-full bg-blue-400 rounded-l-sm flex flex-col justify-between py-0.5 pointer-events-none ml-auto">
@@ -192,7 +199,7 @@ export function SourceMonitor({
             {sourceOut !== null && (
               <div
                 className="absolute top-0 bottom-0 flex items-center z-10 cursor-ew-resize"
-                style={{ left: `${(sourceOut / (sourceAsset!.duration || 5)) * 100}%`, width: 14 }}
+                style={{ left: `${(sourceOut / effectiveDuration) * 100}%`, width: 14 }}
                 onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggingMarker('sourceOut') }}
               >
                 <div className="w-1.5 h-full bg-blue-400 rounded-r-sm flex flex-col justify-between py-0.5 pointer-events-none">
@@ -205,7 +212,7 @@ export function SourceMonitor({
             {/* Playhead needle */}
             <div
               className="absolute top-0 bottom-0 z-20"
-              style={{ left: `${(sourceTime / (sourceAsset.duration || 5)) * 100}%` }}
+              style={{ left: `${Math.min(100, (sourceTime / effectiveDuration) * 100)}%` }}
             >
               <div className="absolute top-0 left-1/2 -translate-x-1/2 w-2 h-2 bg-blue-400 clip-triangle" style={{ clipPath: 'polygon(50% 100%, 0% 0%, 100% 0%)' }} />
               <div className="absolute top-2 bottom-0 left-1/2 -translate-x-1/2 w-px bg-blue-400" />
@@ -256,7 +263,7 @@ export function SourceMonitor({
           <div className="w-px h-3 bg-zinc-700" />
           <Tooltip content="Go to start" side="top">
             <button
-              onClick={() => { const t = sourceIn ?? 0; setSourceTime(t); if (sourceVideoRef.current) sourceVideoRef.current.currentTime = t }}
+              onClick={() => { handleStop(); const t = sourceIn ?? 0; setSourceTime(t); if (sourceVideoRef.current) sourceVideoRef.current.currentTime = t }}
               className="h-6 w-6 flex items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
             >
               <SkipBack className="h-3 w-3" />
@@ -265,7 +272,7 @@ export function SourceMonitor({
           <Tooltip content="Step back" side="top">
             <button
               onClick={() => {
-                setSourceReversePlaying(false)
+                handleStop()
                 const t = Math.max(0, sourceTime - 1 / 24)
                 setSourceTime(t)
                 if (sourceVideoRef.current) sourceVideoRef.current.currentTime = t
@@ -275,55 +282,54 @@ export function SourceMonitor({
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
           </Tooltip>
-          <Tooltip content="Play reverse" side="top">
+          {/* Reverse play button: simple toggle -1x / stop */}
+          <Tooltip content="Play reverse (J)" side="top">
             <button
               onClick={() => {
-                if (sourceReversePlaying) {
-                  setSourceReversePlaying(false)
+                if (sourceSpeed < 0) {
+                  setSourceSpeed(0)
                 } else {
-                  sourceVideoRef.current?.pause()
-                  setSourceIsPlaying(false)
-                  setSourceReversePlaying(true)
+                  setSourceSpeed(-1)
                 }
               }}
-              className={`h-6 w-6 flex items-center justify-center rounded transition-colors ${sourceReversePlaying ? 'text-blue-400' : 'text-zinc-500 hover:text-white hover:bg-zinc-800'}`}
+              className={`h-6 w-6 flex items-center justify-center rounded transition-colors ${sourceSpeed < 0 ? 'text-blue-400' : 'text-zinc-500 hover:text-white hover:bg-zinc-800'}`}
             >
               <Play className="h-3 w-3 mr-0.5 rotate-180" />
             </button>
           </Tooltip>
-          <Tooltip content="Stop" side="top">
+          <Tooltip content="Stop (K)" side="top">
             <button
-              onClick={() => { setSourceReversePlaying(false); sourceVideoRef.current?.pause(); setSourceIsPlaying(false) }}
+              onClick={handleStop}
               className="h-6 w-6 flex items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
             >
               <Square className="h-2.5 w-2.5" />
             </button>
           </Tooltip>
-          <Tooltip content={sourceIsPlaying ? 'Pause' : 'Play'} side="top">
+          {/* Play/Pause button: simple toggle 1x / stop */}
+          <Tooltip content={sourceSpeed > 0 ? 'Pause' : 'Play (L)'} side="top">
             <button
               onClick={() => {
-                setSourceReversePlaying(false)
-                if (sourceIsPlaying) {
-                  sourceVideoRef.current?.pause()
-                  setSourceIsPlaying(false)
+                if (sourceSpeed > 0) {
+                  setSourceSpeed(0)
                 } else {
-                  if (sourceVideoRef.current) {
-                    if (sourceIn !== null && sourceTime < sourceIn) sourceVideoRef.current.currentTime = sourceIn
-                    sourceVideoRef.current.play().catch(() => {})
+                  // Start forward at 1x
+                  if (sourceVideoRef.current && sourceIn !== null && sourceTime < sourceIn) {
+                    sourceVideoRef.current.currentTime = sourceIn
+                    setSourceTime(sourceIn)
                   }
-                  setSourceIsPlaying(true)
+                  setSourceSpeed(1)
                 }
               }}
               className="h-6 w-6 flex items-center justify-center rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
             >
-              {sourceIsPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3 ml-0.5" />}
+              {sourceSpeed > 0 ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3 ml-0.5" />}
             </button>
           </Tooltip>
           <Tooltip content="Step forward" side="top">
             <button
               onClick={() => {
-                const dur = sourceAsset?.duration || 5
-                const t = Math.min(dur, sourceTime + 1 / 24)
+                handleStop()
+                const t = Math.min(effectiveDuration, sourceTime + 1 / 24)
                 setSourceTime(t)
                 if (sourceVideoRef.current) sourceVideoRef.current.currentTime = t
               }}
@@ -334,7 +340,7 @@ export function SourceMonitor({
           </Tooltip>
           <Tooltip content="Go to end" side="top">
             <button
-              onClick={() => { const t = sourceOut ?? (sourceAsset?.duration || 5); setSourceTime(t); if (sourceVideoRef.current) sourceVideoRef.current.currentTime = t }}
+              onClick={() => { handleStop(); const t = sourceOut ?? effectiveDuration; setSourceTime(t); if (sourceVideoRef.current) sourceVideoRef.current.currentTime = t }}
               className="h-6 w-6 flex items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
             >
               <SkipForward className="h-3 w-3" />
@@ -379,7 +385,7 @@ export function SourceMonitor({
 
         {/* Right: total duration */}
         <span className="text-[12px] font-mono font-medium text-zinc-400 tabular-nums tracking-tight select-none min-w-[90px] text-right">
-          {formatTime(sourceAsset?.duration || 0)}
+          {formatTime(effectiveDuration)}
         </span>
       </div>
     </div>

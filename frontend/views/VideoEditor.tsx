@@ -471,8 +471,12 @@ export function VideoEditor() {
     showSourceMonitor, setShowSourceMonitor,
     activePanel, setActivePanel,
     sourceSplitPercent, setSourceSplitPercent,
-    sourceVideoRef, sourceTimeRef, sourceIsPlayingRef,
+    sourceSpeed, setSourceSpeed,
+    sourceVideoRef, sourceTimeRef, sourceIsPlayingRef, sourceSpeedRef,
     loadSourceAsset,
+    shuttleForward: sourceShuttleForward,
+    shuttleReverse: sourceShuttleReverse,
+    shuttleStop: sourceShuttleStop,
     handleInsertEdit,
     handleOverwriteEdit,
   } = useSourceMonitor({ currentTime, tracks, pushUndo, setClips })
@@ -1144,6 +1148,7 @@ export function VideoEditor() {
       sourceVideoRef,
       sourceIsPlayingRef,
       sourceTimeRef,
+      sourceSpeedRef,
       centerOnPlayheadRef,
       getMinZoomRef,
       gapGenerateModeRef,
@@ -1170,6 +1175,9 @@ export function VideoEditor() {
       setSourceTime,
       setSourceIn,
       setSourceOut,
+      sourceShuttleForward,
+      sourceShuttleReverse,
+      sourceShuttleStop,
       setInPoint,
       setOutPoint,
       setSelectedClipIds,
@@ -1924,6 +1932,8 @@ export function VideoEditor() {
               setSourceTime={setSourceTime}
               sourceIsPlaying={sourceIsPlaying}
               setSourceIsPlaying={setSourceIsPlaying}
+              sourceSpeed={sourceSpeed}
+              setSourceSpeed={setSourceSpeed}
               sourceIn={sourceIn}
               sourceOut={sourceOut}
               setSourceIn={setSourceIn}
