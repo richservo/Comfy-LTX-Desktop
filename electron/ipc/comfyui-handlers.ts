@@ -104,6 +104,7 @@ export function registerComfyUIHandlers(): void {
         : Math.floor(Math.random() * 2147483647)
 
       // 5. Build workflow
+      const useZImage = (settings.imageGenerator === 'z-image')
       const workflow = buildWorkflow({
         prompt: promptText,
         width,
@@ -136,6 +137,10 @@ export function registerComfyUIHandlers(): void {
         upscaleLora: settings.upscaleLora,
         sampler: params.imageMode ? 'res_2s' : settings.sampler,
         promptFormatterTextEncoder: settings.promptFormatterTextEncoder,
+        imageGenerator: settings.imageGenerator ?? 'none',
+        imageMode: params.imageMode,
+        imageSteps: params.imageSteps,
+        imageAspectRatio: params.aspectRatio,
       })
 
       // Debug: log key workflow params
@@ -148,11 +153,19 @@ export function registerComfyUIHandlers(): void {
       // 6. Connect WebSocket for progress
       progressTracker.setBaseUrl(settings.comfyuiUrl)
       const ollamaEnabled = settings.ollamaEnabled ?? false
+      const ltxvFormatterIds = ollamaEnabled ? ['17', '18'] : ['36', '37']
+      const zImageFormatterIds = ['54', '56']
+      const formatterNodeIds = useZImage && params.imageMode
+        ? zImageFormatterIds
+        : useZImage
+          ? [...ltxvFormatterIds, ...zImageFormatterIds]
+          : ltxvFormatterIds
       progressTracker.setGenerationContext({
-        hasFirstImage: !!uploadedImage,
+        hasFirstImage: !!uploadedImage || (useZImage && !params.imageMode),
         hasUpscale: !!(params.spatialUpscale),
         imageMode: !!params.imageMode,
-        formatterNodeIds: ollamaEnabled ? ['17', '18'] : ['36', '37'],
+        formatterNodeIds,
+        hasZImage: useZImage && !params.imageMode && !uploadedImage,
       })
       progressTracker.connect(clientId)
 
@@ -186,9 +199,11 @@ export function registerComfyUIHandlers(): void {
       }
       logger.info(`ComfyUI output at: ${outputPath}`)
 
-      // 11. Embed generation settings as metadata (remux in-place)
+      // 11. Embed generation settings as metadata (remux in-place, video only)
+      const outputExt = path.extname(outputPath).toLowerCase()
+      const isImageOutput = ['.png', '.jpg', '.jpeg', '.webp'].includes(outputExt)
       const ffmpegPath = findFfmpegPath()
-      if (ffmpegPath) {
+      if (ffmpegPath && !isImageOutput) {
         const metadata = JSON.stringify({
           prompt: params.prompt,
           resolution: params.resolution,
@@ -222,8 +237,17 @@ export function registerComfyUIHandlers(): void {
         }
       }
 
-      // 12. Image mode: extract first frame as PNG
+      // 12. Image mode: extract first frame as PNG (or return directly for Z-Image)
       if (params.imageMode) {
+        const ext = path.extname(outputPath).toLowerCase()
+        if (['.png', '.jpg', '.jpeg', '.webp'].includes(ext)) {
+          // Z-Image output: already an image, return directly
+          logger.info(`Z-Image output at: ${outputPath}`)
+          return {
+            status: 'complete',
+            image_path: outputPath,
+          }
+        }
         const ffmpeg = findFfmpegPath()
         if (!ffmpeg) {
           throw new Error('ffmpeg not found — cannot extract frame')

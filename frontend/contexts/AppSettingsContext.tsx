@@ -21,6 +21,7 @@ export interface AppSettings {
   upscaleLora: string
   sampler: string
   promptFormatterTextEncoder: string
+  imageGenerator: string
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -44,6 +45,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   upscaleLora: 'ltx-2.3-22b-distilled-lora-384.safetensors',
   sampler: 'euler_ancestral',
   promptFormatterTextEncoder: 'gemma_3_12B_it_fp4_mixed.safetensors',
+  imageGenerator: 'none',
 }
 
 interface AppSettingsContextValue {

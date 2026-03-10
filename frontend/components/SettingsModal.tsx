@@ -403,6 +403,27 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                 </div>
               </div>
 
+              {/* Image Generator */}
+              <div className="space-y-4 pt-4 border-t border-zinc-800">
+                <div>
+                  <h3 className="text-sm font-semibold text-white">Image Generator</h3>
+                  <p className="text-xs text-zinc-500 mt-1">Used for text-to-image and as first frame generator for text-to-video.</p>
+                </div>
+                <div className="bg-zinc-800/50 rounded-lg p-4">
+                  <select
+                    value={settings.imageGenerator || 'none'}
+                    onChange={(e) => updateSettings({ imageGenerator: e.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="none">None (LTXV pipeline)</option>
+                    <option value="z-image">Z-Image (RS Z-Image Generate)</option>
+                  </select>
+                  <p className="text-xs text-zinc-500 mt-2">
+                    When Z-Image is selected, image generation uses RS Z-Image Generate. For text-to-video, Z-Image auto-generates the first frame from your prompt.
+                  </p>
+                </div>
+              </div>
+
               {/* Ollama Prompt Formatter */}
               <div className="space-y-4 pt-4 border-t border-zinc-800">
                 <div className="flex items-start justify-between gap-4">

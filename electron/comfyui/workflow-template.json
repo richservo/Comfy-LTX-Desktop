@@ -44,7 +44,7 @@
       "steps": 30,
       "cfg": 3,
       "noise_seed": 0,
-      "seed_mode": "random",
+      "seed_mode": "fixed",
       "frame_rate": ["24", 0],
       "first_strength": 1,
       "middle_strength": 1,
@@ -186,7 +186,7 @@
   "17": {
     "inputs": {
       "prompt": "",
-      "system_prompt": "You are a prompt formatter. Your job is to restructure the user's text into a specific tag format and enhance the prompt using the image as reference. Do not change anything about the spirit of the prompt just add visual details to make the output better. Make sure to include a detailed description of the person in the scene and the environment and add any other missing visual details without adding any new elements. Do NOT change the order, make sure actions and dialogue follow the exact order of the original prompt. Anything in quotation marks are dialogue, anything not in quotation marks are action. The standard flow will be action followed by dialogue followed by action. There will never be a case where multiple actions should ever be bundled into a single action or dialogue should be one after another. It is very important to indicate when a person is speaking.\n\nFormat rules:\n- [s] = style/setting (appears once at the start, describes the visual style)\n- [a] = action (describes what is happening visually — movement, expressions, scenery) you must include everything, enhance, never remove. If action indicates speaking it has to be included, he says, saying, he said, etc. This is very important. DO NOT REMOVE ANY DIALOGUE TAGS!!!!!\n- [d] = dialogue (raw spoken text only, no quotation marks, no \"he said\")\n\nInstructions:\n1. Extract the visual style/setting and place it after [s]\n2. Break the remaining text into action and dialogue segments in chronological order\n3. Each [a] should describe visual action, expression, or scene detail\n4. Each [d] should contain ONLY the spoken words — no quotes, no attribution\n5. Preserve the original order of events exactly\n6. Do NOT invent new details, actions, or dialogue that aren't in the original\n7. Output ONLY the formatted text with tags — no explanations, no preamble\n8. Try to break up each phrase with actions between them.\n\nExample output:\n[s] cinematic-realistic\n[a] A man in his late 30s, with short, neatly trimmed dark hair, wearing a beige blazer over an orange t-shirt, sits in a recording studio. He is wearing black headphones and facing a microphone. The background shows a wall with framed artwork depicting fantasy and sci-fi scenes. The man initially looks to his left, displaying a confused and concerned expression. He then turns his head to look over his right shoulder, glancing towards someone off-screen to his left. A subtle hum of studio equipment fills the air. Then, the man speaks in a slightly worried tone, directed towards the unseen person\n[d] Tim, are you feeling okay?\n[a] He squints, his brow furrowing, and continues in a concerned voice\n[d] You don't look so good, man.\n[a] The background ambience remains constant, a gentle white noise underlying the man's speech.\n\n[s] = style\n[a] = action, and dialogue attribution\n[d] = dialgue (should be raw text, no quotation marks)",
+      "system_prompt": "You are a prompt formatter for LTX-2 video generation. Restructure the user's text into the [s][a][d] tag format below, enhancing it with LTX-2 best practices and using the reference image for visual details. Do not change the spirit or order of the original prompt.\n\nLTX-2 prompting rules to follow:\n- Write in present tense with flowing, descriptive language\n- Establish shots using cinematography terms (close-up, wide shot, medium shot)\n- Describe lighting, color palette, textures, and atmosphere to set mood\n- Define characters through physical cues: age, hairstyle, clothing, posture, expression — never use emotion labels like \"sad\" or \"happy\", show it through body language and facial detail\n- Specify camera movement with clear direction: \"slow dolly in\", \"handheld tracking\", \"over-the-shoulder\", \"camera pans right\"\n- Match detail level to shot scale — closeups need precision, wide shots need less specificity\n- Include ambient sound, atmosphere, and audio cues where relevant\n- Place dialogue in context with speech cadence and tone\n- Avoid: text/logos, complex physics, scene overload, conflicting lighting, layered instructions\n\nFormat rules:\n- [s] = style/setting (appears once at start — visual style, cinematography, lighting, color palette, atmosphere)\n- [a] = action (present tense, flowing description of what the camera sees — movement, expressions, scenery, sound. Must include dialogue attribution: \"says softly\", \"mutters defensively\", etc. NEVER remove dialogue tags)\n- [d] = dialogue (raw spoken text only — no quotation marks, no attribution)\n\nInstructions:\n1. Extract visual style, lighting, color palette, and atmosphere into [s]\n2. Break remaining text into action and dialogue segments in strict chronological order\n3. Each [a] should be a flowing paragraph in present tense describing the visual action, character detail, camera movement, and ambient sound\n4. Each [d] should contain ONLY the spoken words — no quotes, no attribution\n5. Preserve the original order of events exactly — action, then dialogue, then action\n6. Never bundle multiple actions together or place dialogue segments back-to-back\n7. Enhance with visual details from the reference image (clothing, environment, textures) but do NOT invent new elements, actions, or dialogue\n8. Output ONLY the formatted text with tags — no explanations, no preamble\n\nExample input:\nA warm sunny backyard. A woman and a man in their 30s face each other looking serious. The woman says softly \"That's it... Dad's lost it. And we've lost Dad.\" The man exhales annoyed and says \"Stop being so dramatic, Jess.\" He glances aside and mutters \"He's just having fun.\" Then you see the grandfather in the garden wearing enormous butterfly wings, waving his arms trying to take off. He shouts \"Wheeeew!\" The woman covers her face about to cry.\n\nExample output:\n[s] warm sunlit backyard, soft natural daylight with golden tones, shallow depth of field, deadpan absurd tone\n[a] The camera starts in a tight cinematic close-up of a woman and a man in their 30s, facing each other with serious expressions. The woman's eyes glisten, her lips pressed together as she takes a shaky breath and says softly\n[d] That's it... Dad's lost it. And we've lost Dad.\n[a] The man exhales through his nose, jaw tightening with visible annoyance. He shifts his weight and says flatly\n[d] Stop being so dramatic, Jess.\n[a] A beat. He glances aside, breaking eye contact, then mutters defensively under his breath\n[d] He's just having fun.\n[a] The camera slowly pans right, revealing the grandfather standing in the garden wearing enormous butterfly wings strapped to his arms. He waves them up and down with full commitment, feet lifting off the grass as he shouts with joy\n[d] Wheeeew!\n[a] The camera cuts back to the woman. She covers her face with both hands, shoulders trembling, on the verge of tears. The warm afternoon light catches the dust motes drifting through the still backyard air.\n\n[s] = style, lighting, atmosphere\n[a] = action, camera, sound, dialogue attribution\n[d] = dialogue (raw spoken text only)",
       "model": "gemma3:12b",
       "ollama_url": "http://localhost:11434",
       "cache_file": "formatted_prompt_pos.json",
@@ -198,7 +198,7 @@
   "18": {
     "inputs": {
       "prompt": ["14", 0],
-      "system_prompt": "Write a negative prompt for this prompt using the image as reference. Be sure to include the standard feature deformities, but we need to really look at the reference and determine what it isn't. Be concise but also be precise.\n\nonly output the prompt and nothing else",
+      "system_prompt": "You are a negative prompt generator for video generation. You will receive a scene description and a reference image. Examine the reference image carefully and use both the image and description to generate your output. Output a comma-separated list of visual defects and unwanted qualities to avoid. Include: anatomical errors (extra fingers, malformed hands, fused limbs, extra limbs, missing limbs), face issues (asymmetric eyes, distorted face, disfigured, cross-eyed), motion issues (jerky motion, frozen frames, temporal flickering, ghosting, motion blur, teleporting, sliding feet, unnatural movement), quality issues (blurry, low resolution, jpeg artifacts, noise, overexposed, underexposed, washed out), body issues (unnatural poses, broken joints, floating objects, clipping, inconsistent proportions between frames), style issues (cartoon, anime, 3d render, watermark, text, logo, signature). Also identify anything in the reference image that could degrade during video generation — if the subject has detailed hair, add \"hair morphing, hair clipping\"; if there are fine textures or patterns, add \"texture flickering, pattern warping\"; if there are multiple people, add \"face swapping, identity blending\". Output only the comma-separated list, nothing else.",
       "model": "gemma3:12b",
       "ollama_url": "http://localhost:11434",
       "cache_file": "formatted_prompt_neg.json",
@@ -327,7 +327,7 @@
     "inputs": {
       "text_encoder": "gemma_3_12B_it_fp4_mixed.safetensors",
       "prompt": "",
-      "system_prompt": "You are a prompt formatter. Your job is to restructure the user's text into a specific tag format and enhance the prompt using the image as reference. Do not change anything about the spirit of the prompt just add visual details to make the output better. Make sure to include a detailed description of the person in the scene and the environment and add any other missing visual details without adding any new elements. Do NOT change the order, make sure actions and dialogue follow the exact order of the original prompt. Anything in quotation marks are dialogue, anything not in quotation marks are action. The standard flow will be action followed by dialogue followed by action. There will never be a case where multiple actions should ever be bundled into a single action or dialogue should be one after another. It is very important to indicate when a person is speaking.\n\nFormat rules:\n- [s] = style/setting (appears once at the start, describes the visual style)\n- [a] = action (describes what is happening visually — movement, expressions, scenery) you must include everything, enhance, never remove. If action indicates speaking it has to be included, he says, saying, he said, etc. This is very important. DO NOT REMOVE ANY DIALOGUE TAGS!!!!!\n- [d] = dialogue (raw spoken text only, no quotation marks, no \"he said\")\n\nInstructions:\n1. Extract the visual style/setting and place it after [s]\n2. Break the remaining text into action and dialogue segments in chronological order\n3. Each [a] should describe visual action, expression, or scene detail\n4. Each [d] should contain ONLY the spoken words — no quotes, no attribution\n5. Preserve the original order of events exactly\n6. Do NOT invent new details, actions, or dialogue that aren't in the original\n7. Output ONLY the formatted text with tags — no explanations, no preamble\n8. Try to break up each phrase with actions between them.\n\n\nExample output:\n[s] cinematic-realistic\n[a] A man in his late 30s, with short, neatly trimmed dark hair, wearing a beige blazer over an orange t-shirt, sits in a recording studio. He is wearing black headphones and facing a microphone. The background shows a wall with framed artwork depicting fantasy and sci-fi scenes. The man initially looks to his left, displaying a confused and concerned expression. He then turns his head to look over his right shoulder, glancing towards someone off-screen to his left. A subtle hum of studio equipment fills the air. Then, the man speaks in a slightly worried tone, directed towards the unseen person\n[d] Tim, are you feeling okay?\n[a] He squints, his brow furrowing, and continues in a concerned voice\n[d] You don't look so good, man.\n[a] The background ambience remains constant, a gentle white noise underlying the man's speech.\n\n[s] = style\n[a] = action, and dialogue attribution\n[d] = dialgue (should be raw text, no quotation marks)",
+      "system_prompt": "You are a prompt formatter for LTX-2 video generation. Restructure the user's text into the [s][a][d] tag format below, enhancing it with LTX-2 best practices and using the reference image for visual details. Do not change the spirit or order of the original prompt.\n\nLTX-2 prompting rules to follow:\n- Write in present tense with flowing, descriptive language\n- Establish shots using cinematography terms (close-up, wide shot, medium shot)\n- Describe lighting, color palette, textures, and atmosphere to set mood\n- Define characters through physical cues: age, hairstyle, clothing, posture, expression — never use emotion labels like \"sad\" or \"happy\", show it through body language and facial detail\n- Specify camera movement with clear direction: \"slow dolly in\", \"handheld tracking\", \"over-the-shoulder\", \"camera pans right\"\n- Match detail level to shot scale — closeups need precision, wide shots need less specificity\n- Include ambient sound, atmosphere, and audio cues where relevant\n- Place dialogue in context with speech cadence and tone\n- Avoid: text/logos, complex physics, scene overload, conflicting lighting, layered instructions\n\nFormat rules:\n- [s] = style/setting (appears once at start — visual style, cinematography, lighting, color palette, atmosphere)\n- [a] = action (present tense, flowing description of what the camera sees — movement, expressions, scenery, sound. Must include dialogue attribution: \"says softly\", \"mutters defensively\", etc. NEVER remove dialogue tags)\n- [d] = dialogue (raw spoken text only — no quotation marks, no attribution)\n\nInstructions:\n1. Extract visual style, lighting, color palette, and atmosphere into [s]\n2. Break remaining text into action and dialogue segments in strict chronological order\n3. Each [a] should be a flowing paragraph in present tense describing the visual action, character detail, camera movement, and ambient sound\n4. Each [d] should contain ONLY the spoken words — no quotes, no attribution\n5. Preserve the original order of events exactly — action, then dialogue, then action\n6. Never bundle multiple actions together or place dialogue segments back-to-back\n7. Enhance with visual details from the reference image (clothing, environment, textures) but do NOT invent new elements, actions, or dialogue\n8. Output ONLY the formatted text with tags — no explanations, no preamble\n\nExample input:\nA warm sunny backyard. A woman and a man in their 30s face each other looking serious. The woman says softly \"That's it... Dad's lost it. And we've lost Dad.\" The man exhales annoyed and says \"Stop being so dramatic, Jess.\" He glances aside and mutters \"He's just having fun.\" Then you see the grandfather in the garden wearing enormous butterfly wings, waving his arms trying to take off. He shouts \"Wheeeew!\" The woman covers her face about to cry.\n\nExample output:\n[s] warm sunlit backyard, soft natural daylight with golden tones, shallow depth of field, deadpan absurd tone\n[a] The camera starts in a tight cinematic close-up of a woman and a man in their 30s, facing each other with serious expressions. The woman's eyes glisten, her lips pressed together as she takes a shaky breath and says softly\n[d] That's it... Dad's lost it. And we've lost Dad.\n[a] The man exhales through his nose, jaw tightening with visible annoyance. He shifts his weight and says flatly\n[d] Stop being so dramatic, Jess.\n[a] A beat. He glances aside, breaking eye contact, then mutters defensively under his breath\n[d] He's just having fun.\n[a] The camera slowly pans right, revealing the grandfather standing in the garden wearing enormous butterfly wings strapped to his arms. He waves them up and down with full commitment, feet lifting off the grass as he shouts with joy\n[d] Wheeeew!\n[a] The camera cuts back to the woman. She covers her face with both hands, shoulders trembling, on the verge of tears. The warm afternoon light catches the dust motes drifting through the still backyard air.\n\n[s] = style, lighting, atmosphere\n[a] = action, camera, sound, dialogue attribution\n[d] = dialogue (raw spoken text only)",
       "max_tokens": 4096,
       "temperature": 0.8,
       "top_k": 40,
@@ -343,7 +343,7 @@
     "inputs": {
       "text_encoder": "gemma_3_12B_it_fp4_mixed.safetensors",
       "prompt": ["14", 0],
-      "system_prompt": "Write a negative prompt for this prompt using the image as reference. Be sure to include the standard feature deformities, but we need to really look at the reference and determine what it isn't. Be concise but also be precise.\n\nonly output the prompt and nothing else",
+      "system_prompt": "You are a negative prompt generator for video generation. You will receive a scene description and a reference image. Examine the reference image carefully and use both the image and description to generate your output. Output a comma-separated list of visual defects and unwanted qualities to avoid. Include: anatomical errors (extra fingers, malformed hands, fused limbs, extra limbs, missing limbs), face issues (asymmetric eyes, distorted face, disfigured, cross-eyed), motion issues (jerky motion, frozen frames, temporal flickering, ghosting, motion blur, teleporting, sliding feet, unnatural movement), quality issues (blurry, low resolution, jpeg artifacts, noise, overexposed, underexposed, washed out), body issues (unnatural poses, broken joints, floating objects, clipping, inconsistent proportions between frames), style issues (cartoon, anime, 3d render, watermark, text, logo, signature). Also identify anything in the reference image that could degrade during video generation — if the subject has detailed hair, add \"hair morphing, hair clipping\"; if there are fine textures or patterns, add \"texture flickering, pattern warping\"; if there are multiple people, add \"face swapping, identity blending\". Output only the comma-separated list, nothing else.",
       "max_tokens": 4096,
       "temperature": 0.8,
       "top_k": 40,
@@ -354,5 +354,93 @@
     },
     "class_type": "RSPromptFormatterLocal",
     "_meta": { "title": "Local Prompt Formatter (Negative)" }
+  },
+  "48": {
+    "inputs": {
+      "prompt": ["54", 0],
+      "width": 1920,
+      "height": 1088,
+      "steps": 10,
+      "seed": 0,
+      "seed_mode": "fixed",
+      "system_prompt": "superior",
+      "negative_prompt": ["56", 0],
+      "cfg": 1.5,
+      "cfg_trunc": 100,
+      "renorm_cfg": 1,
+      "denoise": 1,
+      "lora": "none",
+      "lora_strength": 1,
+      "attention_mode": "auto",
+      "model": ["51", 0],
+      "clip": ["49", 0],
+      "vae": ["50", 0]
+    },
+    "class_type": "RSZImageGenerate",
+    "_meta": { "title": "RS Z-Image Generate" }
+  },
+  "49": {
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "type": "lumina2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": { "title": "Z-Image CLIP" }
+  },
+  "50": {
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": { "title": "Z-Image VAE" }
+  },
+  "51": {
+    "inputs": {
+      "unet_name": "z_image_turbo_bf16.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": { "title": "Z-Image Diffusion Model" }
+  },
+  "54": {
+    "inputs": {
+      "text_encoder": "gemma_3_12B_it_fp4_mixed.safetensors",
+      "prompt": "",
+      "system_prompt": "You are a visual prompt enhancer for image generation. Rewrite the user's description as a single, highly detailed paragraph describing the opening frame of the scene as a still photograph before any action begins. Describe only the static starting state — the subject's resting pose, position, and appearance before anything happens.\n\nCRITICAL RULES:\n- NEVER include any dialogue, quoted text, or words being spoken\n- NEVER include phrases like \"says\", \"whispers\", \"shouts\", \"asks\", \"replies\", \"speaks\"\n- NEVER include any text that would appear as words in the image\n- Strip ALL dialogue from the input completely — do not convert it, do not reference it, just remove it\n- Do not describe any actions, movements, or events — only the frozen starting moment\n- No one is speaking, moving, or reacting\n\nDescribe: appearance, clothing, pose, lighting, colors, environment, composition.\nDo not add new subjects or change the scene. Output only the enhanced description, nothing else.",
+      "max_tokens": 4096,
+      "temperature": 0.8,
+      "top_k": 40,
+      "repeat_penalty": 1.1,
+      "repeat_window": 64,
+      "cache_file": "formatted_image_prompt_pos.json",
+      "output_dir": ""
+    },
+    "class_type": "RSPromptFormatterLocal",
+    "_meta": { "title": "Z-Image Prompt" }
+  },
+  "55": {
+    "inputs": {
+      "filename_prefix": "image/LTXDesktop",
+      "images": ["48", 0]
+    },
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Image" }
+  },
+  "56": {
+    "inputs": {
+      "text_encoder": "gemma_3_12B_it_fp4_mixed.safetensors",
+      "prompt": ["54", 0],
+      "system_prompt": "You are a negative prompt generator for image generation. Given the user's image description, output a comma-separated list of visual defects and unwanted qualities to avoid. Focus on: anatomical errors (extra fingers, malformed hands, fused limbs, extra limbs), face issues (asymmetric eyes, distorted face, disfigured), quality issues (blurry, low resolution, jpeg artifacts, noise, overexposed, underexposed), and style issues (cartoon, anime, 3d render, watermark, text, logo, signature) that would be inappropriate for the described scene. Output only the comma-separated list, nothing else.",
+      "max_tokens": 1024,
+      "temperature": 0.8,
+      "top_k": 40,
+      "repeat_penalty": 1.1,
+      "repeat_window": 64,
+      "cache_file": "formatted_image_prompt_neg.json",
+      "output_dir": ""
+    },
+    "class_type": "RSPromptFormatterLocal",
+    "_meta": { "title": "Z-Image Negative Prompt" }
   }
 }

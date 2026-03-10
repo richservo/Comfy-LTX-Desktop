@@ -59,6 +59,14 @@ export interface WorkflowParams {
   sampler?: string
   /** Text encoder for the local prompt formatter */
   promptFormatterTextEncoder?: string
+  /** Image generator to use ('none' or 'z-image') */
+  imageGenerator?: string
+  /** Whether this is image-only generation (not video) */
+  imageMode?: boolean
+  /** Image generation steps (for Z-Image standalone) */
+  imageSteps?: number
+  /** Image aspect ratio (for Z-Image standalone) */
+  imageAspectRatio?: string
 }
 
 type WorkflowNode = { class_type: string; inputs: Record<string, unknown>; _meta?: { title: string } }
@@ -129,6 +137,13 @@ const OPTIONAL_NODE_IDS = {
   videoFirstFrame: '30',
   localPositiveFormatter: '36',
   localNegativeFormatter: '37',
+  zImageGenerate: '48',
+  zImageClip: '49',
+  zImageVae: '50',
+  zImageUnet: '51',
+  zImagePromptFormatter: '54',
+  zImageSaveImage: '55',
+  zImageNegativeFormatter: '56',
 }
 
 const OLLAMA_FORMATTER_NODES = [
@@ -147,14 +162,87 @@ const ALL_FORMATTER_NODES = [
   ...LOCAL_FORMATTER_NODES,
 ]
 
+const Z_IMAGE_NODES = [
+  OPTIONAL_NODE_IDS.zImageGenerate,
+  OPTIONAL_NODE_IDS.zImageClip,
+  OPTIONAL_NODE_IDS.zImageVae,
+  OPTIONAL_NODE_IDS.zImageUnet,
+  OPTIONAL_NODE_IDS.zImagePromptFormatter,
+  OPTIONAL_NODE_IDS.zImageSaveImage,
+  OPTIONAL_NODE_IDS.zImageNegativeFormatter,
+]
+
+// Resolution presets for Z-Image standalone generation
+const Z_IMAGE_RESOLUTION_MAP: Record<string, Record<string, { width: number; height: number }>> = {
+  '1080p': {
+    '16:9': { width: 1920, height: 1088 },
+    '9:16': { width: 1088, height: 1920 },
+    '1:1': { width: 1088, height: 1088 },
+    '4:3': { width: 1440, height: 1088 },
+    '3:4': { width: 1088, height: 1440 },
+    '21:9': { width: 2560, height: 1088 },
+  },
+}
+
+/**
+ * Build a standalone Z-Image workflow (image-only, no LTXV pipeline).
+ * Keeps only Z-Image nodes: 48, 49, 50, 51, 54, 55, 56.
+ */
+function buildZImageWorkflow(workflow: Workflow, params: WorkflowParams): Record<string, unknown> {
+  const zImageNodeSet = new Set(Z_IMAGE_NODES)
+
+  // Remove all non-Z-Image nodes
+  for (const id of Object.keys(workflow)) {
+    if (!zImageNodeSet.has(id)) {
+      delete workflow[id]
+    }
+  }
+
+  // Resolve image dimensions from aspect ratio
+  const aspectRatio = params.imageAspectRatio || '16:9'
+  const dims = Z_IMAGE_RESOLUTION_MAP['1080p']?.[aspectRatio] ?? { width: 1920, height: 1088 }
+
+  // Configure Z-Image generate node
+  const zGenNode = workflow[OPTIONAL_NODE_IDS.zImageGenerate]
+  zGenNode.inputs['width'] = dims.width
+  zGenNode.inputs['height'] = dims.height
+  zGenNode.inputs['steps'] = params.imageSteps ?? 10
+  zGenNode.inputs['seed'] = params.seed
+  zGenNode.inputs['seed_mode'] = 'fixed'
+
+  // Set prompt on the Z-Image prompt formatter
+  workflow[OPTIONAL_NODE_IDS.zImagePromptFormatter].inputs['prompt'] = params.prompt
+  if (params.promptFormatterTextEncoder) {
+    workflow[OPTIONAL_NODE_IDS.zImagePromptFormatter].inputs['text_encoder'] = params.promptFormatterTextEncoder
+    workflow[OPTIONAL_NODE_IDS.zImageNegativeFormatter].inputs['text_encoder'] = params.promptFormatterTextEncoder
+  }
+
+  return workflow as unknown as Record<string, unknown>
+}
+
 const DEFAULT_NEGATIVE_PROMPT = 'worst quality, low quality, blurry, jittery, distorted, cropped, watermark, watermarked, extra fingers, missing fingers, fused fingers, mutated hands, deformed hands, extra limbs, missing limbs, deformed limbs, extra arms, extra legs, malformed limbs, disfigured, bad anatomy, bad proportions, ugly, duplicate, morbid, mutilated, poorly drawn face, poorly drawn hands, inconsistent motion'
 
 export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   // Deep clone the template
   const workflow: Workflow = JSON.parse(JSON.stringify(workflowTemplate))
 
+  const useZImage = params.imageGenerator === 'z-image'
+
+  // --- Z-Image standalone image generation (no LTXV pipeline) ---
+  if (useZImage && params.imageMode) {
+    return buildZImageWorkflow(workflow, params)
+  }
+
   // --- Strip optional nodes not needed for this generation ---
   const nodesToRemove = new Set<string>()
+
+  // Z-Image nodes — only include for T2V when z-image is selected AND no user first image
+  if (!useZImage || params.firstImage) {
+    for (const id of Z_IMAGE_NODES) nodesToRemove.add(id)
+  } else {
+    // Z-Image + T2V: remove SaveImage (intermediate image not saved)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.zImageSaveImage)
+  }
 
   // MossTTS nodes — always remove for now (not yet wired to UI)
   nodesToRemove.add(OPTIONAL_NODE_IDS.mossTtsLoader)
@@ -175,6 +263,7 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   if (!params.audio) nodesToRemove.add(OPTIONAL_NODE_IDS.uploadAudio)
 
   // Image nodes — only include if image is provided
+  // (Z-Image wires directly to node 6, doesn't use the LoadImage node)
   if (!params.firstImage) nodesToRemove.add(OPTIONAL_NODE_IDS.firstFrame)
   if (!params.middleImage) nodesToRemove.add(OPTIONAL_NODE_IDS.middleFrame)
   if (!params.lastImage) nodesToRemove.add(OPTIONAL_NODE_IDS.lastFrame)
@@ -307,12 +396,41 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     }
   }
 
+  // --- Z-Image + T2V: wire Z-Image output as first frame for LTXV ---
+  // Only use Z-Image for first frame when user hasn't provided their own first image
+  if (useZImage && !params.firstImage) {
+    // Populate Z-Image prompt formatter with the same user prompt
+    workflow[OPTIONAL_NODE_IDS.zImagePromptFormatter].inputs['prompt'] = params.prompt
+    if (params.promptFormatterTextEncoder) {
+      workflow[OPTIONAL_NODE_IDS.zImagePromptFormatter].inputs['text_encoder'] = params.promptFormatterTextEncoder
+      workflow[OPTIONAL_NODE_IDS.zImageNegativeFormatter].inputs['text_encoder'] = params.promptFormatterTextEncoder
+    }
+    // Set Z-Image dimensions and seed to match video
+    workflow[OPTIONAL_NODE_IDS.zImageGenerate].inputs['width'] = params.width
+    workflow[OPTIONAL_NODE_IDS.zImageGenerate].inputs['height'] = params.height
+    workflow[OPTIONAL_NODE_IDS.zImageGenerate].inputs['seed'] = params.seed
+    workflow[OPTIONAL_NODE_IDS.zImageGenerate].inputs['seed_mode'] = 'fixed'
+    // Wire Z-Image output → LTXV first_image
+    genNode.inputs['first_image'] = [OPTIONAL_NODE_IDS.zImageGenerate, 0]
+    genNode.inputs['first_strength'] = params.firstStrength ?? 1
+
+    // Connect Z-Image output as reference image for video prompt formatters
+    if (params.ollamaEnabled) {
+      workflow['17'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.zImageGenerate, 0]
+      workflow['18'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.zImageGenerate, 0]
+    } else {
+      workflow['36'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.zImageGenerate, 0]
+      workflow['37'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.zImageGenerate, 0]
+    }
+  }
+
   // --- Film grain: wire between node 6 images and node 23 ---
   if (params.filmGrain) {
     const grainNode = workflow[OPTIONAL_NODE_IDS.filmGrain]
     grainNode.inputs['images'] = ['6', 2]
     grainNode.inputs['intensity'] = params.filmGrainIntensity ?? 0.05
     grainNode.inputs['grain_size'] = Math.max(1.0, params.filmGrainSize ?? 1.2)
+    grainNode.inputs['seed'] = params.seed
     workflow['23'].inputs['images'] = [OPTIONAL_NODE_IDS.filmGrain, 0]
   }
 

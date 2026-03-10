@@ -16,6 +16,8 @@ export interface GenerationContext {
   imageMode: boolean
   /** Node IDs that are prompt formatters (show "Enhancing prompt" phase) */
   formatterNodeIds?: string[]
+  /** Z-Image is generating the first frame before LTXV */
+  hasZImage?: boolean
 }
 
 const INITIAL_PROGRESS: GenerationProgress = {
@@ -51,6 +53,11 @@ export class ComfyUIProgressTracker {
   setGenerationContext(ctx: GenerationContext): void {
     if (ctx.imageMode) {
       this.stageLabels = ['Generating image']
+    } else if (ctx.hasZImage) {
+      // Z-Image generates first frame, then LTXV generates video
+      this.stageLabels = ctx.hasUpscale
+        ? ['Generating image', 'Generating video', 'Rediffusing']
+        : ['Generating image', 'Generating video']
     } else if (ctx.hasFirstImage) {
       // I2V: no first frame generation needed
       this.stageLabels = ctx.hasUpscale
