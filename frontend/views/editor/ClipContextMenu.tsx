@@ -2,7 +2,7 @@ import React from 'react'
 import {
   Clipboard, Copy, Scissors, Trash2, Layers, Type, X, RefreshCw,
   ZoomIn, Film, Eye, FolderOpen, RotateCcw, Volume2, VolumeX,
-  FlipHorizontal2, FlipVertical2, Link2, Unlink2,
+  FlipHorizontal2, FlipVertical2, Link2, Unlink2, ArrowLeftRight,
   ChevronLeft, ChevronRight, // IC-LORA HIDDEN: removed Sparkles
   Video, Camera,
 } from 'lucide-react'
@@ -386,19 +386,37 @@ function SingleClipMenu({
 
       {/* ── 5. Structure (Link / Track) ── */}
       {contextClip.linkedClipIds?.length ? (
-        <MenuItem icon={Unlink2} label="Unlink Audio" onClick={() => {
-          pushUndo()
-          const allLinked = new Set(contextClip.linkedClipIds!)
-          setClips(prev => prev.map(c => {
-            if (c.id === contextClip.id) return { ...c, linkedClipIds: undefined }
-            if (allLinked.has(c.id)) {
-              const remaining = (c.linkedClipIds || []).filter(lid => lid !== contextClip.id)
-              return { ...c, linkedClipIds: remaining.length ? remaining : undefined }
-            }
-            return c
-          }))
-          close()
-        }} />
+        <>
+          <MenuItem icon={Unlink2} label="Unlink Audio" onClick={() => {
+            pushUndo()
+            const allLinked = new Set(contextClip.linkedClipIds!)
+            setClips(prev => prev.map(c => {
+              if (c.id === contextClip.id) return { ...c, linkedClipIds: undefined }
+              if (allLinked.has(c.id)) {
+                const remaining = (c.linkedClipIds || []).filter(lid => lid !== contextClip.id)
+                return { ...c, linkedClipIds: remaining.length ? remaining : undefined }
+              }
+              return c
+            }))
+            close()
+          }} />
+          {(() => {
+            const partner = clips.find(c => contextClip.linkedClipIds!.includes(c.id))
+            if (!partner || Math.abs(contextClip.startTime - partner.startTime) < 0.01) return null
+            return (
+              <MenuItem icon={ArrowLeftRight} label="Resync Audio/Video" onClick={() => {
+                pushUndo()
+                // Move all linked partners to match this clip's start time
+                const linkedIds = new Set(contextClip.linkedClipIds!)
+                setClips(prev => prev.map(c => {
+                  if (linkedIds.has(c.id)) return { ...c, startTime: contextClip.startTime }
+                  return c
+                }))
+                close()
+              }} />
+            )
+          })()}
+        </>
       ) : null}
       {!contextClip.linkedClipIds?.length && (contextClip.type === 'video' || contextClip.type === 'audio') && (() => {
         const oppositeType = contextClip.type === 'video' ? 'audio' : 'video'

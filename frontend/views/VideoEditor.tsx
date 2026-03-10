@@ -3111,12 +3111,26 @@ export function VideoEditor() {
                   {clips.map(clip => {
                     const liveAsset = clip.assetId ? assets.find(a => a.id === clip.assetId) : null
                     const clipColor = getColorLabel(clip.colorLabel || liveAsset?.colorLabel || clip.asset?.colorLabel)
+                    // Compute drift: if this clip is linked and its start time differs from its partner
+                    let driftSeconds = 0
+                    if (clip.linkedClipIds?.length) {
+                      for (const lid of clip.linkedClipIds) {
+                        const partner = clips.find(c => c.id === lid)
+                        if (partner) {
+                          const drift = clip.startTime - partner.startTime
+                          if (Math.abs(drift) > 0.01) { driftSeconds = drift; break }
+                        }
+                      }
+                    }
+                    const isOutOfSync = Math.abs(driftSeconds) > 0.01
                     return (
                     <div
                       key={clip.id}
                       className={`absolute rounded border-2 transition-all overflow-hidden select-none ${
-                        selectedClipIds.has(clip.id) 
-                          ? 'border-blue-500 shadow-lg shadow-blue-500/20' 
+                        isOutOfSync
+                          ? 'border-red-500 shadow-lg shadow-red-500/20'
+                          : selectedClipIds.has(clip.id)
+                          ? 'border-blue-500 shadow-lg shadow-blue-500/20'
                           : clipColor
                             ? `hover:brightness-125`
                             : 'border-zinc-600 hover:border-zinc-500'
@@ -3317,6 +3331,13 @@ export function VideoEditor() {
                               Cancel
                             </button>
                           </div>
+                        </div>
+                      )}
+
+                      {/* Out-of-sync drift indicator for linked clips */}
+                      {isOutOfSync && (
+                        <div className="absolute top-0 left-0 z-20 px-1.5 py-0.5 bg-red-600/90 rounded-br text-[9px] font-bold text-white pointer-events-none">
+                          {driftSeconds > 0 ? '+' : ''}{driftSeconds.toFixed(1)}s
                         </div>
                       )}
                       

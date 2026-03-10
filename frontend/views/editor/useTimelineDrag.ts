@@ -295,8 +295,9 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
           })
         }
         setSelectedClipIds(effectiveSelection)
-      } else if (e.altKey) {
-        // Alt+click: select ONLY this specific clip, ignoring linked clips (like Premiere)
+      } else if (e.altKey || (e.ctrlKey && clip.linkedClipIds?.length)) {
+        // Alt+click or Ctrl+click on linked clip: select ONLY this clip, ignoring linked clips
+        // Ctrl+click allows moving one half of a linked pair independently (creates drift)
         if (selectedClipIds.has(clip.id)) {
           effectiveSelection = selectedClipIds
         } else {
