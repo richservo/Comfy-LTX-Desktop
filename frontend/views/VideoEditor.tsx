@@ -2851,7 +2851,8 @@ export function VideoEditor() {
                   className="flex-1 overflow-auto select-none"
                   onScroll={handleTimelineScroll}
                 >
-                <div 
+                <div
+                  draggable={false}
                   style={{ minWidth: `${totalDuration * pixelsPerSecond}px`,
                     ...(activeTool === 'blade' ? { cursor: SCISSORS_CURSOR }
                       : activeTool === 'trackForward' ? { cursor: bladeShiftHeld ? TRACK_FWD_ONE_CURSOR : TRACK_FWD_ALL_CURSOR }
@@ -3050,7 +3051,8 @@ export function VideoEditor() {
                           }}
                         />
                       )}
-                      <div 
+                      <div
+                        draggable={false}
                         data-track-bg="true"
                         className={`border-b border-zinc-800 ${
                           track.type === 'subtitle'
