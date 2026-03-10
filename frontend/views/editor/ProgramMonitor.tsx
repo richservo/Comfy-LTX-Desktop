@@ -6,7 +6,6 @@ import {
 } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { Tooltip } from '../../components/ui/tooltip'
-import { AudioWaveform } from '../../components/AudioWaveform'
 import { DEFAULT_SUBTITLE_STYLE } from '../../types/project'
 import type { TimelineClip, Track, SubtitleClip } from '../../types/project'
 import { getClipEffectStyles, getTransitionBgColor, formatTime, getShortcutLabel, tooltipLabel, getMaskedEffectOverlays } from './video-editor-utils'
@@ -366,36 +365,24 @@ export function ProgramMonitor({
 
                   {/* EFFECTS HIDDEN - masked effect overlays, vignette, and grain hidden because effects are not applied during export */}
 
-                  {/* Audio waveform or empty state when no video/image clip is visible */}
-                  {!monitorClip && (() => {
-                    const audioAtPlayhead = clips.filter(c =>
-                      c.type === 'audio' &&
-                      currentTime >= c.startTime &&
-                      currentTime < c.startTime + c.duration
-                    )
-                    return audioAtPlayhead.length > 0 ? (
-                      <div className="absolute inset-0">
-                        <AudioWaveform
-                          audioClips={audioAtPlayhead.map(c => ({
-                            url: getClipUrl(c) || c.asset?.url || c.importedUrl || '',
-                            name: c.asset?.path || c.importedName || 'Audio',
-                            startTime: c.startTime,
-                            duration: c.duration,
-                          }))}
-                          currentTime={currentTime}
-                          isPlaying={isPlaying}
-                        />
-                      </div>
-                    ) : !isPlaying ? (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                        <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center mx-auto mb-3">
-                          <Video className="h-8 w-8 text-zinc-600" />
+                  {/* Black screen when no video/image clip is visible (audio-only or empty) */}
+                  {!monitorClip && (
+                    <div className="absolute inset-0 bg-black">
+                      {!isPlaying && !clips.some(c =>
+                        c.type === 'audio' &&
+                        currentTime >= c.startTime &&
+                        currentTime < c.startTime + c.duration
+                      ) && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                          <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center mx-auto mb-3">
+                            <Video className="h-8 w-8 text-zinc-600" />
+                          </div>
+                          <p className="text-zinc-500 text-sm">No clip at playhead</p>
+                          <p className="text-zinc-600 text-xs mt-1">Move playhead over a clip to preview</p>
                         </div>
-                        <p className="text-zinc-500 text-sm">No clip at playhead</p>
-                        <p className="text-zinc-600 text-xs mt-1">Move playhead over a clip to preview</p>
-                      </div>
-                    ) : null
-                  })()}
+                      )}
+                    </div>
+                  )}
                 </>
                 )
               })()}

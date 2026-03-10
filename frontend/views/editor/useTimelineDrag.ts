@@ -27,6 +27,8 @@ export interface ResizingClipState {
   adjacentOrigTrimStart?: number
   adjacentOrigTrimEnd?: number
   adjacentOrigStartTime?: number
+  independentResize?: boolean
+  linkedOriginals?: Map<string, { startTime: number; duration: number; trimStart: number; speed: number }>
 }
 
 export interface SlipSlideClipState {
@@ -581,8 +583,8 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
       const adjClip = clips.find(c => c.id === resizingClip.adjacentClipId)
       if (!adjClip) return
       
-      const linkedIds = new Set<string>(clip.linkedClipIds || [])
-      const adjLinkedIds = new Set<string>(adjClip.linkedClipIds || [])
+      const linkedIds = resizingClip.independentResize ? new Set<string>() : new Set<string>(clip.linkedClipIds || [])
+      const adjLinkedIds = resizingClip.independentResize ? new Set<string>() : new Set<string>(adjClip.linkedClipIds || [])
       let dt = deltaTime
       
       if (resizingClip.edge === 'right') {
@@ -600,7 +602,12 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
             return { ...c, duration: finalDur }
           }
           if (linkedIds.has(c.id)) {
-            return { ...c, duration: finalDur }
+            const orig = resizingClip.linkedOriginals?.get(c.id)
+            if (orig) {
+              const lMaxDur = getMaxClipDuration(c)
+              return { ...c, duration: Math.min(lMaxDur, Math.max(0.5, orig.duration + dt)) }
+            }
+            return c
           }
           if (c.id === resizingClip.adjacentClipId) {
             const newStart = (resizingClip.adjacentOrigStartTime ?? c.startTime) + dt
@@ -609,10 +616,14 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
             return { ...c, startTime: newStart, duration: Math.max(0.5, newDur), trimStart: Math.max(0, newTrimStart) }
           }
           if (adjLinkedIds.has(c.id)) {
-            const newStart = (resizingClip.adjacentOrigStartTime ?? adjClip.startTime) + dt
-            const newDur = (resizingClip.adjacentOrigDuration ?? adjClip.duration) - dt
-            const newTrimStart = c.trimStart + dt * c.speed
-            return { ...c, startTime: newStart, duration: Math.max(0.5, newDur), trimStart: Math.max(0, newTrimStart) }
+            const orig = resizingClip.linkedOriginals?.get(c.id)
+            if (orig) {
+              const lTrimStart = Math.max(0, orig.trimStart + dt * orig.speed)
+              const lMaxDur = getMaxClipDuration({ ...c, trimStart: lTrimStart })
+              const lDur = Math.min(lMaxDur, Math.max(0.5, orig.duration - dt))
+              return { ...c, startTime: orig.startTime + (orig.duration - lDur), duration: lDur, trimStart: lTrimStart }
+            }
+            return c
           }
           return c
         }))
@@ -634,14 +645,25 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
             return { ...c, startTime: newStart, duration: newDur, trimStart: Math.max(0, newTrimStart) }
           }
           if (linkedIds.has(c.id)) {
-            const linkedTrimStart = c.trimStart + dt * c.speed
-            return { ...c, startTime: newStart, duration: newDur, trimStart: Math.max(0, linkedTrimStart) }
+            const orig = resizingClip.linkedOriginals?.get(c.id)
+            if (orig) {
+              const lTrimStart = Math.max(0, orig.trimStart + dt * orig.speed)
+              const lMaxDur = getMaxClipDuration({ ...c, trimStart: lTrimStart })
+              const lDur = Math.min(lMaxDur, Math.max(0.5, orig.duration - dt))
+              return { ...c, startTime: orig.startTime + (orig.duration - lDur), duration: lDur, trimStart: lTrimStart }
+            }
+            return c
           }
           if (c.id === resizingClip.adjacentClipId) {
             return { ...c, duration: adjFinalDur }
           }
           if (adjLinkedIds.has(c.id)) {
-            return { ...c, duration: adjFinalDur }
+            const orig = resizingClip.linkedOriginals?.get(c.id)
+            if (orig) {
+              const lMaxDur = getMaxClipDuration(c)
+              return { ...c, duration: Math.min(lMaxDur, Math.max(0.5, orig.duration + dt)) }
+            }
+            return c
           }
           return c
         }))
@@ -651,7 +673,7 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
     
     // --- RIPPLE TRIM: trim edge and shift all subsequent clips ---
     if (tool === 'ripple') {
-      const linkedIds = new Set<string>(clip.linkedClipIds || [])
+      const linkedIds = resizingClip.independentResize ? new Set<string>() : new Set<string>(clip.linkedClipIds || [])
       if (resizingClip.edge === 'left') {
         let newStartTime = resizingClip.originalStartTime + deltaTime
         let newDuration = resizingClip.originalDuration - deltaTime
@@ -672,8 +694,15 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
             return { ...c, startTime: newStartTime, duration: finalDuration, trimStart: finalTrimStart }
           }
           if (linkedIds.has(c.id)) {
-            const linkedNewTrimStart = c.trimStart + (newStartTime - resizingClip.originalStartTime)
-            return { ...c, startTime: newStartTime, duration: finalDuration, trimStart: Math.max(0, linkedNewTrimStart) }
+            const orig = resizingClip.linkedOriginals?.get(c.id)
+            if (orig) {
+              const lTrimStart = Math.max(0, orig.trimStart + rippleDelta * orig.speed)
+              const lMaxDur = getMaxClipDuration({ ...c, trimStart: lTrimStart })
+              const lDur = Math.min(lMaxDur, Math.max(0.5, orig.duration - rippleDelta))
+              const lStart = orig.startTime + (orig.duration - lDur)
+              return { ...c, startTime: lStart, duration: lDur, trimStart: lTrimStart }
+            }
+            return c
           }
           if (c.trackIndex === clip.trackIndex && c.id !== clip.id && c.startTime < resizingClip.originalStartTime) {
             return { ...c, startTime: Math.max(0, c.startTime + rippleDelta) }
@@ -696,7 +725,12 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
             return { ...c, duration: finalDuration }
           }
           if (linkedIds.has(c.id)) {
-            return { ...c, duration: finalDuration }
+            const orig = resizingClip.linkedOriginals?.get(c.id)
+            if (orig) {
+              const lMaxDur = getMaxClipDuration(c)
+              return { ...c, duration: Math.min(lMaxDur, Math.max(0.5, orig.duration + rippleDelta)) }
+            }
+            return c
           }
           if (c.trackIndex === clip.trackIndex && c.id !== clip.id && c.startTime >= originalEnd - 0.01) {
             return { ...c, startTime: Math.max(0, c.startTime + rippleDelta) }
@@ -749,18 +783,28 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
       const maxDur = getMaxClipDuration({ ...clip, trimStart: Math.max(0, newTrimStart) })
       newDuration = Math.min(newDuration, maxDur)
       
-      // Build set of linked clip IDs to also trim
-      const linkedIds = new Set<string>(clip.linkedClipIds || [])
+      // Build set of linked clip IDs to also trim (skip if Ctrl-resizing independently)
+      const linkedIds = resizingClip.independentResize ? new Set<string>() : new Set<string>(clip.linkedClipIds || [])
       const finalDuration = Math.max(0.5, newDuration)
       const finalTrimStart = Math.max(0, newTrimStart)
-      
+
+      const trimDelta = newStartTime - resizingClip.originalStartTime
+
       setClips(prev => prev.map(c => {
         if (c.id === clip.id) {
           return { ...c, startTime: newStartTime, duration: finalDuration, trimStart: finalTrimStart }
         }
         if (linkedIds.has(c.id)) {
-          const linkedNewTrimStart = c.trimStart + (newStartTime - resizingClip.originalStartTime)
-          return { ...c, startTime: newStartTime, duration: finalDuration, trimStart: Math.max(0, linkedNewTrimStart) }
+          // Apply same delta to linked clip's original values to preserve trim offset
+          const orig = resizingClip.linkedOriginals?.get(c.id)
+          if (orig) {
+            const lTrimStart = Math.max(0, orig.trimStart + trimDelta * orig.speed)
+            const lMaxDur = getMaxClipDuration({ ...c, trimStart: lTrimStart })
+            const lDur = Math.min(lMaxDur, Math.max(0.5, orig.duration - trimDelta))
+            const lStart = orig.startTime + (orig.duration - lDur)
+            return { ...c, startTime: lStart, duration: lDur, trimStart: lTrimStart }
+          }
+          return c
         }
         return c
       }))
@@ -790,13 +834,23 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
       const maxDur = getMaxClipDuration(clip)
       newDuration = Math.min(newDuration, maxDur)
       
-      // Build set of linked clip IDs to also trim
-      const linkedIds = new Set<string>(clip.linkedClipIds || [])
+      // Build set of linked clip IDs to also trim (skip if Ctrl-resizing independently)
+      const linkedIds = resizingClip.independentResize ? new Set<string>() : new Set<string>(clip.linkedClipIds || [])
       const finalDuration = Math.max(0.5, newDuration)
-      
+
+      const durDelta = finalDuration - resizingClip.originalDuration
+
       setClips(prev => prev.map(c => {
         if (c.id === clip.id) return { ...c, duration: finalDuration }
-        if (linkedIds.has(c.id)) return { ...c, duration: finalDuration }
+        if (linkedIds.has(c.id)) {
+          // Apply same delta to linked clip's original duration to preserve trim offset
+          const orig = resizingClip.linkedOriginals?.get(c.id)
+          if (orig) {
+            const lMaxDur = getMaxClipDuration(c)
+            return { ...c, duration: Math.min(lMaxDur, Math.max(0.5, orig.duration + durDelta)) }
+          }
+          return c
+        }
         return c
       }))
     }
@@ -838,6 +892,20 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
       adjacentOrigTrimStart: adjacentClip?.trimStart,
       adjacentOrigTrimEnd: adjacentClip?.trimEnd,
       adjacentOrigStartTime: adjacentClip?.startTime,
+      independentResize: e.ctrlKey || e.metaKey,
+      linkedOriginals: (() => {
+        const allLinkedIds = new Set<string>(clip.linkedClipIds || [])
+        if (adjacentClip?.linkedClipIds) {
+          for (const lid of adjacentClip.linkedClipIds) allLinkedIds.add(lid)
+        }
+        if (allLinkedIds.size === 0) return undefined
+        return new Map(
+          [...allLinkedIds].map(lid => {
+            const lc = clips.find(c => c.id === lid)
+            return [lid, { startTime: lc?.startTime ?? 0, duration: lc?.duration ?? 0, trimStart: lc?.trimStart ?? 0, speed: lc?.speed ?? 1 }] as const
+          })
+        )
+      })(),
     })
   }
   

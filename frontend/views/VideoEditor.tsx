@@ -1003,7 +1003,8 @@ export function VideoEditor() {
   
   // Compute the maximum timeline duration for a video clip based on its actual media length
   const getMaxClipDuration = useCallback((clip: TimelineClip): number => {
-    if (clip.type !== 'video' || !clip.asset?.duration) return Infinity
+    // Still images have no media duration — allow unlimited trim
+    if (!clip.asset?.duration || clip.type === 'image') return Infinity
     const mediaDuration = clip.asset.duration
     const usableMedia = mediaDuration - clip.trimStart - clip.trimEnd
     return Math.max(0.5, usableMedia / clip.speed)
@@ -3169,7 +3170,7 @@ export function VideoEditor() {
                   {clips.map(clip => {
                     const liveAsset = clip.assetId ? assets.find(a => a.id === clip.assetId) : null
                     const clipColor = getColorLabel(clip.colorLabel || liveAsset?.colorLabel || clip.asset?.colorLabel)
-                    // Compute drift: if this clip is linked and its start time differs from its partner
+                    // Compute positional drift between linked clips (start time only, not trim/duration)
                     let driftSeconds = 0
                     if (clip.linkedClipIds?.length) {
                       for (const lid of clip.linkedClipIds) {

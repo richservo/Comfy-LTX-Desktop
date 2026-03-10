@@ -402,7 +402,8 @@ function SingleClipMenu({
           }} />
           {(() => {
             const partner = clips.find(c => contextClip.linkedClipIds!.includes(c.id))
-            if (!partner || Math.abs(contextClip.startTime - partner.startTime) < 0.01) return null
+            if (!partner) return null
+            if (Math.abs(contextClip.startTime - partner.startTime) < 0.01) return null
             return (
               <MenuItem icon={ArrowLeftRight} label="Resync Audio/Video" onClick={() => {
                 pushUndo()
