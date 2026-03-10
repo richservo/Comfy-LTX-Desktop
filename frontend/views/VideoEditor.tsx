@@ -2918,8 +2918,8 @@ export function VideoEditor() {
                     }
                   }}
                   onMouseDown={(e) => {
-                    // Only start lasso on direct click on the tracks area (not on clips)
-                    if (e.target === e.currentTarget || (e.target as HTMLElement).closest('[data-track-bg]')) {
+                    // Only start lasso on direct click on the tracks area or gaps (not on clips)
+                    if (e.target === e.currentTarget || (e.target as HTMLElement).closest('[data-track-bg]') || (e.target as HTMLElement).closest('[data-gap]')) {
                       setSelectedSubtitleId(null)
                       setEditingSubtitleId(null)
                       setSelectedGap(null)
@@ -3526,6 +3526,7 @@ export function VideoEditor() {
                     return (
                       <div
                         key={`gap-${i}`}
+                        data-gap="true"
                         className={`absolute rounded cursor-pointer transition-all group ${
                           isGeneratingHere
                             ? 'bg-blue-500/15 border-2 border-dashed border-blue-400/60 shadow-inner'
@@ -3539,16 +3540,27 @@ export function VideoEditor() {
                           width: `${widthPx}px`,
                           height: `${getTrackHeight(gap.trackIndex) - 8}px`,
                         }}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (isGeneratingHere) return
-                          setSelectedGap(gap)
-                          setSelectedClipIds(new Set())
-                          setSelectedSubtitleId(null)
-                          setGapGenerateMode(null)
-                          const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                          setSelectedGapAnchor({ x: r.left + r.width / 2, gapTop: r.top, gapBottom: r.bottom })
+                        onMouseDown={(e) => {
+                          // Record start position to distinguish click from drag
+                          const startX = e.clientX
+                          const startY = e.clientY
+                          const target = e.currentTarget as HTMLElement
+                          const onUp = (upE: MouseEvent) => {
+                            window.removeEventListener('mouseup', onUp)
+                            const dx = upE.clientX - startX
+                            const dy = upE.clientY - startY
+                            if (Math.abs(dx) > 4 || Math.abs(dy) > 4) return // was a drag, not a click
+                            if (isGeneratingHere) return
+                            setSelectedGap(gap)
+                            setSelectedClipIds(new Set())
+                            setSelectedSubtitleId(null)
+                            setGapGenerateMode(null)
+                            const r = target.getBoundingClientRect()
+                            setSelectedGapAnchor({ x: r.left + r.width / 2, gapTop: r.top, gapBottom: r.bottom })
+                          }
+                          window.addEventListener('mouseup', onUp)
                         }}
+                        onClick={(e) => e.stopPropagation()}
                         onContextMenu={(e) => {
                           e.preventDefault()
                           e.stopPropagation()
