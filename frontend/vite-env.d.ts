@@ -100,9 +100,6 @@ interface Window {
     updateSettings: (patch: Record<string, unknown>) => Promise<Record<string, unknown>>
     extractVideoFrame: (videoUrl: string, seekTime: number, width?: number, quality?: number) => Promise<{ path: string; url: string }>
     writeLog: (level: string, message: string) => Promise<void>
-    getAnalyticsState: () => Promise<{ analyticsEnabled: boolean; installationId: string }>
-    setAnalyticsEnabled: (enabled: boolean) => Promise<void>
-    sendAnalyticsEvent: (eventName: string, extraDetails?: Record<string, unknown> | null) => Promise<void>
     checkNodeUpdates: () => Promise<{ results: { name: string; hasUpdate: boolean; error?: string }[]; hasAnyUpdates: boolean }>
     updateNodes: () => Promise<{ success: boolean; error?: string }>
     checkAppUpdate: () => Promise<{ updateAvailable: boolean; currentVersion: string; latestVersion?: string }>

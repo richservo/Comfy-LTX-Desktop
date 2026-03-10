@@ -22,7 +22,6 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const [modelLicenseText, setModelLicenseText] = useState<string | null>(null)
   const [modelLicenseLoading, setModelLicenseLoading] = useState(false)
   const [showModelLicense, setShowModelLicense] = useState(false)
-  const [analyticsEnabled, setAnalyticsEnabled] = useState(false)
   const [modelLists, setModelLists] = useState<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[] } | null>(null)
   const [modelListsLoading, setModelListsLoading] = useState(false)
   const [modelListsError, setModelListsError] = useState<string | null>(null)
@@ -74,13 +73,6 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     window.electronAPI.getAppInfo().then(info => setAppVersion(info.version)).catch(() => {})
   }, [activeTab, appVersion])
 
-  useEffect(() => {
-    if (!isOpen) return
-    window.electronAPI.getAnalyticsState()
-      .then((state: { analyticsEnabled: boolean }) => setAnalyticsEnabled(state.analyticsEnabled))
-      .catch(() => {})
-  }, [isOpen])
-
   if (!isOpen) return null
 
   const handleToggleSeedLock = () => {
@@ -115,12 +107,6 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
 
   const handleSaveComfyOutputDir = () => {
     updateSettings({ comfyuiOutputDir: comfyOutputDirInput.trim() })
-  }
-
-  const handleToggleAnalytics = () => {
-    const next = !analyticsEnabled
-    setAnalyticsEnabled(next)
-    window.electronAPI.setAnalyticsEnabled(next).catch(() => {})
   }
 
   const handleLoadModelLicense = async () => {
@@ -316,25 +302,6 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                 )}
               </div>
 
-              {/* Analytics */}
-              <div className="space-y-3 pt-4 border-t border-zinc-800">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <label className="text-sm font-medium text-white">Anonymous Analytics</label>
-                    <p className="text-xs text-zinc-500">Share anonymous usage data to help improve LTX Desktop.</p>
-                  </div>
-                  <button
-                    onClick={handleToggleAnalytics}
-                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                      analyticsEnabled ? 'bg-violet-500' : 'bg-zinc-700'
-                    }`}
-                  >
-                    <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
-                      analyticsEnabled ? 'translate-x-5' : 'translate-x-0'
-                    }`} />
-                  </button>
-                </div>
-              </div>
             </>
           )}
 

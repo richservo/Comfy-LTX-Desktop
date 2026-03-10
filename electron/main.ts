@@ -14,7 +14,7 @@ import { registerVideoProcessingHandlers } from './ipc/video-processing-handlers
 import { initSessionLog } from './logging-management'
 import { initAutoUpdater } from './updater'
 import { createWindow, getMainWindow } from './window'
-import { sendAnalyticsEvent } from './analytics'
+
 
 const gotLock = app.requestSingleInstanceLock()
 
@@ -54,9 +54,6 @@ if (!gotLock) {
     setupCSP()
     createWindow()
     initAutoUpdater()
-
-    // Fire analytics event (no-op if user hasn't opted in)
-    void sendAnalyticsEvent('ltxdesktop_app_launched')
   })
 
   app.on('window-all-closed', () => {

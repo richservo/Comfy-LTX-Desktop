@@ -2,7 +2,7 @@ import { app, ipcMain } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { checkGPU } from '../gpu'
-import { getAnalyticsState, setAnalyticsEnabled, sendAnalyticsEvent } from '../analytics'
+
 
 function getModelsPath(): string {
   const modelsPath = path.join(app.getPath('userData'), 'models')
@@ -120,18 +120,6 @@ export function registerAppHandlers(): void {
       return null
     }
     return process.resourcesPath
-  })
-
-  ipcMain.handle('get-analytics-state', () => {
-    return getAnalyticsState()
-  })
-
-  ipcMain.handle('set-analytics-enabled', (_event, enabled: boolean) => {
-    setAnalyticsEnabled(enabled)
-  })
-
-  ipcMain.handle('send-analytics-event', async (_event, eventName: string, extraDetails?: Record<string, unknown> | null) => {
-    await sendAnalyticsEvent(eventName, extraDetails)
   })
 
 }
