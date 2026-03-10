@@ -2864,7 +2864,7 @@ export function VideoEditor() {
                 >
                 <div
                   draggable={false}
-                  style={{ minWidth: `${totalDuration * pixelsPerSecond}px`,
+                  style={{ minWidth: `${totalDuration * pixelsPerSecond}px`, minHeight: '100%',
                     ...(activeTool === 'blade' ? { cursor: SCISSORS_CURSOR }
                       : activeTool === 'trackForward' ? { cursor: bladeShiftHeld ? TRACK_FWD_ONE_CURSOR : TRACK_FWD_ALL_CURSOR }
                       : {}),
@@ -2976,8 +2976,9 @@ export function VideoEditor() {
                     }
                   }}
                   onMouseDown={(e) => {
-                    // Only start lasso on direct click on the tracks area or gaps (not on clips)
-                    if (e.target === e.currentTarget || (e.target as HTMLElement).closest('[data-track-bg]') || (e.target as HTMLElement).closest('[data-gap]')) {
+                    // Start lasso on any click that's NOT on a clip (tracks, gaps, empty areas above/below tracks)
+                    if (!(e.target as HTMLElement).closest('[data-clip-id]')) {
+                      e.preventDefault() // Prevent native drag from fighting the lasso
                       setSelectedSubtitleId(null)
                       setEditingSubtitleId(null)
                       setSelectedGap(null)
