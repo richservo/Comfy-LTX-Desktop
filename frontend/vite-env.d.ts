@@ -77,6 +77,7 @@ interface Window {
       lastStrength?: number
       imageMode?: boolean
       imageSteps?: number
+      rtxSuperRes?: boolean
     }) => Promise<{ status: string; video_path?: string; image_path?: string; error?: string }>
     getGenerationProgress: () => Promise<{
       status: string
@@ -87,7 +88,7 @@ interface Window {
     }>
     cancelGeneration: () => Promise<void>
     checkComfyUIHealth: () => Promise<{ connected: boolean }>
-    getModelLists: () => Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[] }>
+    getModelLists: () => Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[]; hasRtxSuperRes?: boolean }>
     readVideoMetadata: (filePath: string) => Promise<Record<string, unknown> | null>
     getSettings: () => Promise<{
       comfyuiUrl: string

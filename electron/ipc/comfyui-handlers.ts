@@ -36,6 +36,7 @@ interface GenerateParams {
   lastStrength?: number
   imageMode?: boolean
   imageSteps?: number
+  rtxSuperRes?: boolean
 }
 
 let activePromptId: string | null = null
@@ -142,6 +143,7 @@ export function registerComfyUIHandlers(): void {
         imageMode: params.imageMode,
         imageSteps: params.imageSteps,
         imageAspectRatio: params.aspectRatio,
+        rtxSuperRes: params.imageMode ? false : (params.rtxSuperRes ?? false),
       })
 
       // Debug: log key workflow params
@@ -350,8 +352,9 @@ export function registerComfyUIHandlers(): void {
         upscaleModels: extractOptions('LatentUpscaleModelLoader', 'model_name'),
         loras: extractOptions('RSLTXVGenerate', 'upscale_lora'),
         samplers: extractOptions('KSamplerSelect', 'sampler_name'),
+        hasRtxSuperRes: 'RTXVideoSuperResolution' in info,
       }
-      logger.info(`comfyui:model-lists counts: checkpoints=${result.checkpoints.length}, textEncoders=${result.textEncoders.length}, upscaleModels=${result.upscaleModels.length}, loras=${result.loras.length}, samplers=${result.samplers.length}`)
+      logger.info(`comfyui:model-lists counts: checkpoints=${result.checkpoints.length}, textEncoders=${result.textEncoders.length}, upscaleModels=${result.upscaleModels.length}, loras=${result.loras.length}, samplers=${result.samplers.length}, rtxSuperRes=${result.hasRtxSuperRes}`)
       return result
     } catch (error) {
       logger.error(`Failed to fetch model lists: ${error}`)

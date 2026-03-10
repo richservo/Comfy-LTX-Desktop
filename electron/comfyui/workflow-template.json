@@ -475,5 +475,14 @@
     },
     "class_type": "ImageScale",
     "_meta": { "title": "Crop Last Frame" }
+  },
+  "60": {
+    "inputs": {
+      "resize_type": "scale by multiplier",
+      "resize_type.scale": 2,
+      "quality": "ULTRA"
+    },
+    "class_type": "RTXVideoSuperResolution",
+    "_meta": { "title": "RTX Video Super Resolution" }
   }
 }

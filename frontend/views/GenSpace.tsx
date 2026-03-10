@@ -301,6 +301,7 @@ function PromptBar({
   canGenerate,
   buttonLabel,
   buttonIcon,
+  hasRtxSuperRes,
 }: {
   mode: 'video' | 'retake'
   onModeChange: (mode: 'video' | 'retake') => void
@@ -316,6 +317,7 @@ function PromptBar({
   onInputImageChange: (url: string | null) => void
   settings: GenerationSettings
   onSettingsChange: (settings: GenerationSettings) => void
+  hasRtxSuperRes?: boolean
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -452,7 +454,7 @@ function PromptBar({
               title="RESOLUTION"
               value={settings.videoResolution}
               onChange={(v) => onSettingsChange({ ...settings, videoResolution: v })}
-              options={['540p', '720p', '1080p'].map((value) => ({ value, label: value }))}
+              options={[...(hasRtxSuperRes ? ['4K'] : []), '1080p', '720p', '540p'].map((value) => ({ value, label: value }))}
               trigger={
                 <>
                   <Monitor className="h-3.5 w-3.5" />
@@ -632,6 +634,12 @@ export function GenSpace() {
   const [gallerySize, setGallerySize] = useState<GallerySize>('medium')
   const [showSizeMenu, setShowSizeMenu] = useState(false)
   const [isPanelOpen, setIsPanelOpen] = useState(false)
+  const [hasRtxSuperRes, setHasRtxSuperRes] = useState(false)
+  useEffect(() => {
+    window.electronAPI?.getModelLists?.()
+      .then((lists: { hasRtxSuperRes?: boolean }) => { if (lists.hasRtxSuperRes) setHasRtxSuperRes(true) })
+      .catch(() => {})
+  }, [])
   const sizeMenuRef = useRef<HTMLDivElement>(null)
   const persistedVideoKeyRef = useRef<string | null>(null)
   const retakeSubmissionRef = useRef<{
@@ -1330,6 +1338,7 @@ export function GenSpace() {
           onInputImageChange={setInputImage}
           settings={settings}
           onSettingsChange={handleSettingsChange}
+          hasRtxSuperRes={hasRtxSuperRes}
         />
       </div>
 

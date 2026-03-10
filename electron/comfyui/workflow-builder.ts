@@ -67,6 +67,8 @@ export interface WorkflowParams {
   imageSteps?: number
   /** Image aspect ratio (for Z-Image standalone) */
   imageAspectRatio?: string
+  /** Enable RTX Video Super Resolution (4K output) */
+  rtxSuperRes?: boolean
 }
 
 type WorkflowNode = { class_type: string; inputs: Record<string, unknown>; _meta?: { title: string } }
@@ -147,6 +149,7 @@ const OPTIONAL_NODE_IDS = {
   cropFirstFrame: '57',
   cropMiddleFrame: '58',
   cropLastFrame: '59',
+  rtxSuperRes: '60',
 }
 
 const OLLAMA_FORMATTER_NODES = [
@@ -282,6 +285,9 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
 
   // Film grain — only include if enabled
   if (!params.filmGrain) nodesToRemove.add(OPTIONAL_NODE_IDS.filmGrain)
+
+  // RTX Super Resolution — only include if enabled
+  if (!params.rtxSuperRes) nodesToRemove.add(OPTIONAL_NODE_IDS.rtxSuperRes)
 
   for (const id of nodesToRemove) {
     delete workflow[id]
@@ -446,15 +452,29 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     }
   }
 
-  // --- Film grain: wire between node 6 images and node 23 ---
+  // --- Post-processing chain: RSLTXVGenerate → [RTX Super Res] → [Film Grain] → CreateVideo ---
+  // Build the chain: each stage feeds images to the next
+  let lastImageSource: [string, number] = ['6', 2] // RSLTXVGenerate images output
+
+  // RTX Video Super Resolution (4K upscale)
+  if (params.rtxSuperRes && workflow[OPTIONAL_NODE_IDS.rtxSuperRes]) {
+    const rtxNode = workflow[OPTIONAL_NODE_IDS.rtxSuperRes]
+    rtxNode.inputs['images'] = lastImageSource
+    lastImageSource = [OPTIONAL_NODE_IDS.rtxSuperRes, 0]
+  }
+
+  // Film grain
   if (params.filmGrain) {
     const grainNode = workflow[OPTIONAL_NODE_IDS.filmGrain]
-    grainNode.inputs['images'] = ['6', 2]
+    grainNode.inputs['images'] = lastImageSource
     grainNode.inputs['intensity'] = params.filmGrainIntensity ?? 0.05
     grainNode.inputs['grain_size'] = Math.max(1.0, params.filmGrainSize ?? 1.2)
     grainNode.inputs['seed'] = params.seed
-    workflow['23'].inputs['images'] = [OPTIONAL_NODE_IDS.filmGrain, 0]
+    lastImageSource = [OPTIONAL_NODE_IDS.filmGrain, 0]
   }
+
+  // Wire final images to CreateVideo
+  workflow['23'].inputs['images'] = lastImageSource
 
   // --- Patch FPS (PrimitiveFloat node 24) ---
   workflow['24'].inputs['value'] = params.frameRate

@@ -98,26 +98,28 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
 
       progressInterval = setInterval(pollProgress, 500)
 
+      const is4K = settings.videoResolution === '4K'
       const result = await window.electronAPI.generateVideo({
         prompt,
         imagePath,
         middleImagePath,
         lastImagePath,
         audioPath,
-        resolution: settings.videoResolution,
+        resolution: is4K ? '1080p' : settings.videoResolution,
         aspectRatio: settings.aspectRatio || '16:9',
         duration: settings.duration,
         fps: settings.fps,
         cameraMotion: settings.cameraMotion,
-        spatialUpscale: (settings as unknown as { spatialUpscale?: boolean }).spatialUpscale,
-        upscaleDenoise: (settings as unknown as { upscaleDenoise?: number }).upscaleDenoise,
-        temporalUpscale: (settings as unknown as { temporalUpscale?: boolean }).temporalUpscale,
-        filmGrain: (settings as unknown as { filmGrain?: boolean }).filmGrain,
-        filmGrainIntensity: (settings as unknown as { filmGrainIntensity?: number }).filmGrainIntensity,
-        filmGrainSize: (settings as unknown as { filmGrainSize?: number }).filmGrainSize,
+        spatialUpscale: settings.spatialUpscale,
+        upscaleDenoise: settings.upscaleDenoise,
+        temporalUpscale: settings.temporalUpscale,
+        filmGrain: settings.filmGrain,
+        filmGrainIntensity: settings.filmGrainIntensity,
+        filmGrainSize: settings.filmGrainSize,
         firstStrength: strengths?.first,
         middleStrength: strengths?.middle,
         lastStrength: strengths?.last,
+        rtxSuperRes: is4K,
       })
 
       if (cancelledRef.current) return
