@@ -113,7 +113,7 @@ Dropdowns populated from ComfyUI's `/object_info` API:
 
 ### Playground controls
 
-- **Resolution**: 540p, 720p, 1080p
+- **Resolution**: 540p, 720p, 1080p, 4K (see [4K output](#4k-output) below)
 - **Aspect Ratio**: 16:9, 9:16, 1:1, 4:3, 3:4
 - **Duration**: video length in seconds
 - **FPS**: frame rate
@@ -131,6 +131,21 @@ Uses the same LTX pipeline — generates a single latent frame (9 frames minimum
 - **Fast**: 10 steps
 - **Balanced**: 20 steps (default)
 - **High**: 40 steps
+
+### 4K output
+
+4K output requires the **RTX Video Super Resolution** custom node. All other resolutions (540p, 720p, 1080p) and features work without it.
+
+When the node is detected in your ComfyUI installation, the 4K option automatically appears in the resolution dropdown. It uses NVIDIA's RTX Video Super Resolution technology to upscale 1080p output to 4K as a post-processing step.
+
+**To install:**
+
+1. Open **ComfyUI Manager** in your ComfyUI browser interface
+2. Search for **RTX Video Super Resolution** in the node registry
+3. Install it and restart ComfyUI
+4. Relaunch LTX Desktop — the 4K option will appear in the resolution dropdown
+
+> **Note:** Requires an NVIDIA RTX GPU.
 
 ## Development
 
