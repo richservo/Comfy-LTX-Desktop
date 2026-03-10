@@ -2865,15 +2865,50 @@ export function VideoEditor() {
                       e.preventDefault()
                       e.dataTransfer.dropEffect = 'copy'
                     }
-                    // Update bin drag preview position
+                    // Update bin drag preview position with snap
                     if (binDragAssetsRef.current.length > 0 && trackContainerRef.current) {
                       const rect = trackContainerRef.current.getBoundingClientRect()
                       const scrollLeft = trackContainerRef.current.scrollLeft
                       const scrollTop = trackContainerRef.current.scrollTop
                       const x = e.clientX - rect.left + scrollLeft
                       const y = e.clientY - rect.top + scrollTop
-                      const startTime = Math.max(0, x / pixelsPerSecond)
+                      let startTime = Math.max(0, x / pixelsPerSecond)
                       const tidx = trackIndexFromY(y)
+
+                      // Snap to clip edges and playhead (same behavior as timeline clip dragging)
+                      if (snapEnabled && !(e.ctrlKey || e.metaKey)) {
+                        const snapThreshold = 0.2
+                        const totalDragDuration = binDragAssetsRef.current.reduce((sum, a) => sum + (a.duration || 5), 0)
+                        let snapped = false
+                        for (const c of clips) {
+                          // Snap start to clip start
+                          if (!snapped && Math.abs(startTime - c.startTime) < snapThreshold) {
+                            startTime = c.startTime; snapped = true
+                          }
+                          // Snap start to clip end
+                          const cEnd = c.startTime + c.duration
+                          if (!snapped && Math.abs(startTime - cEnd) < snapThreshold) {
+                            startTime = cEnd; snapped = true
+                          }
+                          // Snap end to clip start
+                          if (!snapped && Math.abs(startTime + totalDragDuration - c.startTime) < snapThreshold) {
+                            startTime = c.startTime - totalDragDuration; snapped = true
+                          }
+                          // Snap end to clip end
+                          if (!snapped && Math.abs(startTime + totalDragDuration - cEnd) < snapThreshold) {
+                            startTime = cEnd - totalDragDuration; snapped = true
+                          }
+                        }
+                        // Snap to playhead
+                        if (!snapped && Math.abs(startTime - currentTime) < snapThreshold) {
+                          startTime = currentTime
+                        }
+                        if (!snapped && Math.abs(startTime + totalDragDuration - currentTime) < snapThreshold) {
+                          startTime = currentTime - totalDragDuration
+                        }
+                        startTime = Math.max(0, startTime)
+                      }
+
                       const preview = { startTime, trackIndex: tidx, overwrite: e.ctrlKey || e.metaKey }
                       binDragPreviewRef.current = preview
                       setBinDragPreview(preview)
@@ -2883,6 +2918,9 @@ export function VideoEditor() {
                     // Keep the ghost visible — it stays at the last valid position
                   }}
                   onDrop={(e) => {
+                    e.preventDefault()
+                    const preview = binDragPreviewRef.current
+                    const draggedAssets = binDragAssetsRef.current
                     binDropHandledRef.current = true
                     setBinDragPreview(null)
                     binDragAssetsRef.current = []
@@ -2892,7 +2930,16 @@ export function VideoEditor() {
                       handleDropFiles(e)
                       return
                     }
-                    // Determine which track the drop landed on from the Y position
+                    // Use the snapped preview position if available (from bin drag)
+                    if (preview && draggedAssets.length > 0) {
+                      let nextStart = preview.startTime
+                      for (const a of draggedAssets) {
+                        addClipToTimeline(a, preview.trackIndex, nextStart, preview.overwrite)
+                        nextStart += a.duration || 5
+                      }
+                      return
+                    }
+                    // Fallback: calculate from mouse position (for timeline/other drops)
                     const container = trackContainerRef.current
                     if (!container) return
                     const rect = container.getBoundingClientRect()
@@ -3064,12 +3111,23 @@ export function VideoEditor() {
                         style={{ height: track.type === 'subtitle' ? subtitleTrackHeight : track.kind === 'audio' ? audioTrackHeight : videoTrackHeight }}
                         onDrop={(e) => {
                           e.stopPropagation()
+                          const preview = binDragPreviewRef.current
+                          const draggedAssets = binDragAssetsRef.current
                           binDropHandledRef.current = true
                           setBinDragPreview(null)
                           binDragAssetsRef.current = []
                           binDragPreviewRef.current = null
                           if (track.type === 'subtitle') {
                             e.preventDefault()
+                            return
+                          }
+                          // Use snapped preview position if available
+                          if (preview && draggedAssets.length > 0) {
+                            let nextStart = preview.startTime
+                            for (const a of draggedAssets) {
+                              addClipToTimeline(a, preview.trackIndex, nextStart, preview.overwrite)
+                              nextStart += a.duration || 5
+                            }
                             return
                           }
                           handleTrackDrop(e, realIndex)
