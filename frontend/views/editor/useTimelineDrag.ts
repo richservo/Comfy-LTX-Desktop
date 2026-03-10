@@ -64,7 +64,7 @@ interface UseTimelineDragParams {
   pushUndo: (c?: any) => void
   resolveClipSrc: (clip: TimelineClip | null) => string
   getMaxClipDuration: (clip: TimelineClip) => number
-  addClipToTimeline: (asset: Asset, trackIndex: number, startTime?: number) => void
+  addClipToTimeline: (asset: Asset, trackIndex: number, startTime?: number, overwrite?: boolean) => void
   assets: Asset[]
   timelines: any[]
   activeTimeline: any
@@ -1000,8 +1000,9 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
           const scrollLeft = trackContainerRef.current.scrollLeft
           const x = e.clientX - rect.left + scrollLeft
           let nextStart = Math.max(0, x / pixelsPerSecond)
+          const ctrlHeld = e.ctrlKey || e.metaKey
           for (const a of droppedAssets) {
-            addClipToTimeline(a, trackIndex, nextStart)
+            addClipToTimeline(a, trackIndex, nextStart, ctrlHeld)
             nextStart += a.duration || 5
           }
           return
@@ -1025,7 +1026,7 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
       const scrollLeft = trackContainerRef.current.scrollLeft
       const x = e.clientX - rect.left + scrollLeft
       const startTime = Math.max(0, x / pixelsPerSecond)
-      addClipToTimeline(asset, trackIndex, startTime)
+      addClipToTimeline(asset, trackIndex, startTime, e.ctrlKey || e.metaKey)
     }
   }
   

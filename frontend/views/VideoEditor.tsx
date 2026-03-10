@@ -25,7 +25,7 @@ import { MenuBar, type MenuDefinition } from '../components/MenuBar'
 import { ImportTimelineModal } from '../components/ImportTimelineModal'
 import { ClipWaveform } from '../components/AudioWaveform'
 // IC-LORA HIDDEN - import { ICLoraPanel } from '../components/ICLoraPanel'
-import type { TimelineClip, Track, SubtitleClip } from '../types/project' // EFFECTS HIDDEN: removed EffectType
+import type { TimelineClip, Track, SubtitleClip, Asset } from '../types/project' // EFFECTS HIDDEN: removed EffectType
 import { DEFAULT_TRACKS } from '../types/project' // EFFECTS HIDDEN: removed EFFECT_DEFINITIONS
 import {
   type ToolType, PRIMARY_TOOLS, TRIM_TOOLS,
@@ -268,6 +268,10 @@ export function VideoEditor() {
   const [openTimelineIds, setOpenTimelineIds] = useState<Set<string>>(new Set())
   const [timelineAddMenuOpen, setTimelineAddMenuOpen] = useState(false)
   
+  // Bin-to-timeline drag preview
+  const binDragAssetsRef = useRef<Asset[]>([])
+  const [binDragPreview, setBinDragPreview] = useState<{ startTime: number; trackIndex: number; overwrite: boolean } | null>(null)
+
   // Dragging state
   const fileInputRef = useRef<HTMLInputElement>(null)
   const timelineRef = useRef<HTMLDivElement>(null)
@@ -494,7 +498,7 @@ export function VideoEditor() {
 
   // Clip/track operations (extracted hook)
   const {
-    addClipToTimeline, handleImportFile,
+    addClipToTimeline, handleImportFile, handleDropFiles,
     updateClip, addEffectToClip: _addEffectToClip, removeEffectFromClip, updateEffectOnClip, // EFFECTS HIDDEN: addEffectToClip prefixed
     duplicateClip, splitClipAtPlayhead, removeClip,
     addCrossDissolve, removeCrossDissolve,
@@ -870,7 +874,49 @@ export function VideoEditor() {
     if (audioDividerDisplayRow >= 0 && displayRow >= audioDividerDisplayRow) top += DIVIDER_H
     return top + padding
   }, [trackDisplayRow, audioDividerDisplayRow, orderedTracks, videoTrackHeight, audioTrackHeight, subtitleTrackHeight])
-  
+
+  // Resolve track index from a Y pixel position inside the track container
+  const trackIndexFromY = useCallback((yInContainer: number): number => {
+    let accY = 0
+    let result = 0
+    for (const entry of orderedTracks) {
+      if (entry.displayRow === audioDividerDisplayRow) accY += DIVIDER_H
+      const th = entry.track.type === 'subtitle' ? subtitleTrackHeight : entry.track.kind === 'audio' ? audioTrackHeight : videoTrackHeight
+      if (yInContainer >= accY && yInContainer < accY + th) return entry.realIndex
+      accY += th
+      result = entry.realIndex
+    }
+    return result
+  }, [orderedTracks, audioDividerDisplayRow, subtitleTrackHeight, audioTrackHeight, videoTrackHeight])
+
+  // Bin drag callbacks passed to LeftPanel
+  const binDragPreviewRef = useRef(binDragPreview)
+  binDragPreviewRef.current = binDragPreview
+
+  const handleBinDragStart = useCallback((draggedAssets: Asset[]) => {
+    binDragAssetsRef.current = draggedAssets
+  }, [])
+  const binDropHandledRef = useRef(false)
+
+  const handleBinDragEnd = useCallback(() => {
+    // If the drop wasn't handled by an onDrop handler, commit at the last preview position
+    if (!binDropHandledRef.current) {
+      const preview = binDragPreviewRef.current
+      const draggedAssets = binDragAssetsRef.current
+      if (preview && draggedAssets.length > 0) {
+        let nextStart = preview.startTime
+        for (const a of draggedAssets) {
+          addClipToTimeline(a, preview.trackIndex, nextStart, preview.overwrite)
+          nextStart += a.duration || 5
+        }
+      }
+    }
+    binDropHandledRef.current = false
+    binDragAssetsRef.current = []
+    binDragPreviewRef.current = null
+    setBinDragPreview(null)
+  }, [addClipToTimeline])
+
   // Find the clip at current playhead position
   // Priority: 1) upper tracks (lower trackIndex) win over lower tracks
   //           2) on the same track, the clip placed later (higher array index) wins
@@ -1822,6 +1868,7 @@ export function VideoEditor() {
         updateAsset={updateAsset}
         loadSourceAsset={loadSourceAsset}
         handleImportFile={handleImportFile}
+        handleDropFiles={handleDropFiles}
         fileInputRef={fileInputRef}
         setAssetActiveTake={setAssetActiveTake}
         addClipToTimeline={addClipToTimeline}
@@ -1852,6 +1899,8 @@ export function VideoEditor() {
         handleStartRename={handleStartRename}
         handleFinishRename={handleFinishRename}
         setRenamingTimelineId={setRenamingTimelineId}
+        onAssetDragStart={handleBinDragStart}
+        onAssetDragEnd={handleBinDragEnd}
       />
       {/* Left resize handle */}
       <div
@@ -1918,6 +1967,11 @@ export function VideoEditor() {
             </div>
           )}
 
+          <div
+            className="flex-1 min-w-0 min-h-0 flex flex-col"
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }}
+            onDrop={handleDropFiles}
+          >
           <ProgramMonitor
             showSourceMonitor={showSourceMonitor}
             activePanel={activePanel}
@@ -1974,6 +2028,7 @@ export function VideoEditor() {
             toggleFullscreen={toggleFullscreen}
             kbLayout={kbLayout}
           />
+          </div> {/* end program monitor drop zone */}
         </div> {/* end split preview area */}
         
         {/* Timeline Info Bar (shuttle indicator only — timecode moved to ruler area) */}
@@ -2804,13 +2859,38 @@ export function VideoEditor() {
                   }}
                   className="relative"
                   onDragOver={(e) => {
-                    // Allow asset/timeline drops anywhere on the timeline area
-                    if (e.dataTransfer.types.includes('assetid') || e.dataTransfer.types.includes('assetids') || e.dataTransfer.types.includes('asset') || e.dataTransfer.types.includes('timeline')) {
+                    // Allow asset/timeline/file drops anywhere on the timeline area
+                    if (e.dataTransfer.types.includes('assetid') || e.dataTransfer.types.includes('assetids') || e.dataTransfer.types.includes('asset') || e.dataTransfer.types.includes('timeline') || e.dataTransfer.types.includes('Files')) {
                       e.preventDefault()
                       e.dataTransfer.dropEffect = 'copy'
                     }
+                    // Update bin drag preview position
+                    if (binDragAssetsRef.current.length > 0 && trackContainerRef.current) {
+                      const rect = trackContainerRef.current.getBoundingClientRect()
+                      const scrollLeft = trackContainerRef.current.scrollLeft
+                      const scrollTop = trackContainerRef.current.scrollTop
+                      const x = e.clientX - rect.left + scrollLeft
+                      const y = e.clientY - rect.top + scrollTop
+                      const startTime = Math.max(0, x / pixelsPerSecond)
+                      const tidx = trackIndexFromY(y)
+                      const preview = { startTime, trackIndex: tidx, overwrite: e.ctrlKey || e.metaKey }
+                      binDragPreviewRef.current = preview
+                      setBinDragPreview(preview)
+                    }
+                  }}
+                  onDragLeave={() => {
+                    // Keep the ghost visible — it stays at the last valid position
                   }}
                   onDrop={(e) => {
+                    binDropHandledRef.current = true
+                    setBinDragPreview(null)
+                    binDragAssetsRef.current = []
+                    binDragPreviewRef.current = null
+                    // External file drop → import to bin first
+                    if (e.dataTransfer.files?.length > 0 && !e.dataTransfer.getData('assetId') && !e.dataTransfer.getData('asset')) {
+                      handleDropFiles(e)
+                      return
+                    }
                     // Determine which track the drop landed on from the Y position
                     const container = trackContainerRef.current
                     if (!container) return
@@ -2982,6 +3062,10 @@ export function VideoEditor() {
                         style={{ height: track.type === 'subtitle' ? subtitleTrackHeight : track.kind === 'audio' ? audioTrackHeight : videoTrackHeight }}
                         onDrop={(e) => {
                           e.stopPropagation()
+                          binDropHandledRef.current = true
+                          setBinDragPreview(null)
+                          binDragAssetsRef.current = []
+                          binDragPreviewRef.current = null
                           if (track.type === 'subtitle') {
                             e.preventDefault()
                             return
@@ -3297,7 +3381,130 @@ export function VideoEditor() {
                       </div>
                     </div>
                   )})}
-                  
+
+                  {/* Bin-to-timeline drag preview ghost clips */}
+                  {binDragPreview && binDragAssetsRef.current.length > 0 && (() => {
+                    const dragAssets = binDragAssetsRef.current
+                    const isOverwrite = binDragPreview.overwrite
+                    const preferredAudio = tracks.findIndex(t => t.kind === 'audio' && !t.locked && t.sourcePatched !== false)
+                    // Helper: check if a time range is free on a track
+                    const isFreeAt = (tIdx: number, start: number, dur: number) =>
+                      !clips.some(c => c.trackIndex === tIdx && c.startTime < start + dur && c.startTime + c.duration > start)
+                    // Helper: find first free track of a kind
+                    const findFree = (kind: 'video' | 'audio', preferred: number, start: number, dur: number): number => {
+                      if (isOverwrite) return preferred >= 0 ? preferred : 0
+                      // Try preferred first if it's the right kind
+                      const pt = tracks[preferred]
+                      if (preferred >= 0 && pt?.kind === kind && !pt.locked && isFreeAt(preferred, start, dur)) return preferred
+                      // Search all tracks of this kind from the first
+                      for (let i = 0; i < tracks.length; i++) {
+                        const t = tracks[i]
+                        if (t.kind !== kind || t.locked) continue
+                        if (isFreeAt(i, start, dur)) return i
+                      }
+                      return preferred >= 0 ? preferred : 0
+                    }
+                    const borderCls = isOverwrite ? 'border-red-500' : 'border-blue-500'
+                    const shadowCls = isOverwrite ? 'shadow-red-500/30' : 'shadow-blue-500/30'
+                    // Resolve preferred video track: use cursor track if it's video, otherwise first video track
+                    const cursorTrack = tracks[binDragPreview.trackIndex]
+                    const prefVideo = (cursorTrack?.kind === 'video' && !cursorTrack.locked)
+                      ? binDragPreview.trackIndex
+                      : tracks.findIndex(t => t.kind === 'video' && !t.locked)
+                    let nextStart = binDragPreview.startTime
+                    const ghosts: React.ReactNode[] = []
+                    for (let i = 0; i < dragAssets.length; i++) {
+                      const asset = dragAssets[i]
+                      const duration = asset.duration || 5
+                      const clipStart = nextStart
+                      nextStart += duration
+                      const isVideo = asset.type === 'video'
+                      // Resolve actual video track
+                      const videoTIdx = findFree('video', prefVideo >= 0 ? prefVideo : 0, clipStart, duration)
+                      const trackHeight = getTrackHeight(videoTIdx)
+                      // Video/image/adjustment ghost
+                      ghosts.push(
+                        <div
+                          key={`ghost-${i}`}
+                          className={`absolute rounded border-2 ${borderCls} overflow-hidden select-none pointer-events-none z-40 shadow-lg ${shadowCls} ${
+                            asset.type === 'audio' ? 'bg-green-900/60' : 'bg-zinc-800/80'
+                          }`}
+                          style={{
+                            left: `${clipStart * pixelsPerSecond}px`,
+                            width: `${duration * pixelsPerSecond}px`,
+                            top: `${trackTopPx(videoTIdx, 4)}px`,
+                            height: `${trackHeight - 8}px`,
+                            opacity: 0.85,
+                          }}
+                        >
+                          <div className="absolute left-0 top-0 bottom-0 w-4 flex items-center justify-center text-zinc-500">
+                            <GripVertical className="h-3 w-3" />
+                          </div>
+                          <div className="h-full flex items-center pl-5 pr-2 gap-2">
+                            {asset.type === 'audio' ? (
+                              <div className="h-8 w-8 flex-shrink-0 rounded bg-emerald-800/50 flex items-center justify-center">
+                                <Music className="h-4 w-4 text-emerald-400" />
+                              </div>
+                            ) : asset.type === 'video' ? (
+                              <video src={asset.url} className="h-8 aspect-video object-cover rounded" muted />
+                            ) : asset.type === 'image' ? (
+                              <img src={asset.url} alt="" className="h-8 aspect-video object-cover rounded" />
+                            ) : (
+                              <div className="h-8 w-8 flex-shrink-0 rounded bg-blue-800/30 border border-blue-600/30 flex items-center justify-center">
+                                <Layers className="h-4 w-4 text-blue-400" />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className={`text-[10px] truncate ${asset.type === 'audio' ? 'text-emerald-300' : 'text-zinc-300'}`}>
+                                {asset.prompt?.slice(0, 30) || asset.path?.split(/[/\\]/).pop() || 'Clip'}
+                              </p>
+                              <div className="flex items-center gap-2 text-[9px] text-zinc-500">
+                                <span>{duration.toFixed(1)}s</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                      // Linked audio ghost for video assets
+                      if (isVideo && preferredAudio >= 0) {
+                        const audioTIdx = findFree('audio', preferredAudio, clipStart, duration)
+                        const audioHeight = getTrackHeight(audioTIdx)
+                        ghosts.push(
+                          <div
+                            key={`ghost-audio-${i}`}
+                            className={`absolute rounded border-2 ${borderCls} bg-green-900/60 overflow-hidden select-none pointer-events-none z-40 shadow-lg ${shadowCls}`}
+                            style={{
+                              left: `${clipStart * pixelsPerSecond}px`,
+                              width: `${duration * pixelsPerSecond}px`,
+                              top: `${trackTopPx(audioTIdx, 4)}px`,
+                              height: `${audioHeight - 8}px`,
+                              opacity: 0.85,
+                            }}
+                          >
+                            <div className="absolute left-0 top-0 bottom-0 w-4 flex items-center justify-center text-zinc-500">
+                              <GripVertical className="h-3 w-3" />
+                            </div>
+                            <div className="h-full flex items-center pl-5 pr-2 gap-2">
+                              <div className="h-8 w-8 flex-shrink-0 rounded bg-emerald-800/50 flex items-center justify-center">
+                                <Music className="h-4 w-4 text-emerald-400" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[10px] truncate text-emerald-300">
+                                  {asset.prompt?.slice(0, 30) || asset.path?.split(/[/\\]/).pop() || 'Audio'}
+                                </p>
+                                <div className="flex items-center gap-2 text-[9px] text-zinc-500">
+                                  <span>{duration.toFixed(1)}s</span>
+                                  <Link2 className="h-2.5 w-2.5 text-zinc-500 inline" />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      }
+                    }
+                    return ghosts
+                  })()}
+
                   {/* Gap indicators between clips */}
                   {timelineGaps.map((gap, i) => {
                     const leftPx = gap.startTime * pixelsPerSecond

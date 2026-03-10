@@ -13,6 +13,7 @@ import {
 import { getComfyUISettings } from './settings-handlers'
 import { findFfmpegPath } from '../export/ffmpeg-utils'
 import { logger } from '../logger'
+import { approvePath } from '../path-validation'
 
 interface GenerateParams {
   prompt: string
@@ -197,6 +198,8 @@ export function registerComfyUIHandlers(): void {
       if (!fs.existsSync(outputPath)) {
         throw new Error(`ComfyUI output file not found: ${outputPath}`)
       }
+      // Approve the output directory so the frontend can read generated files
+      approvePath(path.join(outputDir, subfolder))
       logger.info(`ComfyUI output at: ${outputPath}`)
 
       // 11. Embed generation settings as metadata (remux in-place, video only)

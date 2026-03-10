@@ -41,63 +41,153 @@ export function useClipOperations(params: UseClipOperationsParams) {
     fileInputRef, setHoveredCutPoint,
   } = params
 
-  const addClipToTimeline = (asset: Asset, trackIndex: number = 0, startTime?: number) => {
-    const track = tracks[trackIndex]
-    if (!track || track.locked) return
-    
-    // Check source patching: if the target track is unpatched, skip creating the clip on it
-    const videoPatched = track.sourcePatched !== false
+  // Check whether a time range is free of clips on a given track
+  const isTrackFreeAt = (tIdx: number, start: number, duration: number, existingClips: TimelineClip[]): boolean => {
+    const end = start + duration
+    return !existingClips.some(c =>
+      c.trackIndex === tIdx && c.startTime < end && c.startTime + c.duration > start
+    )
+  }
+
+  // Find the next free track of a given kind.
+  // Tries preferredIdx first, then searches all tracks of the same kind (ascending index).
+  // Creates a new track if all existing ones are occupied.
+  const findFreeTrack = (
+    kind: 'video' | 'audio',
+    preferredIdx: number,
+    start: number,
+    duration: number,
+    existingClips: TimelineClip[],
+    currentTracks: Track[],
+  ): { trackIndex: number; newTrack?: Track } => {
+    // Collect all candidate tracks of the matching kind
+    const candidates = currentTracks
+      .map((t, i) => ({ track: t, index: i }))
+      .filter(e => e.track.kind === kind && !e.track.locked)
+
+    // If preferred track is the right kind and free, use it
+    const preferredTrack = currentTracks[preferredIdx]
+    if (preferredTrack?.kind === kind && !preferredTrack.locked &&
+        isTrackFreeAt(preferredIdx, start, duration, existingClips)) {
+      return { trackIndex: preferredIdx }
+    }
+
+    // Search all tracks of this kind, starting from the first (lowest)
+    for (const c of candidates) {
+      if (isTrackFreeAt(c.index, start, duration, existingClips)) {
+        return { trackIndex: c.index }
+      }
+    }
+
+    // All existing tracks occupied — create a new one
+    const count = candidates.length
+    const prefix = kind === 'audio' ? 'A' : 'V'
+    const newTrack: Track = {
+      id: `track-${Date.now()}-${kind}`,
+      name: `${prefix}${count + 1}`,
+      muted: false,
+      locked: false,
+      kind,
+    }
+    return { trackIndex: currentTracks.length, newTrack }
+  }
+
+  const addClipToTimeline = (asset: Asset, trackIndex: number = 0, startTime?: number, overwrite?: boolean) => {
     const isAdjustment = asset.type === 'adjustment'
     const isVideoAsset = asset.type === 'video'
     const isAudioAsset = asset.type === 'audio'
     const isImageAsset = asset.type === 'image'
-    
-    // For audio-only assets dropped on an unpatched track, bail
-    if (isAudioAsset && !videoPatched) return
-    
-    // For video/image assets: check if the target video track is patched
-    const createVideoClip = (isVideoAsset || isImageAsset || isAdjustment) && videoPatched
-    
-    // For video assets: check if any audio track is patched (for linked audio)
-    const needsAudioClip = isVideoAsset && !isAdjustment
-    const audioPatched = needsAudioClip && tracks.some(t => t.kind === 'audio' && !t.locked && t.sourcePatched !== false)
-    const createAudioClip = needsAudioClip && audioPatched
-    
-    // If nothing would be created, bail
-    if (!createVideoClip && !createAudioClip) return
-    
+
+    const createVideoClip = isVideoAsset || isImageAsset || isAdjustment
+    const createAudioClip = isVideoAsset && !isAdjustment
+
+    if (!createVideoClip && !isAudioAsset) return
+
     let clipStartTime = startTime
     if (clipStartTime === undefined) {
       const trackClips = clips.filter(c => c.trackIndex === trackIndex)
-      clipStartTime = trackClips.reduce((max, clip) => 
+      clipStartTime = trackClips.reduce((max, clip) =>
         Math.max(max, clip.startTime + clip.duration), 0
       )
     }
-    
+
     const clipDuration = asset.duration || (isAdjustment ? 10 : 5)
     const videoClipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
     const audioClipId = `clip-${Date.now()}-a-${Math.random().toString(36).substr(2, 9)}`
-    
+
+    let currentTracks = [...tracks]
+    const tracksToAdd: Track[] = []
+
+    // Resolve preferred video track: use drop target if it's a video track, otherwise first video track
+    const preferredVideo = (currentTracks[trackIndex]?.kind === 'video' && !currentTracks[trackIndex]?.locked)
+      ? trackIndex
+      : currentTracks.findIndex(t => t.kind === 'video' && !t.locked)
+    // Resolve preferred audio track: first unlocked audio track
+    const preferredAudio = currentTracks.findIndex(t => t.kind === 'audio' && !t.locked)
+
+    let videoTrackIdx = preferredVideo >= 0 ? preferredVideo : 0
     let audioTrackIndex = -1
-    if (createAudioClip) {
-      audioTrackIndex = tracks.findIndex(t => t.kind === 'audio' && !t.locked && t.sourcePatched !== false)
-      if (audioTrackIndex < 0) {
-        // No patched audio track exists — create one
-        const audioTrackCount = tracks.filter(t => t.kind === 'audio').length
-        const newAudioTrack: Track = {
-          id: `track-${Date.now()}-audio`,
-          name: `A${audioTrackCount + 1}`,
-          muted: false,
-          locked: false,
-          kind: 'audio',
+
+    if (overwrite) {
+      // Ctrl+drop: place directly on target track, overwriting existing clips
+      if (createAudioClip || isAudioAsset) {
+        if (preferredAudio >= 0) {
+          audioTrackIndex = preferredAudio
+        } else {
+          const audioTrackCount = currentTracks.filter(t => t.kind === 'audio').length
+          const newAudioTrack: Track = {
+            id: `track-${Date.now()}-audio`,
+            name: `A${audioTrackCount + 1}`,
+            muted: false,
+            locked: false,
+            kind: 'audio',
+          }
+          audioTrackIndex = currentTracks.length
+          tracksToAdd.push(newAudioTrack)
+          currentTracks = [...currentTracks, newAudioTrack]
         }
-        audioTrackIndex = tracks.length
-        setTracks(prev => [...prev, newAudioTrack])
+      }
+    } else {
+      // Default: find free tracks (non-destructive)
+      if (createVideoClip) {
+        const result = findFreeTrack('video', videoTrackIdx, clipStartTime, clipDuration, clips, currentTracks)
+        videoTrackIdx = result.trackIndex
+        if (result.newTrack) {
+          tracksToAdd.push(result.newTrack)
+          currentTracks = [...currentTracks, result.newTrack]
+        }
+      }
+
+      if (createAudioClip || isAudioAsset) {
+        if (preferredAudio >= 0) {
+          const result = findFreeTrack('audio', preferredAudio, clipStartTime, clipDuration, clips, currentTracks)
+          audioTrackIndex = result.trackIndex
+          if (result.newTrack) {
+            tracksToAdd.push(result.newTrack)
+            currentTracks = [...currentTracks, result.newTrack]
+          }
+        } else {
+          const audioTrackCount = currentTracks.filter(t => t.kind === 'audio').length
+          const newAudioTrack: Track = {
+            id: `track-${Date.now()}-audio`,
+            name: `A${audioTrackCount + 1}`,
+            muted: false,
+            locked: false,
+            kind: 'audio',
+          }
+          audioTrackIndex = currentTracks.length
+          tracksToAdd.push(newAudioTrack)
+          currentTracks = [...currentTracks, newAudioTrack]
+        }
       }
     }
-    
+
+    if (tracksToAdd.length > 0) {
+      setTracks(prev => [...prev, ...tracksToAdd])
+    }
+
     const newClips: TimelineClip[] = []
-    
+
     if (createVideoClip) {
       const newClip: TimelineClip = {
         id: videoClipId,
@@ -111,7 +201,7 @@ export function useClipOperations(params: UseClipOperationsParams) {
         reversed: false,
         muted: false,
         volume: 1,
-        trackIndex,
+        trackIndex: videoTrackIdx,
         asset,
         flipH: false,
         flipV: false,
@@ -124,8 +214,8 @@ export function useClipOperations(params: UseClipOperationsParams) {
       }
       newClips.push(newClip)
     }
-    
-    if (createAudioClip && audioTrackIndex >= 0) {
+
+    if ((createAudioClip || isAudioAsset) && audioTrackIndex >= 0) {
       const audioClip: TimelineClip = {
         id: audioClipId,
         assetId: asset.id,
@@ -150,31 +240,34 @@ export function useClipOperations(params: UseClipOperationsParams) {
       }
       newClips.push(audioClip)
     }
-    
+
     if (newClips.length === 0) return
-    
-    const newIds = new Set(newClips.map(c => c.id))
+
     pushUndo()
-    setClips(prev => resolveOverlaps([...prev, ...newClips], newIds))
+    if (overwrite) {
+      const newIds = new Set(newClips.map(c => c.id))
+      setClips(prev => resolveOverlaps([...prev, ...newClips], newIds))
+    } else {
+      setClips(prev => [...prev, ...newClips])
+    }
   }
   
-  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files || !currentProjectId) return
-    
-    for (const file of Array.from(files)) {
+  const importFiles = async (files: File[]) => {
+    if (!currentProjectId) return
+
+    for (const file of files) {
       const isVideo = file.type.startsWith('video/')
       const isAudio = file.type.startsWith('audio/')
       const isImage = file.type.startsWith('image/')
-      
+
       if (!isVideo && !isAudio && !isImage) continue
-      
+
       // In Electron, File objects have a .path property with the full filesystem path
       const electronFilePath = (file as any).path as string | undefined
-      
+
       let persistentUrl: string
       let persistentPath: string
-      
+
       if (electronFilePath) {
         // Reference the original file in place (no copy)
         const normalized = electronFilePath.replace(/\\/g, '/')
@@ -185,12 +278,12 @@ export function useClipOperations(params: UseClipOperationsParams) {
         persistentUrl = URL.createObjectURL(file)
         persistentPath = file.name
       }
-      
+
       let duration = 5
       if (isVideo || isAudio) {
         duration = await getMediaDuration(persistentUrl, isAudio)
       }
-      
+
       addAsset(currentProjectId, {
         type: isVideo ? 'video' : isAudio ? 'audio' : 'image',
         path: persistentPath,
@@ -200,10 +293,22 @@ export function useClipOperations(params: UseClipOperationsParams) {
         duration,
       })
     }
-    
+  }
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
+    await importFiles(Array.from(files))
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
+  }
+
+  const handleDropFiles = async (e: React.DragEvent) => {
+    e.preventDefault()
+    const files = e.dataTransfer.files
+    if (!files || files.length === 0) return
+    await importFiles(Array.from(files))
   }
   
   const getMediaDuration = (url: string, isAudio = false): Promise<number> => {
@@ -707,6 +812,7 @@ export function useClipOperations(params: UseClipOperationsParams) {
   return {
     addClipToTimeline,
     handleImportFile,
+    handleDropFiles,
     getMediaDuration,
     updateClip,
     addEffectToClip,

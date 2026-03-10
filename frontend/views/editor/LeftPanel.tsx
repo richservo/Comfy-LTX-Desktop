@@ -40,6 +40,7 @@ export interface LeftPanelProps {
   updateAsset: (projectId: string, assetId: string, updates: Partial<Asset>) => void
   loadSourceAsset: (asset: Asset) => void
   handleImportFile: (e: React.ChangeEvent<HTMLInputElement>) => void
+  handleDropFiles: (e: React.DragEvent) => void
   fileInputRef: React.RefObject<HTMLInputElement | null>
   setAssetActiveTake: (projectId: string, assetId: string, takeIndex: number) => void
   addClipToTimeline: (asset: Asset, trackIndex?: number, startTime?: number) => void
@@ -70,6 +71,8 @@ export interface LeftPanelProps {
   handleStartRename: (timelineId: string, currentName: string, source?: 'tab' | 'panel') => void
   handleFinishRename: () => void
   setRenamingTimelineId: (v: string | null) => void
+  onAssetDragStart?: (assets: Asset[]) => void
+  onAssetDragEnd?: () => void
 }
 
 export function LeftPanel(props: LeftPanelProps) {
@@ -104,6 +107,7 @@ export function LeftPanel(props: LeftPanelProps) {
     updateAsset,
     loadSourceAsset,
     handleImportFile,
+    handleDropFiles,
     fileInputRef,
     setAssetActiveTake,
     setClips,
@@ -133,6 +137,8 @@ export function LeftPanel(props: LeftPanelProps) {
     handleStartRename,
     handleFinishRename,
     setRenamingTimelineId,
+    onAssetDragStart,
+    onAssetDragEnd,
   } = props
 
   const [assetViewMode, setAssetViewMode] = useState<'grid' | 'list'>('grid')
@@ -539,6 +545,12 @@ export function LeftPanel(props: LeftPanelProps) {
         {!takesViewAssetId && <div
           className="flex-1 overflow-auto p-3 pt-0 relative select-none"
           ref={assetGridRef as React.RefObject<HTMLDivElement>}
+          onDragOver={(e) => {
+            // Allow external file drops and internal asset reordering
+            e.preventDefault()
+            e.dataTransfer.dropEffect = 'copy'
+          }}
+          onDrop={handleDropFiles}
           onMouseDown={(e) => {
             // Only start lasso if clicking on the background (not on an asset card)
             if ((e.target as HTMLElement).closest('[data-asset-card]')) return
@@ -634,14 +646,23 @@ export function LeftPanel(props: LeftPanelProps) {
                   }`}
                   draggable
                   onDragStart={(e) => {
+                    let draggedAssets: Asset[]
                     if (selectedAssetIds.size > 0 && selectedAssetIds.has(asset.id)) {
                       e.dataTransfer.setData('assetIds', JSON.stringify([...selectedAssetIds]))
+                      draggedAssets = [...selectedAssetIds].map(id => assets.find(a => a.id === id)).filter(Boolean) as Asset[]
                     } else {
                       e.dataTransfer.setData('assetId', asset.id)
+                      draggedAssets = [asset]
                     }
                     e.dataTransfer.setData('asset', JSON.stringify(asset))
                     e.dataTransfer.effectAllowed = 'copy'
+                    // Hide default browser drag ghost
+                    const blank = document.createElement('canvas')
+                    blank.width = 1; blank.height = 1
+                    e.dataTransfer.setDragImage(blank, 0, 0)
+                    onAssetDragStart?.(draggedAssets)
                   }}
+                  onDragEnd={() => onAssetDragEnd?.()}
                   onClick={(e) => {
                     e.stopPropagation()
                     if (e.ctrlKey || e.metaKey) {
@@ -881,14 +902,22 @@ export function LeftPanel(props: LeftPanelProps) {
                     }`}
                     draggable
                     onDragStart={(e) => {
+                      let draggedAssets: Asset[]
                       if (selectedAssetIds.size > 0 && selectedAssetIds.has(asset.id)) {
                         e.dataTransfer.setData('assetIds', JSON.stringify([...selectedAssetIds]))
+                        draggedAssets = [...selectedAssetIds].map(id => assets.find(a => a.id === id)).filter(Boolean) as Asset[]
                       } else {
                         e.dataTransfer.setData('assetId', asset.id)
+                        draggedAssets = [asset]
                       }
                       e.dataTransfer.setData('asset', JSON.stringify(asset))
                       e.dataTransfer.effectAllowed = 'copy'
+                      const blank = document.createElement('canvas')
+                      blank.width = 1; blank.height = 1
+                      e.dataTransfer.setDragImage(blank, 0, 0)
+                      onAssetDragStart?.(draggedAssets)
                     }}
+                    onDragEnd={() => onAssetDragEnd?.()}
                     onClick={(e) => {
                       e.stopPropagation()
                       if (e.ctrlKey || e.metaKey) {
