@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, Image as ImageIcon, RefreshCw, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { fileToFileUrl, resolveImageDrop } from '@/lib/url-to-path'
 
 interface ImageUploaderProps {
   onImageSelect: (path: string | null) => void
@@ -15,16 +16,7 @@ export function ImageUploader({ onImageSelect, selectedImage, label = 'Image', s
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0]
     if (file) {
-      // In Electron, File objects have a .path property with the full filesystem path
-      const filePath = (file as any).path as string | undefined
-      if (filePath) {
-        const normalized = filePath.replace(/\\/g, '/')
-        const fileUrl = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
-        onImageSelect(fileUrl)
-      } else {
-        const url = URL.createObjectURL(file)
-        onImageSelect(url)
-      }
+      onImageSelect(fileToFileUrl(file))
     }
   }, [onImageSelect])
 
@@ -39,6 +31,23 @@ export function ImageUploader({ onImageSelect, selectedImage, label = 'Image', s
     multiple: false,
     noClick: !!selectedImage, // Disable click when image is loaded
   })
+
+  // Unified drop handler: internal asset drags + external file drops
+  const rootProps = getRootProps()
+  const originalOnDrop = rootProps.onDrop
+  const handleDrop = useCallback((e: React.DragEvent<HTMLElement>) => {
+    const url = resolveImageDrop(e)
+    if (url) {
+      e.preventDefault()
+      e.stopPropagation()
+      onImageSelect(url)
+      return
+    }
+    // Fall through to react-dropzone for standard file drops
+    if (originalOnDrop) {
+      (originalOnDrop as (e: React.DragEvent<HTMLElement>) => void)(e)
+    }
+  }, [onImageSelect, originalOnDrop])
 
   const clearImage = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -70,7 +79,8 @@ export function ImageUploader({ onImageSelect, selectedImage, label = 'Image', s
         {label}
       </label>
       <div
-        {...getRootProps()}
+        {...rootProps}
+        onDrop={handleDrop}
         className={cn(
           'relative border border-dashed border-zinc-600 rounded-lg cursor-pointer transition-colors',
           'hover:border-zinc-500',

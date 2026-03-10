@@ -1,6 +1,5 @@
 import { Select } from './ui/select'
 import type { GenerationMode } from './ModeTabs'
-import { useAppSettings } from '../contexts/AppSettingsContext'
 
 export interface GenerationSettings {
   model: 'fast' | 'pro'
@@ -38,9 +37,7 @@ export function SettingsPanel({
   mode = 'text-to-video',
   hasAudio = false,
 }: SettingsPanelProps) {
-  const { settings: appSettings } = useAppSettings()
   const isImageMode = mode === 'text-to-image'
-  const useZImage = appSettings.imageGenerator === 'z-image'
   const handleChange = (key: keyof GenerationSettings, value: string | number | boolean) => {
     const nextSettings = { ...settings, [key]: value } as GenerationSettings
     onSettingsChange(nextSettings)

@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, Music, RefreshCw, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { fileToFileUrl, resolveAudioDrop } from '@/lib/url-to-path'
 
 interface AudioUploaderProps {
   onAudioSelect: (path: string | null) => void
@@ -12,12 +13,7 @@ export function AudioUploader({ onAudioSelect, selectedAudio }: AudioUploaderPro
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0]
     if (file) {
-      const filePath = (file as any).path as string | undefined
-      if (filePath) {
-        const normalized = filePath.replace(/\\/g, '/')
-        const fileUrl = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
-        onAudioSelect(fileUrl)
-      }
+      onAudioSelect(fileToFileUrl(file))
     }
   }, [onAudioSelect])
 
@@ -35,6 +31,22 @@ export function AudioUploader({ onAudioSelect, selectedAudio }: AudioUploaderPro
     multiple: false,
     noClick: !!selectedAudio,
   })
+
+  // Intercept external audio file drops that react-dropzone may reject (MIME mismatch)
+  const rootProps = getRootProps()
+  const originalOnDrop = rootProps.onDrop
+  const handleDrop = useCallback((e: React.DragEvent<HTMLElement>) => {
+    const url = resolveAudioDrop(e)
+    if (url) {
+      e.preventDefault()
+      e.stopPropagation()
+      onAudioSelect(url)
+      return
+    }
+    if (originalOnDrop) {
+      (originalOnDrop as (e: React.DragEvent<HTMLElement>) => void)(e)
+    }
+  }, [onAudioSelect, originalOnDrop])
 
   const clearAudio = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -64,7 +76,8 @@ export function AudioUploader({ onAudioSelect, selectedAudio }: AudioUploaderPro
         Audio
       </label>
       <div
-        {...getRootProps()}
+        {...rootProps}
+        onDrop={handleDrop}
         className={cn(
           'relative border border-dashed border-zinc-600 rounded-lg cursor-pointer transition-colors',
           'hover:border-zinc-500',

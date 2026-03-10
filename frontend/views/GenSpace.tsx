@@ -4,11 +4,11 @@ import {
   Heart, Film, Volume2, VolumeX, Sparkles,
   Clock, Monitor, ChevronUp, Scissors,
   ChevronLeft, ChevronRight, Copy, Check,
-  Menu
+  Menu, Square
 } from 'lucide-react'
 import { useProjects } from '../contexts/ProjectContext'
 import type { GenSpaceRetakeSource } from '../contexts/ProjectContext'
-import { useGeneration } from '../hooks/use-generation'
+import { useGeneration } from '../contexts/GenerationContext'
 import { useRetake } from '../hooks/use-retake'
 import { useAppSettings } from '../contexts/AppSettingsContext'
 import type { Asset } from '../types/project'
@@ -19,7 +19,7 @@ import { ImageUploader } from '../components/ImageUploader'
 import { AudioUploader } from '../components/AudioUploader'
 import { Textarea } from '../components/ui/textarea'
 import { copyToAssetFolder } from '../lib/asset-copy'
-import { fileUrlToPath } from '../lib/url-to-path'
+import { fileUrlToPath, fileToFileUrl, resolveImageDrop } from '../lib/url-to-path'
 import { logger } from '../lib/logger'
 import { RetakePanel } from '../components/RetakePanel'
 
@@ -292,6 +292,7 @@ function PromptBar({
   prompt,
   onPromptChange,
   onGenerate,
+  onCancel,
   isGenerating,
   inputImage,
   onInputImageChange,
@@ -306,6 +307,7 @@ function PromptBar({
   prompt: string
   onPromptChange: (prompt: string) => void
   onGenerate: () => void
+  onCancel: () => void
   isGenerating: boolean
   canGenerate: boolean
   buttonLabel: string
@@ -323,27 +325,16 @@ function PromptBar({
     e.preventDefault()
     setIsDragOver(false)
 
-    const assetData = e.dataTransfer.getData('asset')
-    if (assetData) {
-      const asset = JSON.parse(assetData) as Asset
-      if (asset.type === 'image') {
-        onInputImageChange(asset.url)
-      }
+    const url = resolveImageDrop(e)
+    if (url) {
+      onInputImageChange(url)
     }
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file && file.type.startsWith('image/')) {
-      const filePath = (file as unknown as { path?: string }).path
-      if (filePath) {
-        const normalized = filePath.replace(/\\/g, '/')
-        const fileUrl = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
-        onInputImageChange(fileUrl)
-      } else {
-        const url = URL.createObjectURL(file)
-        onInputImageChange(url)
-      }
+      onInputImageChange(fileToFileUrl(file))
     }
   }
 
@@ -527,19 +518,29 @@ function PromptBar({
           </>
         )}
 
-        {/* Generate button */}
-        <button
-          onClick={onGenerate}
-          disabled={isGenerating || !canGenerate}
-          className={`flex items-center gap-1.5 ml-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all flex-shrink-0 ${
-            isGenerating || !canGenerate
-              ? 'bg-zinc-700 text-zinc-500 cursor-not-allowed'
-              : 'bg-white text-black hover:bg-zinc-200'
-          }`}
-        >
-          <span className={isGenerating ? 'animate-pulse' : ''}>{buttonIcon}</span>
-          {buttonLabel}
-        </button>
+        {/* Generate / Stop button */}
+        {isGenerating ? (
+          <button
+            onClick={onCancel}
+            className="flex items-center gap-1.5 ml-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all flex-shrink-0 bg-red-600 text-white hover:bg-red-500"
+          >
+            <Square className="h-3.5 w-3.5" />
+            Stop
+          </button>
+        ) : (
+          <button
+            onClick={onGenerate}
+            disabled={!canGenerate}
+            className={`flex items-center gap-1.5 ml-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all flex-shrink-0 ${
+              !canGenerate
+                ? 'bg-zinc-700 text-zinc-500 cursor-not-allowed'
+                : 'bg-white text-black hover:bg-zinc-200'
+            }`}
+          >
+            {buttonIcon}
+            {buttonLabel}
+          </button>
+        )}
       </div>
     </div>
   )
@@ -663,6 +664,7 @@ export function GenSpace() {
     videoPath,
     imageUrl,
     error,
+    cancel,
     reset,
   } = useGeneration()
 
@@ -1136,19 +1138,29 @@ export function GenSpace() {
               />
             )}
 
-            {/* Generate button */}
-            <button
-              onClick={() => { handleGenerate(); setIsPanelOpen(false) }}
-              disabled={isGenerating || !canSubmit}
-              className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                isGenerating || !canSubmit
-                  ? 'bg-zinc-700 text-zinc-500 cursor-not-allowed'
-                  : 'bg-white text-black hover:bg-zinc-200'
-              }`}
-            >
-              <Sparkles className={`h-4 w-4 ${isGenerating ? 'animate-pulse' : ''}`} />
-              {genMode === 'text-to-image' ? 'Generate Image' : 'Generate Video'}
-            </button>
+            {/* Generate / Cancel buttons */}
+            {isGenerating ? (
+              <button
+                onClick={() => { cancel(); setIsPanelOpen(false) }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all bg-red-600 hover:bg-red-500 text-white"
+              >
+                <Square className="h-4 w-4" />
+                Stop Generation
+              </button>
+            ) : (
+              <button
+                onClick={() => { handleGenerate(); setIsPanelOpen(false) }}
+                disabled={!canSubmit}
+                className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  !canSubmit
+                    ? 'bg-zinc-700 text-zinc-500 cursor-not-allowed'
+                    : 'bg-white text-black hover:bg-zinc-200'
+                }`}
+              >
+                <Sparkles className="h-4 w-4" />
+                {genMode === 'text-to-image' ? 'Generate Image' : 'Generate Video'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1309,6 +1321,7 @@ export function GenSpace() {
           prompt={prompt}
           onPromptChange={setPrompt}
           onGenerate={handleGenerate}
+          onCancel={cancel}
           isGenerating={promptGenerating}
           canGenerate={canSubmit}
           buttonLabel={promptButtonLabel}

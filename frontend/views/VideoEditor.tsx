@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import { useProjects } from '../contexts/ProjectContext'
 import { useKeyboardShortcuts } from '../contexts/KeyboardShortcutsContext'
-import { useGeneration } from '../hooks/use-generation'
+import { useGeneration } from '../contexts/GenerationContext'
 import { Button } from '../components/ui/button'
 import { logger } from '../lib/logger'
 import { Tooltip } from '../components/ui/tooltip'

@@ -3,6 +3,7 @@ import { Loader2, AlertCircle, Settings, FileText } from 'lucide-react'
 import { ProjectProvider, useProjects } from './contexts/ProjectContext'
 import { KeyboardShortcutsProvider } from './contexts/KeyboardShortcutsContext'
 import { AppSettingsProvider } from './contexts/AppSettingsContext'
+import { GenerationProvider } from './contexts/GenerationContext'
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal'
 import { useBackend } from './hooks/use-backend'
 import { logger } from './lib/logger'
@@ -206,8 +207,10 @@ export default function App() {
     <ProjectProvider>
       <KeyboardShortcutsProvider>
         <AppSettingsProvider>
-          <AppContent />
-          <KeyboardShortcutsModal />
+          <GenerationProvider>
+            <AppContent />
+            <KeyboardShortcutsModal />
+          </GenerationProvider>
         </AppSettingsProvider>
       </KeyboardShortcutsProvider>
     </ProjectProvider>

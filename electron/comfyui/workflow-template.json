@@ -442,5 +442,38 @@
     },
     "class_type": "RSPromptFormatterLocal",
     "_meta": { "title": "Z-Image Negative Prompt" }
+  },
+  "57": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "width": 960,
+      "height": 544,
+      "crop": "center",
+      "image": ["20", 0]
+    },
+    "class_type": "ImageScale",
+    "_meta": { "title": "Crop First Frame" }
+  },
+  "58": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "width": 960,
+      "height": 544,
+      "crop": "center",
+      "image": ["21", 0]
+    },
+    "class_type": "ImageScale",
+    "_meta": { "title": "Crop Middle Frame" }
+  },
+  "59": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "width": 960,
+      "height": 544,
+      "crop": "center",
+      "image": ["22", 0]
+    },
+    "class_type": "ImageScale",
+    "_meta": { "title": "Crop Last Frame" }
   }
 }

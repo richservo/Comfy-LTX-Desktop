@@ -144,6 +144,9 @@ const OPTIONAL_NODE_IDS = {
   zImagePromptFormatter: '54',
   zImageSaveImage: '55',
   zImageNegativeFormatter: '56',
+  cropFirstFrame: '57',
+  cropMiddleFrame: '58',
+  cropLastFrame: '59',
 }
 
 const OLLAMA_FORMATTER_NODES = [
@@ -245,10 +248,10 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   }
 
   // MossTTS nodes — always remove for now (not yet wired to UI)
+  // Note: uploadAudio (node 12) is separate — handled by the audio conditional below
   nodesToRemove.add(OPTIONAL_NODE_IDS.mossTtsLoader)
   nodesToRemove.add(OPTIONAL_NODE_IDS.mossTtsRefAudio)
   nodesToRemove.add(OPTIONAL_NODE_IDS.mossTtsSave)
-  nodesToRemove.add(OPTIONAL_NODE_IDS.uploadAudio)
 
   // Standalone upscale nodes — always remove for now (not yet wired to UI)
   nodesToRemove.add(OPTIONAL_NODE_IDS.upscaleNode)
@@ -262,11 +265,20 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   // Audio node — only include if audio is provided
   if (!params.audio) nodesToRemove.add(OPTIONAL_NODE_IDS.uploadAudio)
 
-  // Image nodes — only include if image is provided
+  // Image nodes + crop nodes — only include if image is provided
   // (Z-Image wires directly to node 6, doesn't use the LoadImage node)
-  if (!params.firstImage) nodesToRemove.add(OPTIONAL_NODE_IDS.firstFrame)
-  if (!params.middleImage) nodesToRemove.add(OPTIONAL_NODE_IDS.middleFrame)
-  if (!params.lastImage) nodesToRemove.add(OPTIONAL_NODE_IDS.lastFrame)
+  if (!params.firstImage) {
+    nodesToRemove.add(OPTIONAL_NODE_IDS.firstFrame)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.cropFirstFrame)
+  }
+  if (!params.middleImage) {
+    nodesToRemove.add(OPTIONAL_NODE_IDS.middleFrame)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.cropMiddleFrame)
+  }
+  if (!params.lastImage) {
+    nodesToRemove.add(OPTIONAL_NODE_IDS.lastFrame)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.cropLastFrame)
+  }
 
   // Film grain — only include if enabled
   if (!params.filmGrain) nodesToRemove.add(OPTIONAL_NODE_IDS.filmGrain)
@@ -337,20 +349,30 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     genNode.inputs['audio'] = [OPTIONAL_NODE_IDS.uploadAudio, 0]
   }
 
-  // Connect frame images if provided
+  // Connect frame images if provided (LoadImage → CropToAR → RSLTXVGenerate)
   if (params.firstImage) {
     workflow[OPTIONAL_NODE_IDS.firstFrame].inputs['image'] = params.firstImage.name
-    genNode.inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+    // Crop to target AR before feeding to generator
+    const cropFirst = workflow[OPTIONAL_NODE_IDS.cropFirstFrame]
+    cropFirst.inputs['width'] = params.width
+    cropFirst.inputs['height'] = params.height
+    genNode.inputs['first_image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
     genNode.inputs['first_strength'] = params.firstStrength ?? 1
   }
   if (params.middleImage) {
     workflow[OPTIONAL_NODE_IDS.middleFrame].inputs['image'] = params.middleImage.name
-    genNode.inputs['middle_image'] = [OPTIONAL_NODE_IDS.middleFrame, 0]
+    const cropMiddle = workflow[OPTIONAL_NODE_IDS.cropMiddleFrame]
+    cropMiddle.inputs['width'] = params.width
+    cropMiddle.inputs['height'] = params.height
+    genNode.inputs['middle_image'] = [OPTIONAL_NODE_IDS.cropMiddleFrame, 0]
     genNode.inputs['middle_strength'] = params.middleStrength ?? 1
   }
   if (params.lastImage) {
     workflow[OPTIONAL_NODE_IDS.lastFrame].inputs['image'] = params.lastImage.name
-    genNode.inputs['last_image'] = [OPTIONAL_NODE_IDS.lastFrame, 0]
+    const cropLast = workflow[OPTIONAL_NODE_IDS.cropLastFrame]
+    cropLast.inputs['width'] = params.width
+    cropLast.inputs['height'] = params.height
+    genNode.inputs['last_image'] = [OPTIONAL_NODE_IDS.cropLastFrame, 0]
     genNode.inputs['last_strength'] = params.lastStrength ?? 1
   }
 
@@ -367,10 +389,10 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     if (params.ollamaUrl) workflow['18'].inputs['ollama_url'] = params.ollamaUrl
     if (params.ollamaModel) workflow['18'].inputs['model'] = params.ollamaModel
 
-    // If first image is provided, connect it to the prompt formatters as reference
+    // If first image is provided, connect cropped version to prompt formatters as reference
     if (params.firstImage) {
-      workflow['17'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
-      workflow['18'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+      workflow['17'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
+      workflow['18'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
     }
   } else {
     // Ollama disabled (default): use local prompt formatter via text encoder weights
@@ -389,10 +411,10 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     // Wire CLIP negative to local negative formatter
     workflow['8'].inputs['text'] = ['37', 0]
 
-    // If first image is provided, connect it to the prompt formatters as reference
+    // If first image is provided, connect cropped version to prompt formatters as reference
     if (params.firstImage) {
-      workflow['36'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
-      workflow['37'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+      workflow['36'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
+      workflow['37'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
     }
   }
 
