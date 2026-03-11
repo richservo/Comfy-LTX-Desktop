@@ -117,6 +117,24 @@ export function calculateNumFrames(duration: number, fps: number): number {
 }
 
 /**
+ * Compute the actual output dimensions after LTX latent quantization.
+ * LTX requires spatial dimensions to be multiples of 32.
+ * When spatial upscale is enabled, the gen node halves first, quantizes, then doubles.
+ */
+function quantizeResolution(width: number, height: number, spatialUpscale: boolean): { width: number; height: number } {
+  if (spatialUpscale) {
+    return {
+      width: Math.floor(width / 64) * 64,
+      height: Math.floor(height / 64) * 64,
+    }
+  }
+  return {
+    width: Math.floor(width / 32) * 32,
+    height: Math.floor(height / 32) * 32,
+  }
+}
+
+/**
  * Nodes that are only included when needed.
  * The core pipeline (1,4,5,6,7,8,23,24,25) is always included.
  */
@@ -242,8 +260,9 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   // --- Strip optional nodes not needed for this generation ---
   const nodesToRemove = new Set<string>()
 
-  // Z-Image nodes — only include for T2V when z-image is selected AND no user first image
-  if (!useZImage || params.firstImage) {
+  // Z-Image nodes — only include for T2V when z-image is selected AND no user guidance frames
+  const hasUserGuidanceFrame = !!(params.firstImage || params.middleImage || params.lastImage)
+  if (!useZImage || hasUserGuidanceFrame) {
     for (const id of Z_IMAGE_NODES) nodesToRemove.add(id)
   } else {
     // Z-Image + T2V: remove SaveImage (intermediate image not saved)
@@ -355,29 +374,32 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     genNode.inputs['audio'] = [OPTIONAL_NODE_IDS.uploadAudio, 0]
   }
 
-  // Connect frame images if provided (LoadImage → CropToAR → RSLTXVGenerate)
+  // Quantize dimensions to match actual gen node output (LTX latent alignment)
+  const actualDims = quantizeResolution(params.width, params.height, !!params.spatialUpscale)
+
+  // Connect frame images if provided (LoadImage → ImageScale → RSLTXVGenerate)
+  // Crop dimensions match the quantized output so guidance frames align exactly
   if (params.firstImage) {
     workflow[OPTIONAL_NODE_IDS.firstFrame].inputs['image'] = params.firstImage.name
-    // Crop to target AR before feeding to generator
     const cropFirst = workflow[OPTIONAL_NODE_IDS.cropFirstFrame]
-    cropFirst.inputs['width'] = params.width
-    cropFirst.inputs['height'] = params.height
+    cropFirst.inputs['width'] = actualDims.width
+    cropFirst.inputs['height'] = actualDims.height
     genNode.inputs['first_image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
     genNode.inputs['first_strength'] = params.firstStrength ?? 1
   }
   if (params.middleImage) {
     workflow[OPTIONAL_NODE_IDS.middleFrame].inputs['image'] = params.middleImage.name
     const cropMiddle = workflow[OPTIONAL_NODE_IDS.cropMiddleFrame]
-    cropMiddle.inputs['width'] = params.width
-    cropMiddle.inputs['height'] = params.height
+    cropMiddle.inputs['width'] = actualDims.width
+    cropMiddle.inputs['height'] = actualDims.height
     genNode.inputs['middle_image'] = [OPTIONAL_NODE_IDS.cropMiddleFrame, 0]
     genNode.inputs['middle_strength'] = params.middleStrength ?? 1
   }
   if (params.lastImage) {
     workflow[OPTIONAL_NODE_IDS.lastFrame].inputs['image'] = params.lastImage.name
     const cropLast = workflow[OPTIONAL_NODE_IDS.cropLastFrame]
-    cropLast.inputs['width'] = params.width
-    cropLast.inputs['height'] = params.height
+    cropLast.inputs['width'] = actualDims.width
+    cropLast.inputs['height'] = actualDims.height
     genNode.inputs['last_image'] = [OPTIONAL_NODE_IDS.cropLastFrame, 0]
     genNode.inputs['last_strength'] = params.lastStrength ?? 1
   }
@@ -426,16 +448,17 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
 
   // --- Z-Image + T2V: wire Z-Image output as first frame for LTXV ---
   // Only use Z-Image for first frame when user hasn't provided their own first image
-  if (useZImage && !params.firstImage) {
+  const hasAnyGuidanceFrame = !!(params.firstImage || params.middleImage || params.lastImage)
+  if (useZImage && !hasAnyGuidanceFrame) {
     // Populate Z-Image prompt formatter with the same user prompt
     workflow[OPTIONAL_NODE_IDS.zImagePromptFormatter].inputs['prompt'] = params.prompt
     if (params.promptFormatterTextEncoder) {
       workflow[OPTIONAL_NODE_IDS.zImagePromptFormatter].inputs['text_encoder'] = params.promptFormatterTextEncoder
       workflow[OPTIONAL_NODE_IDS.zImageNegativeFormatter].inputs['text_encoder'] = params.promptFormatterTextEncoder
     }
-    // Set Z-Image dimensions and seed to match video
-    workflow[OPTIONAL_NODE_IDS.zImageGenerate].inputs['width'] = params.width
-    workflow[OPTIONAL_NODE_IDS.zImageGenerate].inputs['height'] = params.height
+    // Set Z-Image dimensions to match actual quantized video output
+    workflow[OPTIONAL_NODE_IDS.zImageGenerate].inputs['width'] = actualDims.width
+    workflow[OPTIONAL_NODE_IDS.zImageGenerate].inputs['height'] = actualDims.height
     workflow[OPTIONAL_NODE_IDS.zImageGenerate].inputs['seed'] = params.seed
     workflow[OPTIONAL_NODE_IDS.zImageGenerate].inputs['seed_mode'] = 'fixed'
     // Wire Z-Image output → LTXV first_image

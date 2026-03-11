@@ -10,6 +10,8 @@ interface GenerationState {
   imageUrl: string | null
   imageUrls: string[]
   error: string | null
+  iterationCurrent: number
+  iterationTotal: number
 }
 
 interface GenerationProgress {
@@ -51,6 +53,8 @@ const INITIAL_STATE: GenerationState = {
   imageUrl: null,
   imageUrls: [],
   error: null,
+  iterationCurrent: 0,
+  iterationTotal: 0,
 }
 
 export function GenerationProvider({ children }: { children: React.ReactNode }) {
@@ -66,22 +70,28 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
     lastImagePath?: string | null,
     strengths?: { first?: number; middle?: number; last?: number },
   ) => {
+    const iterations = settings.iterations || 1
+
     setState({
       isGenerating: true,
       progress: 0,
-      statusMessage: 'Generating video...',
+      statusMessage: iterations > 1 ? `Generating video (1/${iterations})...` : 'Generating video...',
       videoUrl: null,
       videoPath: null,
       imageUrl: null,
       imageUrls: [],
       error: null,
+      iterationCurrent: 1,
+      iterationTotal: iterations,
     })
 
     cancelledRef.current = false
     let progressInterval: ReturnType<typeof setInterval> | null = null
 
     try {
-      const pollProgress = async () => {
+      const iterPrefix = (i: number) => iterations > 1 ? `(${i}/${iterations}) ` : ''
+
+      const pollProgress = (iteration: number) => async () => {
         if (cancelledRef.current) return
         try {
           const data: GenerationProgress = await window.electronAPI.getGenerationProgress()
@@ -89,17 +99,15 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
           setState(prev => ({
             ...prev,
             progress: data.progress,
-            statusMessage: getPhaseMessage(data.phase),
+            statusMessage: iterPrefix(iteration) + getPhaseMessage(data.phase),
           }))
         } catch {
           // Ignore polling errors
         }
       }
 
-      progressInterval = setInterval(pollProgress, 500)
-
       const is4K = settings.videoResolution === '4K'
-      const result = await window.electronAPI.generateVideo({
+      const generateParams = {
         prompt,
         imagePath,
         middleImagePath,
@@ -120,32 +128,61 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
         middleStrength: strengths?.middle,
         lastStrength: strengths?.last,
         rtxSuperRes: is4K,
-      })
+      }
 
-      if (cancelledRef.current) return
+      for (let i = 1; i <= iterations; i++) {
+        if (cancelledRef.current) return
 
-      if (result.status === 'complete' && result.video_path) {
-        const videoPathNormalized = result.video_path.replace(/\\/g, '/')
-        const fileUrl = videoPathNormalized.startsWith('/') ? `file://${videoPathNormalized}` : `file:///${videoPathNormalized}`
-
-        setState({
-          isGenerating: false,
-          progress: 100,
-          statusMessage: 'Complete!',
-          videoUrl: fileUrl,
-          videoPath: result.video_path,
-          imageUrl: null,
-          imageUrls: [],
-          error: null,
-        })
-      } else if (result.status === 'cancelled') {
         setState(prev => ({
           ...prev,
-          isGenerating: false,
-          statusMessage: 'Cancelled',
+          iterationCurrent: i,
+          statusMessage: iterPrefix(i) + 'Generating video...',
+          progress: 0,
         }))
-      } else if (result.error) {
-        throw new Error(result.error)
+
+        progressInterval = setInterval(pollProgress(i), 500)
+
+        const result = await window.electronAPI.generateVideo(generateParams)
+
+        if (progressInterval) {
+          clearInterval(progressInterval)
+          progressInterval = null
+        }
+
+        if (cancelledRef.current) return
+
+        if (result.status === 'complete' && result.video_path) {
+          const videoPathNormalized = result.video_path.replace(/\\/g, '/')
+          const fileUrl = videoPathNormalized.startsWith('/') ? `file://${videoPathNormalized}` : `file:///${videoPathNormalized}`
+
+          const isLast = i === iterations
+          setState({
+            isGenerating: !isLast,
+            progress: 100,
+            statusMessage: isLast ? 'Complete!' : iterPrefix(i) + 'Complete!',
+            videoUrl: fileUrl,
+            videoPath: result.video_path,
+            imageUrl: null,
+            imageUrls: [],
+            error: null,
+            iterationCurrent: i,
+            iterationTotal: iterations,
+          })
+
+          // Brief pause between iterations to let archive effects process
+          if (!isLast) {
+            await new Promise(r => setTimeout(r, 100))
+          }
+        } else if (result.status === 'cancelled') {
+          setState(prev => ({
+            ...prev,
+            isGenerating: false,
+            statusMessage: 'Cancelled',
+          }))
+          return
+        } else if (result.error) {
+          throw new Error(result.error)
+        }
       }
 
     } catch (error) {
@@ -200,6 +237,8 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
       imageUrl: null,
       imageUrls: [],
       error: null,
+      iterationCurrent: 0,
+      iterationTotal: 0,
     })
 
     cancelledRef.current = false
@@ -250,6 +289,8 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
           imageUrl: fileUrl,
           imageUrls: [fileUrl],
           error: null,
+          iterationCurrent: 0,
+          iterationTotal: 0,
         })
       } else if (result.status === 'cancelled') {
         setState(prev => ({

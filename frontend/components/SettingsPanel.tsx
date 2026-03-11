@@ -17,6 +17,7 @@ export interface GenerationSettings {
   filmGrainIntensity?: number
   filmGrainSize?: number
   rtxSuperRes?: boolean
+  iterations?: number
   // Image-specific settings
   imageResolution: string
   imageAspectRatio: string
@@ -106,8 +107,8 @@ export function SettingsPanel({
         <option value="fast">LTX via ComfyUI</option>
       </Select>
 
-      {/* Duration, Resolution, FPS Row */}
-      <div className="grid grid-cols-3 gap-3">
+      {/* Duration, Resolution, FPS, Iterations Row */}
+      <div className="grid grid-cols-4 gap-3">
         <Select
           label={hasAudio ? 'Duration (auto)' : 'Duration'}
           value={settings.duration}
@@ -143,6 +144,19 @@ export function SettingsPanel({
           {fpsOptions.map((fps) => (
             <option key={fps} value={fps}>
               {fps}
+            </option>
+          ))}
+        </Select>
+
+        <Select
+          label="Iterations"
+          value={settings.iterations || 1}
+          onChange={(e) => handleChange('iterations', parseInt(e.target.value))}
+          disabled={disabled}
+        >
+          {[1, 2, 3, 4, 5].map((n) => (
+            <option key={n} value={n}>
+              {n}x
             </option>
           ))}
         </Select>

@@ -774,9 +774,9 @@ export function GenSpace() {
 
   const assetSavePath = currentProject?.assetSavePath
 
-  // When video generation completes, add to project assets
+  // When video generation completes (or an iteration completes), add to project assets
   useEffect(() => {
-    if (!videoUrl || !videoPath || !currentProjectId || isGenerating) return
+    if (!videoUrl || !videoPath || !currentProjectId) return
 
     const generationKey = `${videoUrl}|${videoPath}`
     if (persistedVideoKeyRef.current === generationKey) return
@@ -813,7 +813,10 @@ export function GenSpace() {
           }],
           activeTakeIndex: 0,
         })
-        reset()
+        // Only reset generation state after the final iteration
+        if (!isGenerating) {
+          reset()
+        }
       } catch (err) {
         persistedVideoKeyRef.current = null
         logger.error(`Failed to persist generated video asset: ${err}`)
