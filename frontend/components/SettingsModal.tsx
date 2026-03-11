@@ -22,7 +22,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const [modelLicenseText, setModelLicenseText] = useState<string | null>(null)
   const [modelLicenseLoading, setModelLicenseLoading] = useState(false)
   const [showModelLicense, setShowModelLicense] = useState(false)
-  const [modelLists, setModelLists] = useState<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[] } | null>(null)
+  const [modelLists, setModelLists] = useState<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[]; hasZImage?: boolean } | null>(null)
   const [modelListsLoading, setModelListsLoading] = useState(false)
   const [modelListsError, setModelListsError] = useState<string | null>(null)
   const [comfyUrlInput, setComfyUrlInput] = useState(settings.comfyuiUrl)
@@ -383,7 +383,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                     className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="none">None (LTXV pipeline)</option>
-                    <option value="z-image">Z-Image (RS Z-Image Generate)</option>
+                    {modelLists?.hasZImage && <option value="z-image">Z-Image (RS Z-Image Generate)</option>}
                   </select>
                   <p className="text-xs text-zinc-500 mt-2">
                     When Z-Image is selected, image generation uses RS Z-Image Generate. For text-to-video, Z-Image auto-generates the first frame from your prompt.

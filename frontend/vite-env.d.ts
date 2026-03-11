@@ -88,7 +88,7 @@ interface Window {
     }>
     cancelGeneration: () => Promise<void>
     checkComfyUIHealth: () => Promise<{ connected: boolean }>
-    getModelLists: () => Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[]; hasRtxSuperRes?: boolean }>
+    getModelLists: () => Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[]; hasRtxSuperRes?: boolean; hasZImage?: boolean }>
     readVideoMetadata: (filePath: string) => Promise<Record<string, unknown> | null>
     getSettings: () => Promise<{
       comfyuiUrl: string

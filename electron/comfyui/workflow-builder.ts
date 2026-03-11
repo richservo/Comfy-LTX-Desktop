@@ -409,12 +409,14 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   }
 
   // --- Patch prompt / prompt formatter chain ---
-  // Two-stage pipeline when images present:
+  // Two-stage pipeline when multiple images (2+):
   //   user prompt + images → Image Prompt Creator (83/84) → [s][a][d] Formatter (36/17) → Parser (14)
-  // Single stage when no images:
-  //   user prompt → [s][a][d] Formatter (36/17) → Parser (14)
+  // Single stage when 0 or 1 image:
+  //   user prompt [+ image] → [s][a][d] Formatter (36/17) → Parser (14)
 
   const hasAnyGuidanceFrame = !!(params.firstImage || params.middleImage || params.lastImage)
+  const guidanceFrameCount = [params.firstImage, params.middleImage, params.lastImage].filter(Boolean).length
+  const useImagePromptCreator = guidanceFrameCount >= 2
 
   if (params.ollamaEnabled) {
     // Ollama path: delete local formatter nodes
@@ -429,8 +431,8 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
       workflow['18'].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
     }
 
-    if (hasAnyGuidanceFrame) {
-      // Images present: prompt → node 84 (Ollama Image Prompt Creator) → node 17 (formatter)
+    if (useImagePromptCreator) {
+      // Multiple images: prompt → node 84 (Ollama Image Prompt Creator) → node 17 (formatter)
       workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['prompt'] = params.prompt
       if (params.ollamaUrl) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['ollama_url'] = params.ollamaUrl
       if (params.ollamaModel) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['model'] = params.ollamaModel
@@ -441,9 +443,12 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
       // Wire Image Prompt Creator output → formatter
       workflow['17'].inputs['prompt'] = [OPTIONAL_NODE_IDS.ollamaImagePromptCreator, 0]
     } else {
-      // No images: prompt goes directly to formatter
+      // 0 or 1 image: prompt goes directly to formatter, wire image if present
       delete workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator]
       workflow['17'].inputs['prompt'] = params.prompt
+      if (params.firstImage) workflow['17'].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+      if (params.middleImage) workflow['17'].inputs['middle_image'] = [OPTIONAL_NODE_IDS.middleFrame, 0]
+      if (params.lastImage) workflow['17'].inputs['last_image'] = [OPTIONAL_NODE_IDS.lastFrame, 0]
     }
   } else {
     // Local path: delete Ollama formatter nodes
@@ -463,8 +468,8 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
       workflow['37'].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
     }
 
-    if (hasAnyGuidanceFrame) {
-      // Images present: prompt → node 83 (Image Prompt Creator) → node 36 (formatter)
+    if (useImagePromptCreator) {
+      // Multiple images: prompt → node 83 (Image Prompt Creator) → node 36 (formatter)
       workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['prompt'] = params.prompt
       if (params.promptFormatterTextEncoder) {
         workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['text_encoder'] = params.promptFormatterTextEncoder
@@ -476,9 +481,12 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
       // Wire Image Prompt Creator output → formatter
       workflow['36'].inputs['prompt'] = [OPTIONAL_NODE_IDS.localImagePromptCreator, 0]
     } else {
-      // No images: prompt goes directly to formatter
+      // 0 or 1 image: prompt goes directly to formatter, wire image if present
       delete workflow[OPTIONAL_NODE_IDS.localImagePromptCreator]
       workflow['36'].inputs['prompt'] = params.prompt
+      if (params.firstImage) workflow['36'].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+      if (params.middleImage) workflow['36'].inputs['middle_image'] = [OPTIONAL_NODE_IDS.middleFrame, 0]
+      if (params.lastImage) workflow['36'].inputs['last_image'] = [OPTIONAL_NODE_IDS.lastFrame, 0]
     }
   }
 

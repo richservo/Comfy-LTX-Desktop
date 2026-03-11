@@ -105,8 +105,9 @@ export function registerComfyUIHandlers(): void {
         ? settings.lockedSeed
         : Math.floor(Math.random() * 2147483647)
 
-      // 5. Build workflow
-      const useZImage = (settings.imageGenerator === 'z-image')
+      // 5. Build workflow — fall back to 'none' if z-image models aren't available
+      const imageGenerator = settings.imageGenerator ?? 'none'
+      const useZImage = imageGenerator === 'z-image'
       const workflow = buildWorkflow({
         prompt: promptText,
         width,
@@ -139,7 +140,7 @@ export function registerComfyUIHandlers(): void {
         upscaleLora: settings.upscaleLora,
         sampler: params.imageMode ? 'res_2s' : settings.sampler,
         promptFormatterTextEncoder: settings.promptFormatterTextEncoder,
-        imageGenerator: settings.imageGenerator ?? 'none',
+        imageGenerator,
         imageMode: params.imageMode,
         imageSteps: params.imageSteps,
         imageAspectRatio: params.aspectRatio,
@@ -355,8 +356,9 @@ export function registerComfyUIHandlers(): void {
         loras: extractOptions('RSLTXVGenerate', 'upscale_lora'),
         samplers: extractOptions('KSamplerSelect', 'sampler_name'),
         hasRtxSuperRes: 'RTXVideoSuperResolution' in info,
+        hasZImage: 'RSZImageGenerate' in info,
       }
-      logger.info(`comfyui:model-lists counts: checkpoints=${result.checkpoints.length}, textEncoders=${result.textEncoders.length}, upscaleModels=${result.upscaleModels.length}, loras=${result.loras.length}, samplers=${result.samplers.length}, rtxSuperRes=${result.hasRtxSuperRes}`)
+      logger.info(`comfyui:model-lists counts: checkpoints=${result.checkpoints.length}, textEncoders=${result.textEncoders.length}, upscaleModels=${result.upscaleModels.length}, loras=${result.loras.length}, samplers=${result.samplers.length}, rtxSuperRes=${result.hasRtxSuperRes}, zImage=${result.hasZImage}`)
       return result
     } catch (error) {
       logger.error(`Failed to fetch model lists: ${error}`)
