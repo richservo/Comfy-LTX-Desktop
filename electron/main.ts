@@ -14,6 +14,9 @@ import { registerVideoProcessingHandlers } from './ipc/video-processing-handlers
 import { initSessionLog } from './logging-management'
 import { initAutoUpdater } from './updater'
 import { createWindow, getMainWindow } from './window'
+import { checkAndRepairNodes } from './comfyui/rs-nodes-installer'
+import { getComfyUISettings } from './ipc/settings-handlers'
+import { logger } from './logger'
 
 
 const gotLock = app.requestSingleInstanceLock()
@@ -54,6 +57,14 @@ if (!gotLock) {
     setupCSP()
     createWindow()
     initAutoUpdater()
+
+    // Check for missing/broken custom nodes in the background
+    const comfyPath = getComfyUISettings().comfyuiPath
+    if (comfyPath) {
+      checkAndRepairNodes(comfyPath).catch((err) => {
+        logger.warn(`Startup node check failed: ${err}`)
+      })
+    }
   })
 
   app.on('window-all-closed', () => {

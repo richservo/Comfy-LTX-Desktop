@@ -4,7 +4,7 @@ import fs from 'fs'
 import path from 'path'
 import { execFile } from 'child_process'
 import { getComfyUISettings } from './settings-handlers'
-import { installRsNodes } from '../comfyui/rs-nodes-installer'
+import { installRsNodes, ensureGit } from '../comfyui/rs-nodes-installer'
 import { logger } from '../logger'
 import { getMainWindow } from '../window'
 
@@ -47,7 +47,7 @@ function execPromise(cmd: string, args: string[], options: { cwd?: string }): Pr
   })
 }
 
-async function checkSingleNodeRepo(comfyPath: string, repo: { name: string; dir: string }): Promise<NodeRepoStatus> {
+async function checkSingleNodeRepo(comfyPath: string, repo: { name: string; dir: string }, gitPath: string): Promise<NodeRepoStatus> {
   const nodeDir = path.join(comfyPath, 'custom_nodes', repo.dir)
 
   if (!fs.existsSync(nodeDir)) {
@@ -55,20 +55,20 @@ async function checkSingleNodeRepo(comfyPath: string, repo: { name: string; dir:
   }
 
   if (!fs.existsSync(path.join(nodeDir, '.git'))) {
-    // Directory exists but not a git repo (e.g. installed via ComfyUI Manager)
-    return { name: repo.name, hasUpdate: false }
+    // Directory exists but not a git repo — needs repair
+    return { name: repo.name, hasUpdate: true, error: 'Not a git repo' }
   }
 
   try {
-    await execPromise('git', ['fetch', 'origin'], { cwd: nodeDir })
+    await execPromise(gitPath, ['fetch', 'origin'], { cwd: nodeDir })
 
-    const localHead = await execPromise('git', ['rev-parse', 'HEAD'], { cwd: nodeDir })
+    const localHead = await execPromise(gitPath, ['rev-parse', 'HEAD'], { cwd: nodeDir })
 
     let remoteHead: string
     try {
-      remoteHead = await execPromise('git', ['rev-parse', 'origin/main'], { cwd: nodeDir })
+      remoteHead = await execPromise(gitPath, ['rev-parse', 'origin/main'], { cwd: nodeDir })
     } catch {
-      remoteHead = await execPromise('git', ['rev-parse', 'origin/master'], { cwd: nodeDir })
+      remoteHead = await execPromise(gitPath, ['rev-parse', 'origin/master'], { cwd: nodeDir })
     }
 
     return { name: repo.name, hasUpdate: localHead !== remoteHead }
@@ -100,8 +100,13 @@ export function registerUpdateHandlers(): void {
       return { results: [], hasAnyUpdates: false }
     }
 
+    const gitPath = await ensureGit()
+    if (!gitPath) {
+      return { results: REPOS.map(r => ({ name: r.name, hasUpdate: false, error: 'Git not available' })), hasAnyUpdates: false }
+    }
+
     const results = await Promise.all(
-      REPOS.map((repo) => checkSingleNodeRepo(comfyPath, repo))
+      REPOS.map((repo) => checkSingleNodeRepo(comfyPath, repo, gitPath))
     )
 
     return {
