@@ -623,9 +623,11 @@ export function GenSpace() {
   const [genMode, setGenMode] = useState<GenerationMode>('text-to-video')
   const [prompt, setPrompt] = useState('')
   const [inputImage, setInputImage] = useState<string | null>(null)
+  const [selectedMiddleImage, setSelectedMiddleImage] = useState<string | null>(null)
   const [selectedLastImage, setSelectedLastImage] = useState<string | null>(null)
   const [selectedAudio, setSelectedAudio] = useState<string | null>(null)
   const [firstStrength, setFirstStrength] = useState(1)
+  const [middleStrength, setMiddleStrength] = useState(1)
   const [lastStrength, setLastStrength] = useState(1)
   const [localError, setLocalError] = useState<string | null>(null)
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
@@ -951,6 +953,7 @@ export function GenSpace() {
 
     // Generate video (t2v if no image, i2v if image)
     const imagePath = inputImage ? fileUrlToPath(inputImage) : null
+    const middleImagePath = selectedMiddleImage ? fileUrlToPath(selectedMiddleImage) : null
     const lastImagePath = selectedLastImage ? fileUrlToPath(selectedLastImage) : null
     const audioPath = selectedAudio ? fileUrlToPath(selectedAudio) : null
     const effectiveSettings = { ...settings }
@@ -961,10 +964,11 @@ export function GenSpace() {
       imagePath,
       effectiveSettings,
       audioPath,
-      null,
+      middleImagePath,
       lastImagePath,
       {
         first: firstStrength,
+        middle: middleStrength,
         last: lastStrength,
       },
     )
@@ -1109,6 +1113,14 @@ export function GenSpace() {
                   onImageSelect={setInputImage}
                   strength={firstStrength}
                   onStrengthChange={setFirstStrength}
+                />
+
+                <ImageUploader
+                  label="Middle Frame"
+                  selectedImage={selectedMiddleImage}
+                  onImageSelect={setSelectedMiddleImage}
+                  strength={middleStrength}
+                  onStrengthChange={setMiddleStrength}
                 />
 
                 <ImageUploader
