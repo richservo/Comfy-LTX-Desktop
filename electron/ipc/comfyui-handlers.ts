@@ -156,7 +156,9 @@ export function registerComfyUIHandlers(): void {
       // 6. Connect WebSocket for progress
       progressTracker.setBaseUrl(settings.comfyuiUrl)
       const ollamaEnabled = settings.ollamaEnabled ?? false
-      const ltxvFormatterIds = ollamaEnabled ? ['17', '18'] : ['36', '37']
+      const hasAnyGuidanceFrame = !!(uploadedImage || uploadedMiddleImage || uploadedLastImage)
+      const imagePromptCreatorIds = hasAnyGuidanceFrame ? (ollamaEnabled ? ['84'] : ['83']) : []
+      const ltxvFormatterIds = ollamaEnabled ? ['17', '18', ...imagePromptCreatorIds] : ['36', '37', ...imagePromptCreatorIds]
       const zImageFormatterIds = ['54', '56']
       const formatterNodeIds = useZImage && params.imageMode
         ? zImageFormatterIds

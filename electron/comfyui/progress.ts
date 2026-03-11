@@ -167,7 +167,22 @@ export class ComfyUIProgressTracker {
       case 'progress': {
         const value = data?.['value'] as number | undefined
         const max = data?.['max'] as number | undefined
+        const progressNode = data?.['node'] as string | undefined
         if (value !== undefined && max !== undefined && max > 0) {
+          // Local formatter nodes emit their own progress bar —
+          // show "Enhancing prompt" without affecting stage tracking
+          if (progressNode && this.formatterNodeIds.has(progressNode)) {
+            this.progress = {
+              status: 'running',
+              phase: 'Enhancing prompt',
+              progress: Math.round((value / max) * 100),
+              currentStep: value,
+              totalSteps: max,
+              errorMessage: null,
+            }
+            break
+          }
+
           // Detect stage transition: value reset (new diffusion pass)
           if (this.lastValue !== null && value < this.lastValue) {
             this.stageIndex++

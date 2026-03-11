@@ -168,16 +168,20 @@ const OPTIONAL_NODE_IDS = {
   cropMiddleFrame: '58',
   cropLastFrame: '59',
   rtxSuperRes: '60',
+  localImagePromptCreator: '83',
+  ollamaImagePromptCreator: '84',
 }
 
 const OLLAMA_FORMATTER_NODES = [
   OPTIONAL_NODE_IDS.ollamaPositiveFormatter,
   OPTIONAL_NODE_IDS.ollamaNegativeFormatter,
+  OPTIONAL_NODE_IDS.ollamaImagePromptCreator,
 ]
 
 const LOCAL_FORMATTER_NODES = [
   OPTIONAL_NODE_IDS.localPositiveFormatter,
   OPTIONAL_NODE_IDS.localNegativeFormatter,
+  OPTIONAL_NODE_IDS.localImagePromptCreator,
 ]
 
 const ALL_FORMATTER_NODES = [
@@ -405,74 +409,93 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   }
 
   // --- Patch prompt / prompt formatter chain ---
+  // Two-stage pipeline when images present:
+  //   user prompt + images → Image Prompt Creator (83/84) → [s][a][d] Formatter (36/17) → Parser (14)
+  // Single stage when no images:
+  //   user prompt → [s][a][d] Formatter (36/17) → Parser (14)
+
+  const hasAnyGuidanceFrame = !!(params.firstImage || params.middleImage || params.lastImage)
+
   if (params.ollamaEnabled) {
-    // Ollama enabled: route through Ollama formatter chain
-    // Node 17 (RSPromptFormatter) → Node 14 (RSPromptParser) → Node 7 (CLIP positive)
-    // Node 14 → Node 18 (negative formatter) → Node 8 (CLIP negative)
+    // Ollama path: delete local formatter nodes
     for (const id of LOCAL_FORMATTER_NODES) delete workflow[id]
 
-    workflow['17'].inputs['prompt'] = params.prompt
     if (params.ollamaUrl) workflow['17'].inputs['ollama_url'] = params.ollamaUrl
     if (params.ollamaModel) workflow['17'].inputs['model'] = params.ollamaModel
     if (params.ollamaUrl) workflow['18'].inputs['ollama_url'] = params.ollamaUrl
     if (params.ollamaModel) workflow['18'].inputs['model'] = params.ollamaModel
-
-    // If first image is provided, connect cropped version to prompt formatters as reference
+    workflow['18'].inputs['prompt'] = ['14', 0]
     if (params.firstImage) {
-      workflow['17'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
-      workflow['18'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
+      workflow['18'].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+    }
+
+    if (hasAnyGuidanceFrame) {
+      // Images present: prompt → node 84 (Ollama Image Prompt Creator) → node 17 (formatter)
+      workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['prompt'] = params.prompt
+      if (params.ollamaUrl) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['ollama_url'] = params.ollamaUrl
+      if (params.ollamaModel) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['model'] = params.ollamaModel
+      // Wire images to Image Prompt Creator (raw LoadImage, not cropped)
+      if (params.firstImage) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+      if (params.middleImage) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['middle_image'] = [OPTIONAL_NODE_IDS.middleFrame, 0]
+      if (params.lastImage) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['last_image'] = [OPTIONAL_NODE_IDS.lastFrame, 0]
+      // Wire Image Prompt Creator output → formatter
+      workflow['17'].inputs['prompt'] = [OPTIONAL_NODE_IDS.ollamaImagePromptCreator, 0]
+    } else {
+      // No images: prompt goes directly to formatter
+      delete workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator]
+      workflow['17'].inputs['prompt'] = params.prompt
     }
   } else {
-    // Ollama disabled (default): use local prompt formatter via text encoder weights
-    // Node 36 (RSPromptFormatterLocal) → Node 14 (RSPromptParser) → Node 7 (CLIP positive)
-    // Node 14 → Node 37 (local negative formatter) → Node 8 (CLIP negative)
+    // Local path: delete Ollama formatter nodes
     for (const id of OLLAMA_FORMATTER_NODES) delete workflow[id]
 
-    workflow['36'].inputs['prompt'] = params.prompt
     if (params.promptFormatterTextEncoder) {
       workflow['36'].inputs['text_encoder'] = params.promptFormatterTextEncoder
       workflow['37'].inputs['text_encoder'] = params.promptFormatterTextEncoder
     }
 
-    // Wire parser to local formatter instead of Ollama formatter
+    // Wire parser to local formatter
     workflow['14'].inputs['script'] = ['36', 0]
-    // Wire CLIP negative to local negative formatter
+    // Wire CLIP negative to local negative formatter — parsed positive prompt + first image
     workflow['8'].inputs['text'] = ['37', 0]
-
-    // If first image is provided, connect cropped version to prompt formatters as reference
+    workflow['37'].inputs['prompt'] = ['14', 0]
     if (params.firstImage) {
-      workflow['36'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
-      workflow['37'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
+      workflow['37'].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+    }
+
+    if (hasAnyGuidanceFrame) {
+      // Images present: prompt → node 83 (Image Prompt Creator) → node 36 (formatter)
+      workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['prompt'] = params.prompt
+      if (params.promptFormatterTextEncoder) {
+        workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['text_encoder'] = params.promptFormatterTextEncoder
+      }
+      // Wire images to Image Prompt Creator (raw LoadImage, not cropped)
+      if (params.firstImage) workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+      if (params.middleImage) workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['middle_image'] = [OPTIONAL_NODE_IDS.middleFrame, 0]
+      if (params.lastImage) workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['last_image'] = [OPTIONAL_NODE_IDS.lastFrame, 0]
+      // Wire Image Prompt Creator output → formatter
+      workflow['36'].inputs['prompt'] = [OPTIONAL_NODE_IDS.localImagePromptCreator, 0]
+    } else {
+      // No images: prompt goes directly to formatter
+      delete workflow[OPTIONAL_NODE_IDS.localImagePromptCreator]
+      workflow['36'].inputs['prompt'] = params.prompt
     }
   }
 
   // --- Z-Image + T2V: wire Z-Image output as first frame for LTXV ---
-  // Only use Z-Image for first frame when user hasn't provided their own first image
-  const hasAnyGuidanceFrame = !!(params.firstImage || params.middleImage || params.lastImage)
+  // Only use Z-Image for first frame when user hasn't provided their own guidance frames
   if (useZImage && !hasAnyGuidanceFrame) {
-    // Populate Z-Image prompt formatter with the same user prompt
     workflow[OPTIONAL_NODE_IDS.zImagePromptFormatter].inputs['prompt'] = params.prompt
     if (params.promptFormatterTextEncoder) {
       workflow[OPTIONAL_NODE_IDS.zImagePromptFormatter].inputs['text_encoder'] = params.promptFormatterTextEncoder
       workflow[OPTIONAL_NODE_IDS.zImageNegativeFormatter].inputs['text_encoder'] = params.promptFormatterTextEncoder
     }
-    // Set Z-Image dimensions to match actual quantized video output
     workflow[OPTIONAL_NODE_IDS.zImageGenerate].inputs['width'] = actualDims.width
     workflow[OPTIONAL_NODE_IDS.zImageGenerate].inputs['height'] = actualDims.height
     workflow[OPTIONAL_NODE_IDS.zImageGenerate].inputs['seed'] = params.seed
     workflow[OPTIONAL_NODE_IDS.zImageGenerate].inputs['seed_mode'] = 'fixed'
-    // Wire Z-Image output → LTXV first_image
     genNode.inputs['first_image'] = [OPTIONAL_NODE_IDS.zImageGenerate, 0]
     genNode.inputs['first_strength'] = params.firstStrength ?? 1
-
-    // Connect Z-Image output as reference image for video prompt formatters
-    if (params.ollamaEnabled) {
-      workflow['17'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.zImageGenerate, 0]
-      workflow['18'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.zImageGenerate, 0]
-    } else {
-      workflow['36'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.zImageGenerate, 0]
-      workflow['37'].inputs['reference_image'] = [OPTIONAL_NODE_IDS.zImageGenerate, 0]
-    }
   }
 
   // --- Post-processing chain: RSLTXVGenerate → [RTX Super Res] → [Film Grain] → CreateVideo ---
