@@ -409,85 +409,65 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   }
 
   // --- Patch prompt / prompt formatter chain ---
-  // Two-stage pipeline when multiple images (2+):
-  //   user prompt + images → Image Prompt Creator (83/84) → [s][a][d] Formatter (36/17) → Parser (14)
-  // Single stage when 0 or 1 image:
-  //   user prompt [+ image] → [s][a][d] Formatter (36/17) → Parser (14)
+  // Single-stage: user prompt [+ images] → Prompt Enhancer (83/84) → CLIP Positive (7)
+  // SAD Formatter (36/17) and Parser (14) are kept in the template for future voice gen but bypassed for now.
 
   const hasAnyGuidanceFrame = !!(params.firstImage || params.middleImage || params.lastImage)
-  const guidanceFrameCount = [params.firstImage, params.middleImage, params.lastImage].filter(Boolean).length
-  const useImagePromptCreator = guidanceFrameCount >= 2
+
+  // Delete SAD formatter + parser nodes (not needed until voice gen)
+  delete workflow[OPTIONAL_NODE_IDS.promptParser]
 
   if (params.ollamaEnabled) {
-    // Ollama path: delete local formatter nodes
+    // Ollama path: delete local formatter + local enhancer nodes
     for (const id of LOCAL_FORMATTER_NODES) delete workflow[id]
+    delete workflow[OPTIONAL_NODE_IDS.ollamaPositiveFormatter]
 
-    if (params.ollamaUrl) workflow['17'].inputs['ollama_url'] = params.ollamaUrl
-    if (params.ollamaModel) workflow['17'].inputs['model'] = params.ollamaModel
+    // Negative prompt formatter
     if (params.ollamaUrl) workflow['18'].inputs['ollama_url'] = params.ollamaUrl
     if (params.ollamaModel) workflow['18'].inputs['model'] = params.ollamaModel
-    workflow['18'].inputs['prompt'] = ['14', 0]
+    // Negative receives enhancer output directly
+    workflow['18'].inputs['prompt'] = [OPTIONAL_NODE_IDS.ollamaImagePromptCreator, 0]
     if (params.firstImage) {
       workflow['18'].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
     }
 
-    if (useImagePromptCreator) {
-      // Multiple images: prompt → node 84 (Ollama Image Prompt Creator) → node 17 (formatter)
-      workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['prompt'] = params.prompt
-      if (params.ollamaUrl) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['ollama_url'] = params.ollamaUrl
-      if (params.ollamaModel) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['model'] = params.ollamaModel
-      // Wire images to Image Prompt Creator (raw LoadImage, not cropped)
-      if (params.firstImage) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
-      if (params.middleImage) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['middle_image'] = [OPTIONAL_NODE_IDS.middleFrame, 0]
-      if (params.lastImage) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['last_image'] = [OPTIONAL_NODE_IDS.lastFrame, 0]
-      // Wire Image Prompt Creator output → formatter
-      workflow['17'].inputs['prompt'] = [OPTIONAL_NODE_IDS.ollamaImagePromptCreator, 0]
-    } else {
-      // 0 or 1 image: prompt goes directly to formatter, wire image if present
-      delete workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator]
-      workflow['17'].inputs['prompt'] = params.prompt
-      if (params.firstImage) workflow['17'].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
-      if (params.middleImage) workflow['17'].inputs['middle_image'] = [OPTIONAL_NODE_IDS.middleFrame, 0]
-      if (params.lastImage) workflow['17'].inputs['last_image'] = [OPTIONAL_NODE_IDS.lastFrame, 0]
-    }
-  } else {
-    // Local path: delete Ollama formatter nodes
-    for (const id of OLLAMA_FORMATTER_NODES) delete workflow[id]
+    // Prompt Enhancer
+    workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['prompt'] = params.prompt
+    if (params.ollamaUrl) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['ollama_url'] = params.ollamaUrl
+    if (params.ollamaModel) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['model'] = params.ollamaModel
+    if (params.firstImage) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+    if (params.middleImage) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['middle_image'] = [OPTIONAL_NODE_IDS.middleFrame, 0]
+    if (params.lastImage) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['last_image'] = [OPTIONAL_NODE_IDS.lastFrame, 0]
 
+    // Wire enhancer output → CLIP Positive
+    workflow['7'].inputs['text'] = [OPTIONAL_NODE_IDS.ollamaImagePromptCreator, 0]
+  } else {
+    // Local path: delete Ollama formatter + Ollama enhancer nodes
+    for (const id of OLLAMA_FORMATTER_NODES) delete workflow[id]
+    delete workflow[OPTIONAL_NODE_IDS.localPositiveFormatter]
+
+    // Negative prompt formatter
     if (params.promptFormatterTextEncoder) {
-      workflow['36'].inputs['text_encoder'] = params.promptFormatterTextEncoder
       workflow['37'].inputs['text_encoder'] = params.promptFormatterTextEncoder
     }
-
-    // Wire parser to local formatter
-    workflow['14'].inputs['script'] = ['36', 0]
-    // Wire CLIP negative to local negative formatter — parsed positive prompt + first image
     workflow['8'].inputs['text'] = ['37', 0]
-    workflow['37'].inputs['prompt'] = ['14', 0]
+    // Negative receives enhancer output directly
+    workflow['37'].inputs['prompt'] = [OPTIONAL_NODE_IDS.localImagePromptCreator, 0]
     if (params.firstImage) {
       workflow['37'].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
     }
 
-    if (useImagePromptCreator) {
-      // Multiple images: prompt → node 83 (Image Prompt Creator) → node 36 (formatter)
-      workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['prompt'] = params.prompt
-      if (params.promptFormatterTextEncoder) {
-        workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['text_encoder'] = params.promptFormatterTextEncoder
-      }
-      // Wire images to Image Prompt Creator (raw LoadImage, not cropped)
-      if (params.firstImage) workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
-      if (params.middleImage) workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['middle_image'] = [OPTIONAL_NODE_IDS.middleFrame, 0]
-      if (params.lastImage) workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['last_image'] = [OPTIONAL_NODE_IDS.lastFrame, 0]
-      // Wire Image Prompt Creator output → formatter
-      workflow['36'].inputs['prompt'] = [OPTIONAL_NODE_IDS.localImagePromptCreator, 0]
-    } else {
-      // 0 or 1 image: prompt goes directly to formatter, wire image if present
-      delete workflow[OPTIONAL_NODE_IDS.localImagePromptCreator]
-      workflow['36'].inputs['prompt'] = params.prompt
-      if (params.firstImage) workflow['36'].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
-      if (params.middleImage) workflow['36'].inputs['middle_image'] = [OPTIONAL_NODE_IDS.middleFrame, 0]
-      if (params.lastImage) workflow['36'].inputs['last_image'] = [OPTIONAL_NODE_IDS.lastFrame, 0]
+    // Prompt Enhancer
+    workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['prompt'] = params.prompt
+    if (params.promptFormatterTextEncoder) {
+      workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['text_encoder'] = params.promptFormatterTextEncoder
     }
+    if (params.firstImage) workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+    if (params.middleImage) workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['middle_image'] = [OPTIONAL_NODE_IDS.middleFrame, 0]
+    if (params.lastImage) workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['last_image'] = [OPTIONAL_NODE_IDS.lastFrame, 0]
+
+    // Wire enhancer output → CLIP Positive
+    workflow['7'].inputs['text'] = [OPTIONAL_NODE_IDS.localImagePromptCreator, 0]
   }
 
   // --- Z-Image + T2V: wire Z-Image output as first frame for LTXV ---

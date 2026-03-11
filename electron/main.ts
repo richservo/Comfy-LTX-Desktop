@@ -14,9 +14,11 @@ import { registerVideoProcessingHandlers } from './ipc/video-processing-handlers
 import { initSessionLog } from './logging-management'
 import { initAutoUpdater } from './updater'
 import { createWindow, getMainWindow } from './window'
-import { checkAndRepairNodes } from './comfyui/rs-nodes-installer'
+import { checkAndRepairNodes, installRsNodes } from './comfyui/rs-nodes-installer'
 import { getComfyUISettings } from './ipc/settings-handlers'
 import { logger } from './logger'
+import fs from 'fs'
+import path from 'path'
 
 
 const gotLock = app.requestSingleInstanceLock()
@@ -59,11 +61,35 @@ if (!gotLock) {
     initAutoUpdater()
 
     // Check for missing/broken custom nodes in the background
-    const comfyPath = getComfyUISettings().comfyuiPath
+    // After an app update, re-run full node install (git pull + pip) to ensure compatibility
+    const settings = getComfyUISettings()
+    const comfyPath = settings.comfyuiPath
     if (comfyPath) {
-      checkAndRepairNodes(comfyPath).catch((err) => {
-        logger.warn(`Startup node check failed: ${err}`)
-      })
+      const appStateFile = path.join(app.getPath('userData'), 'app_state.json')
+      let needsFullUpdate = false
+      try {
+        if (fs.existsSync(appStateFile)) {
+          const appState = JSON.parse(fs.readFileSync(appStateFile, 'utf-8'))
+          if (appState.lastAppVersion !== app.getVersion()) {
+            needsFullUpdate = true
+            appState.lastAppVersion = app.getVersion()
+            fs.writeFileSync(appStateFile, JSON.stringify(appState, null, 2))
+          }
+        }
+      } catch {
+        // Ignore parse errors
+      }
+
+      if (needsFullUpdate) {
+        logger.info(`App updated to ${app.getVersion()} — re-installing custom nodes`)
+        installRsNodes(comfyPath, (p) => logger.info(`[post-update] ${p.message}`)).catch((err) => {
+          logger.warn(`Post-update node install failed: ${err}`)
+        })
+      } else {
+        checkAndRepairNodes(comfyPath).catch((err) => {
+          logger.warn(`Startup node check failed: ${err}`)
+        })
+      }
     }
   })
 
