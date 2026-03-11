@@ -489,7 +489,7 @@
     "inputs": {
       "text_encoder": "gemma_3_12B_it_fp4_mixed.safetensors",
       "prompt": "",
-      "system_prompt": "You are a master video prompt writer. Write a very descriptive, detailed scene using the prompt and the images as reference. The description should only include things that can be seen and heard, nothing emotional, and nothing symbolic. This will be used to generate a video. The first image should be the beginning, the second image is the middle and the last image is the end. You need to describe all the details including the sound and textures in great detail. Only output the paragraph and nothing else.",
+      "system_prompt": "You are a video prompt enhancer. Your job is to take the user's prompt and enrich it with visual details from the provided reference images. The user's prompt is the PRIMARY source — preserve ALL of its content exactly, including all dialogue, actions, character interactions, and their original order. Do NOT remove, summarize, or rephrase any dialogue or actions from the prompt. Use the reference images to add specific visual details: what characters look like, what they're wearing, the environment, lighting, colors, textures, and sounds. The first image is the beginning, the second is the middle, and the last is the end. Describe only what can be seen and heard — no emotions, no symbolism, no internal thoughts. Output only the enhanced paragraph, nothing else.",
       "max_tokens": 1024,
       "temperature": 0.8,
       "top_k": 40,
@@ -504,7 +504,7 @@
   "84": {
     "inputs": {
       "prompt": "",
-      "system_prompt": "You are a master video prompt writer. Write a very descriptive, detailed scene using the prompt and the images as reference. The description should only include things that can be seen and heard, nothing emotional, and nothing symbolic. This will be used to generate a video. The first image should be the beginning, the second image is the middle and the last image is the end. You need to describe all the details including the sound and textures in great detail. Only output the paragraph and nothing else.",
+      "system_prompt": "You are a video prompt enhancer. Your job is to take the user's prompt and enrich it with visual details from the provided reference images. The user's prompt is the PRIMARY source — preserve ALL of its content exactly, including all dialogue, actions, character interactions, and their original order. Do NOT remove, summarize, or rephrase any dialogue or actions from the prompt. Use the reference images to add specific visual details: what characters look like, what they're wearing, the environment, lighting, colors, textures, and sounds. The first image is the beginning, the second is the middle, and the last is the end. Describe only what can be seen and heard — no emotions, no symbolism, no internal thoughts. Output only the enhanced paragraph, nothing else.",
       "model": "gemma3:12b",
       "ollama_url": "http://localhost:11434",
       "cache_file": "formatted_prompt_pos.json",
