@@ -17,6 +17,7 @@ export interface GenerationSettings {
   filmGrainIntensity?: number
   filmGrainSize?: number
   rtxSuperRes?: boolean
+  promptEnhance?: boolean
   iterations?: number
   // Image-specific settings
   imageResolution: string
@@ -213,6 +214,32 @@ export function SettingsPanel({
           </Select>
         </div>
       </div>
+
+      {/* Prompt Enhance */}
+      <label className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors ${
+        settings.promptEnhance !== false ? 'border-violet-500/50 bg-violet-500/10' : 'border-zinc-700 hover:border-zinc-600'
+      } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
+        <input
+          type="checkbox"
+          checked={settings.promptEnhance !== false}
+          onChange={(e) => handleChange('promptEnhance', e.target.checked)}
+          disabled={disabled}
+          className="absolute opacity-0 w-0 h-0 pointer-events-none"
+        />
+        <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+          settings.promptEnhance !== false ? 'bg-violet-500 border-violet-500' : 'border-zinc-600'
+        }`}>
+          {settings.promptEnhance !== false && (
+            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+        </div>
+        <div>
+          <div className="text-sm text-zinc-200 font-medium">Prompt Enhance</div>
+          <div className="text-[10px] text-zinc-500">Expand prompt with detail</div>
+        </div>
+      </label>
 
       {/* Upscale Options */}
       <div className="flex gap-3">
