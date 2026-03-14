@@ -121,7 +121,6 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
         spatialUpscale: settings.spatialUpscale,
         upscaleDenoise: settings.upscaleDenoise,
         temporalUpscale: settings.temporalUpscale,
-        promptEnhance: settings.promptEnhance,
         filmGrain: settings.filmGrain,
         filmGrainIntensity: settings.filmGrainIntensity,
         filmGrainSize: settings.filmGrainSize,

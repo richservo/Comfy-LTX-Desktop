@@ -29,7 +29,6 @@ interface GenerateParams {
   spatialUpscale?: boolean
   upscaleDenoise?: number
   temporalUpscale?: boolean
-  promptEnhance?: boolean
   filmGrain?: boolean
   filmGrainIntensity?: number
   filmGrainSize?: number
@@ -125,7 +124,6 @@ export function registerComfyUIHandlers(): void {
         spatialUpscale: params.imageMode ? false : (params.spatialUpscale ?? false),
         upscaleDenoise: params.imageMode ? undefined : params.upscaleDenoise,
         temporalUpscale: params.imageMode ? false : (params.temporalUpscale ?? false),
-        promptEnhance: params.promptEnhance !== false,
         ollamaEnabled: settings.ollamaEnabled ?? false,
         ollamaUrl: settings.ollamaUrl,
         ollamaModel: settings.ollamaModel,
@@ -159,12 +157,9 @@ export function registerComfyUIHandlers(): void {
       // 6. Connect WebSocket for progress
       progressTracker.setBaseUrl(settings.comfyuiUrl)
       const ollamaEnabled = settings.ollamaEnabled ?? false
-      const usePromptEnhance = params.promptEnhance !== false
       const promptEnhancerId = ollamaEnabled ? '84' : '83'
       const negativeFormatterId = ollamaEnabled ? '18' : '37'
-      const ltxvFormatterIds = usePromptEnhance
-        ? [promptEnhancerId, negativeFormatterId]
-        : []
+      const ltxvFormatterIds = [promptEnhancerId, negativeFormatterId]
       const zImageFormatterIds = ['54', '56']
       const formatterNodeIds = useZImage && params.imageMode
         ? zImageFormatterIds

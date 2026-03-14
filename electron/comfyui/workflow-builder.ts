@@ -25,8 +25,6 @@ export interface WorkflowParams {
   upscaleDenoise?: number
   /** Enable temporal upscale (2x frame count) */
   temporalUpscale?: boolean
-  /** Enable prompt enhancer (expand prompt with detail) */
-  promptEnhance?: boolean
   /** Enable Ollama prompt formatter */
   ollamaEnabled?: boolean
   /** Ollama server URL */
@@ -411,41 +409,27 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   }
 
   // --- Patch prompt / prompt formatter chain ---
-  // When promptEnhance is on:  user prompt [+ images] → Prompt Enhancer (83/84) → CLIP Positive (7)
-  // When promptEnhance is off: user prompt → CLIP Positive (7) directly
+  // Single-stage: user prompt [+ images] → Prompt Enhancer (83/84) → CLIP Positive (7)
   // SAD Formatter (36/17) and Parser (14) are kept in the template for future voice gen but bypassed for now.
 
   const hasAnyGuidanceFrame = !!(params.firstImage || params.middleImage || params.lastImage)
-  const usePromptEnhance = params.promptEnhance !== false
 
   // Delete SAD formatter + parser nodes (not needed until voice gen)
   delete workflow[OPTIONAL_NODE_IDS.promptParser]
 
-  // Delete all formatter/enhancer nodes for the unused path
   if (params.ollamaEnabled) {
+    // Ollama path: delete local formatter + local enhancer nodes
     for (const id of LOCAL_FORMATTER_NODES) delete workflow[id]
     delete workflow[OPTIONAL_NODE_IDS.ollamaPositiveFormatter]
-  } else {
-    for (const id of OLLAMA_FORMATTER_NODES) delete workflow[id]
-    delete workflow[OPTIONAL_NODE_IDS.localPositiveFormatter]
-  }
 
-  if (!usePromptEnhance) {
-    // No enhancer — delete all enhancer and negative formatter nodes, use raw prompt + generic negative
-    delete workflow[OPTIONAL_NODE_IDS.localImagePromptCreator]
-    delete workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator]
-    delete workflow[OPTIONAL_NODE_IDS.ollamaNegativeFormatter]
-    delete workflow[OPTIONAL_NODE_IDS.localNegativeFormatter]
-
-    workflow['7'].inputs['text'] = params.prompt
-    workflow['8'].inputs['text'] = DEFAULT_NEGATIVE_PROMPT
-  } else if (params.ollamaEnabled) {
-    // Ollama enhancer path
     // Negative prompt formatter
     if (params.ollamaUrl) workflow['18'].inputs['ollama_url'] = params.ollamaUrl
     if (params.ollamaModel) workflow['18'].inputs['model'] = params.ollamaModel
+    // Negative receives enhancer output directly
     workflow['18'].inputs['prompt'] = [OPTIONAL_NODE_IDS.ollamaImagePromptCreator, 0]
-    if (params.firstImage) workflow['18'].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+    if (params.firstImage) {
+      workflow['18'].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+    }
 
     // Prompt Enhancer
     workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['prompt'] = params.prompt
@@ -458,14 +442,20 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     // Wire enhancer output → CLIP Positive
     workflow['7'].inputs['text'] = [OPTIONAL_NODE_IDS.ollamaImagePromptCreator, 0]
   } else {
-    // Local enhancer path
+    // Local path: delete Ollama formatter + Ollama enhancer nodes
+    for (const id of OLLAMA_FORMATTER_NODES) delete workflow[id]
+    delete workflow[OPTIONAL_NODE_IDS.localPositiveFormatter]
+
     // Negative prompt formatter
     if (params.promptFormatterTextEncoder) {
       workflow['37'].inputs['text_encoder'] = params.promptFormatterTextEncoder
     }
     workflow['8'].inputs['text'] = ['37', 0]
+    // Negative receives enhancer output directly
     workflow['37'].inputs['prompt'] = [OPTIONAL_NODE_IDS.localImagePromptCreator, 0]
-    if (params.firstImage) workflow['37'].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+    if (params.firstImage) {
+      workflow['37'].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+    }
 
     // Prompt Enhancer
     workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['prompt'] = params.prompt
