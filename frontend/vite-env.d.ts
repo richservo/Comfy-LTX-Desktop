@@ -78,7 +78,8 @@ interface Window {
       imageMode?: boolean
       imageSteps?: number
       rtxSuperRes?: boolean
-    }) => Promise<{ status: string; video_path?: string; image_path?: string; error?: string }>
+      projectName?: string
+    }) => Promise<{ status: string; video_path?: string; image_path?: string; enhanced_prompt?: string; error?: string }>
     getGenerationProgress: () => Promise<{
       status: string
       phase: string
@@ -90,6 +91,12 @@ interface Window {
     checkComfyUIHealth: () => Promise<{ connected: boolean }>
     getModelLists: () => Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[]; hasRtxSuperRes?: boolean; hasZImage?: boolean }>
     readVideoMetadata: (filePath: string) => Promise<Record<string, unknown> | null>
+    getProjectRenders: (projectName: string) => Promise<Array<{
+      filename: string; filePath: string; type: string; prompt: string;
+      enhancedPrompt: string | null; seed: number; resolution: string;
+      aspectRatio: string; duration: number; fps: number;
+      cameraMotion?: string; timestamp: string;
+    }>>
     getSettings: () => Promise<{
       comfyuiUrl: string
       comfyuiOutputDir: string

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Trash2, Download, Image, Video, X,
   Heart, Film, Volume2, VolumeX, Sparkles,
-  Clock, Monitor, ChevronUp, Scissors,
+  Clock, Monitor, ChevronUp, Scissors, RefreshCw,
   ChevronLeft, ChevronRight, Copy, Check,
   Menu, Square
 } from 'lucide-react'
@@ -30,7 +30,7 @@ function AssetCard({
   onPlay,
   onDragStart,
   onCreateVideo,
-  onRetake,
+  onRerender,
   onToggleFavorite
 }: {
   asset: Asset
@@ -38,7 +38,7 @@ function AssetCard({
   onPlay: () => void
   onDragStart: (e: React.DragEvent, asset: Asset) => void
   onCreateVideo?: (asset: Asset) => void
-  onRetake?: (asset: Asset) => void
+  onRerender?: (asset: Asset) => void
   onToggleFavorite?: () => void
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -136,15 +136,13 @@ function AssetCard({
                 Create video
               </button>
             )}
-            {asset.type === 'video' && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onRetake?.(asset) }}
-                className="px-2.5 py-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors flex items-center gap-1.5 text-xs font-medium whitespace-nowrap"
-              >
-                <Scissors className="h-3 w-3" />
-                Retake
-              </button>
-            )}
+            <button
+              onClick={(e) => { e.stopPropagation(); onRerender?.(asset) }}
+              className="px-2.5 py-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors flex items-center gap-1.5 text-xs font-medium whitespace-nowrap"
+            >
+              <RefreshCw className="h-3 w-3" />
+              Re-render
+            </button>
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -672,6 +670,7 @@ export function GenSpace() {
     statusMessage,
     videoUrl,
     videoPath,
+    enhancedPrompt,
     imageUrl,
     error,
     cancel,
@@ -774,6 +773,52 @@ export function GenSpace() {
   const assets = (currentProject?.assets || []).filter(a => a.generationParams)
   const [lastPrompt, setLastPrompt] = useState('')
 
+  // Sync renders.json into project assets — picks up renders from crashes or external ComfyUI runs
+  const syncedProjectRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!currentProject || !currentProjectId) return
+    if (syncedProjectRef.current === currentProjectId) return
+    syncedProjectRef.current = currentProjectId
+
+    window.electronAPI.getProjectRenders(currentProject.name).then(renders => {
+      if (!renders || renders.length === 0) return
+      // Match by filename to avoid duplicates from different path formats
+      const existingFilenames = new Set(
+        (currentProject.assets || []).map(a => {
+          const p = a.path.replace(/\\/g, '/')
+          return p.split('/').pop() || ''
+        })
+      )
+      for (const r of renders) {
+        if (existingFilenames.has(r.filename)) continue
+        const normalized = r.filePath.replace(/\\/g, '/')
+        const fileUrl = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
+        addAsset(currentProjectId, {
+          type: r.type === 'image' ? 'image' : 'video',
+          path: normalized,
+          url: fileUrl,
+          prompt: r.enhancedPrompt ?? r.prompt,
+          resolution: r.resolution || '',
+          duration: r.duration || 0,
+          generationParams: {
+            mode: r.type === 'image' ? 'text-to-image' : 'text-to-video',
+            prompt: r.enhancedPrompt ?? r.prompt,
+            model: 'unknown',
+            duration: r.duration || 0,
+            resolution: r.resolution || '',
+            fps: r.fps || 0,
+            audio: false,
+            cameraMotion: r.cameraMotion || 'none',
+          },
+          takes: [{ url: fileUrl, path: normalized, createdAt: new Date(r.timestamp).getTime() }],
+          activeTakeIndex: 0,
+        })
+      }
+    }).catch(err => {
+      logger.error(`Failed to sync project renders: ${err}`)
+    })
+  }, [currentProjectId, currentProject, addAsset])
+
   const assetSavePath = currentProject?.assetSavePath
 
   // When video generation completes (or an iteration completes), add to project assets
@@ -793,12 +838,12 @@ export function GenSpace() {
           type: 'video',
           path: finalPath,
           url: finalUrl,
-          prompt: lastPrompt,
+          prompt: enhancedPrompt ?? lastPrompt,
           resolution: settings.videoResolution,
           duration: settings.duration,
           generationParams: {
             mode: genMode as 'text-to-video' | 'image-to-video',
-            prompt: lastPrompt,
+            prompt: enhancedPrompt ?? lastPrompt,
             model: settings.model,
             duration: settings.duration,
             resolution: settings.videoResolution,
@@ -824,7 +869,7 @@ export function GenSpace() {
         logger.error(`Failed to persist generated video asset: ${err}`)
       }
     })()
-  }, [videoUrl, videoPath, currentProjectId, isGenerating, settings, inputImage, selectedAudio, assetSavePath, lastPrompt, addAsset, reset])
+  }, [videoUrl, videoPath, currentProjectId, isGenerating, settings, inputImage, selectedAudio, assetSavePath, lastPrompt, enhancedPrompt, addAsset, reset])
 
   // When image generation completes, add to project assets
   const persistedImageKeyRef = useRef<string | null>(null)
@@ -839,11 +884,11 @@ export function GenSpace() {
       type: 'image',
       path: imagePath,
       url: imageUrl,
-      prompt: lastPrompt,
+      prompt: enhancedPrompt ?? lastPrompt,
       resolution: settings.imageResolution || '1080p',
       generationParams: {
         mode: 'text-to-image',
-        prompt: lastPrompt,
+        prompt: enhancedPrompt ?? lastPrompt,
         model: settings.model,
         duration: 0,
         resolution: settings.imageResolution || '1080p',
@@ -855,7 +900,7 @@ export function GenSpace() {
       },
     })
     reset()
-  }, [imageUrl, currentProjectId, isGenerating, settings, lastPrompt, addAsset, reset])
+  }, [imageUrl, currentProjectId, isGenerating, settings, lastPrompt, enhancedPrompt, addAsset, reset])
 
   // When retake completes, add as take or new asset
   useEffect(() => {
@@ -947,7 +992,7 @@ export function GenSpace() {
     setLastPrompt(prompt)
 
     if (genMode === 'text-to-image') {
-      generateImage(prompt, settings)
+      generateImage(prompt, settings, null, undefined, currentProject?.name)
       return
     }
 
@@ -971,6 +1016,7 @@ export function GenSpace() {
         middle: middleStrength,
         last: lastStrength,
       },
+      currentProject?.name,
     )
   }
 
@@ -992,16 +1038,38 @@ export function GenSpace() {
     setPrompt(`${imageAsset.prompt || 'The scene comes to life...'}`)
   }
 
-  const handleRetake = (videoAsset: Asset) => {
-    setMode('retake')
-    setPrompt('')
-    setActiveRetakeSource(null)
-    setRetakeInitial({
-      videoUrl: videoAsset.url,
-      videoPath: videoAsset.path,
-      duration: videoAsset.duration,
-    })
-    setRetakePanelKey((prev) => prev + 1)
+  const handleRerender = async (asset: Asset) => {
+    if (!currentProject || isGenerating) return
+    // Look up render entry from .renders.json by filename
+    const filename = asset.path.replace(/\\/g, '/').split('/').pop() || ''
+    const renders = await window.electronAPI.getProjectRenders(currentProject.name)
+    const entry = renders.find(r => r.filename === filename)
+
+    // Use render entry settings if available, fall back to asset's generationParams
+    const p = entry || asset.generationParams
+    if (!p) return
+
+    const rerenderPrompt = (entry?.enhancedPrompt ?? entry?.prompt) || asset.prompt
+
+    setPrompt(rerenderPrompt)
+
+    // Populate settings from the render entry
+    const updatedSettings: Partial<typeof settings> = entry ? {
+      videoResolution: entry.resolution || settings.videoResolution,
+      duration: entry.duration || settings.duration,
+      fps: entry.fps || settings.fps,
+      cameraMotion: entry.cameraMotion || settings.cameraMotion,
+    } : asset.generationParams ? {
+      videoResolution: asset.generationParams.resolution || settings.videoResolution,
+      duration: asset.generationParams.duration || settings.duration,
+      fps: asset.generationParams.fps || settings.fps,
+      cameraMotion: asset.generationParams.cameraMotion || settings.cameraMotion,
+    } : {}
+
+    handleSettingsChange({ ...settings, ...updatedSettings })
+
+    // Close the preview modal if open
+    setSelectedAsset(null)
   }
 
   const isRetakeMode = mode === 'retake'
@@ -1309,7 +1377,7 @@ export function GenSpace() {
                   onPlay={() => setSelectedAsset(asset)}
                   onDragStart={handleDragStart}
                   onCreateVideo={handleCreateVideo}
-                  onRetake={handleRetake}
+                  onRerender={handleRerender}
                   onToggleFavorite={() => currentProjectId && toggleFavorite(currentProjectId, asset.id)}
                 />
               ))}

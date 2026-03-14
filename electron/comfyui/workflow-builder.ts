@@ -27,6 +27,8 @@ export interface WorkflowParams {
   temporalUpscale?: boolean
   /** Enable prompt enhancer (expand prompt with detail) */
   promptEnhance?: boolean
+  /** Custom system prompt for the prompt enhancer */
+  promptEnhanceSystemPrompt?: string
   /** Enable Ollama prompt formatter */
   ollamaEnabled?: boolean
   /** Ollama server URL */
@@ -71,6 +73,8 @@ export interface WorkflowParams {
   imageAspectRatio?: string
   /** Enable RTX Video Super Resolution (4K output) */
   rtxSuperRes?: boolean
+  /** Project name for organizing output into subfolders */
+  projectName?: string
 }
 
 type WorkflowNode = { class_type: string; inputs: Record<string, unknown>; _meta?: { title: string } }
@@ -245,6 +249,12 @@ function buildZImageWorkflow(workflow: Workflow, params: WorkflowParams): Record
   if (params.promptFormatterTextEncoder) {
     workflow[OPTIONAL_NODE_IDS.zImagePromptFormatter].inputs['text_encoder'] = params.promptFormatterTextEncoder
     workflow[OPTIONAL_NODE_IDS.zImageNegativeFormatter].inputs['text_encoder'] = params.promptFormatterTextEncoder
+  }
+
+  // Patch output filename prefix for project organization
+  if (params.projectName) {
+    const safeProjectName = params.projectName.replace(/[<>:"/\\|?*]/g, '_')
+    workflow[OPTIONAL_NODE_IDS.zImageSaveImage].inputs['filename_prefix'] = `${safeProjectName}/image/${safeProjectName}`
   }
 
   return workflow as unknown as Record<string, unknown>
@@ -449,6 +459,7 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
 
     // Prompt Enhancer
     workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['prompt'] = params.prompt
+    if (params.promptEnhanceSystemPrompt) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['system_prompt'] = params.promptEnhanceSystemPrompt
     if (params.ollamaUrl) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['ollama_url'] = params.ollamaUrl
     if (params.ollamaModel) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['model'] = params.ollamaModel
     if (params.firstImage) workflow[OPTIONAL_NODE_IDS.ollamaImagePromptCreator].inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
@@ -469,6 +480,7 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
 
     // Prompt Enhancer
     workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['prompt'] = params.prompt
+    if (params.promptEnhanceSystemPrompt) workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['system_prompt'] = params.promptEnhanceSystemPrompt
     if (params.promptFormatterTextEncoder) {
       workflow[OPTIONAL_NODE_IDS.localImagePromptCreator].inputs['text_encoder'] = params.promptFormatterTextEncoder
     }
@@ -522,6 +534,15 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
 
   // --- Patch FPS (PrimitiveFloat node 24) ---
   workflow['24'].inputs['value'] = params.frameRate
+
+  // --- Patch output filename prefix for project organization ---
+  if (params.projectName) {
+    const safeProjectName = params.projectName.replace(/[<>:"/\\|?*]/g, '_')
+    workflow['25'].inputs['filename_prefix'] = `${safeProjectName}/video/${safeProjectName}`
+    if (workflow[OPTIONAL_NODE_IDS.zImageSaveImage]) {
+      workflow[OPTIONAL_NODE_IDS.zImageSaveImage].inputs['filename_prefix'] = `${safeProjectName}/image/${safeProjectName}`
+    }
+  }
 
   return workflow as unknown as Record<string, unknown>
 }

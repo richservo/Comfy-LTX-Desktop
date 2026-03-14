@@ -109,7 +109,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     duration: number
     fps: number
     cameraMotion?: string
-  }): Promise<{ status: string; video_path?: string; error?: string }> =>
+    projectName?: string
+  }): Promise<{ status: string; video_path?: string; enhanced_prompt?: string; error?: string }> =>
     ipcRenderer.invoke('comfyui:generate', params),
   getGenerationProgress: (): Promise<{
     status: string
@@ -125,6 +126,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('comfyui:model-lists'),
   readVideoMetadata: (filePath: string): Promise<Record<string, unknown> | null> =>
     ipcRenderer.invoke('comfyui:read-video-metadata', filePath),
+  getProjectRenders: (projectName: string): Promise<Array<{
+    filename: string; filePath: string; type: string; prompt: string;
+    enhancedPrompt: string | null; seed: number; resolution: string;
+    aspectRatio: string; duration: number; fps: number;
+    cameraMotion?: string; timestamp: string;
+  }>> => ipcRenderer.invoke('comfyui:get-project-renders', projectName),
 
   // Settings (stored locally by Electron)
   getSettings: (): Promise<{
@@ -226,7 +233,8 @@ declare global {
         duration: number
         fps: number
         cameraMotion?: string
-      }) => Promise<{ status: string; video_path?: string; error?: string }>
+        projectName?: string
+      }) => Promise<{ status: string; video_path?: string; enhanced_prompt?: string; error?: string }>
       getGenerationProgress: () => Promise<{
         status: string
         phase: string
@@ -238,6 +246,12 @@ declare global {
       checkComfyUIHealth: () => Promise<{ connected: boolean }>
       getModelLists: () => Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[] }>
       readVideoMetadata: (filePath: string) => Promise<Record<string, unknown> | null>
+      getProjectRenders: (projectName: string) => Promise<Array<{
+        filename: string; filePath: string; type: string; prompt: string;
+        enhancedPrompt: string | null; seed: number; resolution: string;
+        aspectRatio: string; duration: number; fps: number;
+        cameraMotion?: string; timestamp: string;
+      }>>
       getSettings: () => Promise<{
         comfyuiUrl: string
         comfyuiOutputDir: string

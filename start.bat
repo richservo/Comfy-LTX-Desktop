@@ -84,7 +84,22 @@ echo [OK] Git available.
 :git_done
 
 :: -------------------------------------------------------
-:: 3. pnpm
+:: 3. Pull latest code
+:: -------------------------------------------------------
+if exist ".git" (
+    echo [*] Checking for updates...
+    git pull >nul 2>&1
+    if not errorlevel 1 (
+        echo [OK] Up to date.
+    ) else (
+        echo [NOTE] Could not pull updates. Continuing with current version.
+    )
+) else (
+    echo [NOTE] Not a git repo, skipping update check.
+)
+
+:: -------------------------------------------------------
+:: 4. pnpm
 :: -------------------------------------------------------
 where pnpm >nul 2>&1
 if not errorlevel 1 goto :pnpm_ok
@@ -104,12 +119,10 @@ exit /b 1
 echo [OK] pnpm found.
 
 :: -------------------------------------------------------
-:: 4. Dependencies
+:: 5. Dependencies
 :: -------------------------------------------------------
-if exist "node_modules" goto :deps_ok
-
-echo [*] Installing dependencies - first run, this may take a minute...
-call pnpm install
+echo [*] Checking dependencies...
+call pnpm install >nul 2>&1
 if errorlevel 1 goto :deps_fail
 goto :deps_ok
 
@@ -124,7 +137,7 @@ exit /b 1
 echo [OK] Dependencies ready.
 
 :: -------------------------------------------------------
-:: 5. Launch
+:: 6. Launch
 :: -------------------------------------------------------
 echo.
 echo  ========================================

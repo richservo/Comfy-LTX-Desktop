@@ -7,6 +7,7 @@ interface GenerationState {
   statusMessage: string
   videoUrl: string | null
   videoPath: string | null
+  enhancedPrompt: string | null
   imageUrl: string | null
   imageUrls: string[]
   error: string | null
@@ -23,8 +24,8 @@ interface GenerationProgress {
 }
 
 export interface GenerationContextType extends GenerationState {
-  generate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }) => Promise<void>
-  generateImage: (prompt: string, settings: GenerationSettings, imagePath?: string | null, strength?: number) => Promise<void>
+  generate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string) => Promise<void>
+  generateImage: (prompt: string, settings: GenerationSettings, imagePath?: string | null, strength?: number, projectName?: string) => Promise<void>
   cancel: () => void
   reset: () => void
 }
@@ -50,6 +51,7 @@ const INITIAL_STATE: GenerationState = {
   statusMessage: '',
   videoUrl: null,
   videoPath: null,
+  enhancedPrompt: null,
   imageUrl: null,
   imageUrls: [],
   error: null,
@@ -69,6 +71,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
     middleImagePath?: string | null,
     lastImagePath?: string | null,
     strengths?: { first?: number; middle?: number; last?: number },
+    projectName?: string,
   ) => {
     const iterations = settings.iterations || 1
 
@@ -78,6 +81,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
       statusMessage: iterations > 1 ? `Generating video (1/${iterations})...` : 'Generating video...',
       videoUrl: null,
       videoPath: null,
+      enhancedPrompt: null,
       imageUrl: null,
       imageUrls: [],
       error: null,
@@ -129,6 +133,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
         middleStrength: strengths?.middle,
         lastStrength: strengths?.last,
         rtxSuperRes: is4K,
+        projectName,
       }
 
       for (let i = 1; i <= iterations; i++) {
@@ -163,6 +168,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
             statusMessage: isLast ? 'Complete!' : iterPrefix(i) + 'Complete!',
             videoUrl: fileUrl,
             videoPath: result.video_path,
+            enhancedPrompt: result.enhanced_prompt ?? null,
             imageUrl: null,
             imageUrls: [],
             error: null,
@@ -228,6 +234,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
     settings: GenerationSettings,
     imagePath?: string | null,
     strength?: number,
+    projectName?: string,
   ) => {
     setState({
       isGenerating: true,
@@ -235,6 +242,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
       statusMessage: 'Generating image...',
       videoUrl: null,
       videoPath: null,
+      enhancedPrompt: null,
       imageUrl: null,
       imageUrls: [],
       error: null,
@@ -273,6 +281,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
         firstStrength: strength,
         imageMode: true,
         imageSteps: settings.imageSteps,
+        projectName,
       })
 
       if (cancelledRef.current) return
@@ -287,6 +296,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
           statusMessage: 'Complete!',
           videoUrl: null,
           videoPath: null,
+          enhancedPrompt: null,
           imageUrl: fileUrl,
           imageUrls: [fileUrl],
           error: null,

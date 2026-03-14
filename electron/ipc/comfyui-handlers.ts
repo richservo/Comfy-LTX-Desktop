@@ -38,6 +38,7 @@ interface GenerateParams {
   imageMode?: boolean
   imageSteps?: number
   rtxSuperRes?: boolean
+  projectName?: string
 }
 
 let activePromptId: string | null = null
@@ -126,6 +127,7 @@ export function registerComfyUIHandlers(): void {
         upscaleDenoise: params.imageMode ? undefined : params.upscaleDenoise,
         temporalUpscale: params.imageMode ? false : (params.temporalUpscale ?? false),
         promptEnhance: params.promptEnhance !== false,
+        promptEnhanceSystemPrompt: settings.promptEnhanceSystemPrompt,
         ollamaEnabled: settings.ollamaEnabled ?? false,
         ollamaUrl: settings.ollamaUrl,
         ollamaModel: settings.ollamaModel,
@@ -147,6 +149,7 @@ export function registerComfyUIHandlers(): void {
         imageSteps: params.imageSteps,
         imageAspectRatio: params.aspectRatio,
         rtxSuperRes: params.imageMode ? false : (params.rtxSuperRes ?? false),
+        projectName: params.projectName,
       })
 
       // Debug: log key workflow params
@@ -186,6 +189,41 @@ export function registerComfyUIHandlers(): void {
       activePromptId = result.prompt_id
       logger.info(`Workflow submitted, promptId: ${result.prompt_id}`)
 
+      // Write pending render entry immediately so it survives crashes
+      if (params.projectName) {
+        try {
+          const safePN = params.projectName.replace(/[<>:"/\\|?*]/g, '_')
+          const videoDir = path.join(outputDir, safePN, 'video')
+          const rendersPath = path.join(videoDir, '.renders.json')
+          const renders: unknown[] = fs.existsSync(rendersPath)
+            ? JSON.parse(fs.readFileSync(rendersPath, 'utf-8'))
+            : []
+          renders.push({
+            promptId: result.prompt_id,
+            filename: null,
+            status: 'pending',
+            type: params.imageMode ? 'image' : 'video',
+            prompt: params.prompt,
+            enhancedPrompt: null,
+            seed,
+            resolution: params.resolution,
+            aspectRatio: params.aspectRatio,
+            duration: params.duration,
+            fps: params.fps,
+            cameraMotion: params.cameraMotion,
+            spatialUpscale: params.spatialUpscale,
+            temporalUpscale: params.temporalUpscale,
+            filmGrain: params.filmGrain,
+            promptEnhance: params.promptEnhance,
+            timestamp: new Date().toISOString(),
+          })
+          fs.mkdirSync(videoDir, { recursive: true })
+          fs.writeFileSync(rendersPath, JSON.stringify(renders, null, 2))
+        } catch (err) {
+          logger.warn(`Failed to write pending render entry: ${err}`)
+        }
+      }
+
       // 8. Wait for completion
       await progressTracker.waitForCompletion(result.prompt_id)
 
@@ -212,76 +250,74 @@ export function registerComfyUIHandlers(): void {
       approvePath(path.join(outputDir, subfolder))
       logger.info(`ComfyUI output at: ${outputPath}`)
 
-      // 11. Embed generation settings as metadata (remux in-place, video only)
-      const outputExt = path.extname(outputPath).toLowerCase()
-      const isImageOutput = ['.png', '.jpg', '.jpeg', '.webp'].includes(outputExt)
-      const ffmpegPath = findFfmpegPath()
-      if (ffmpegPath && !isImageOutput) {
-        const metadata = JSON.stringify({
-          prompt: params.prompt,
-          resolution: params.resolution,
-          aspectRatio: params.aspectRatio,
-          duration: params.duration,
-          fps: params.fps,
-          cameraMotion: params.cameraMotion,
-          spatialUpscale: params.spatialUpscale,
-          temporalUpscale: params.temporalUpscale,
-          filmGrain: params.filmGrain,
-          filmGrainIntensity: params.filmGrainIntensity,
-          filmGrainSize: params.filmGrainSize,
-          firstStrength: params.firstStrength,
-          lastStrength: params.lastStrength,
-        })
-        const ext = path.extname(fileInfo.filename) || '.mp4'
-        const tempPath = outputPath + '.tmp' + ext
-        const muxResult = spawnSync(ffmpegPath, [
-          '-y', '-i', outputPath, '-c', 'copy',
-          '-metadata', `comment=${metadata}`,
-          tempPath,
-        ], { timeout: 30000 })
-        if (muxResult.status === 0) {
-          fs.unlinkSync(outputPath)
-          fs.renameSync(tempPath, outputPath)
-          logger.info('Generation metadata embedded in video')
-        } else {
-          // Clean up temp file, keep original
-          if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath)
-          logger.warn('Failed to embed metadata, keeping original video')
+      // Read enhanced prompt from formatter cache file if prompt enhance was used
+      let enhancedPrompt: string | undefined
+      if (params.promptEnhance !== false) {
+        try {
+          const cachePath = path.join(outputDir, 'formatted_prompt_pos.json')
+          if (fs.existsSync(cachePath)) {
+            const cacheContent = JSON.parse(fs.readFileSync(cachePath, 'utf-8'))
+            if (typeof cacheContent === 'string') {
+              enhancedPrompt = cacheContent
+            } else if (cacheContent?.output) {
+              enhancedPrompt = cacheContent.output
+            }
+          }
+        } catch {
+          // Ignore cache read errors
         }
       }
 
-      // 12. Image mode: extract first frame as PNG (or return directly for Z-Image)
+      // 11. Image mode: extract first frame as PNG (or return directly for Z-Image)
+      let finalOutputPath = outputPath
       if (params.imageMode) {
         const ext = path.extname(outputPath).toLowerCase()
         if (['.png', '.jpg', '.jpeg', '.webp'].includes(ext)) {
-          // Z-Image output: already an image, return directly
           logger.info(`Z-Image output at: ${outputPath}`)
-          return {
-            status: 'complete',
-            image_path: outputPath,
+        } else {
+          const ffmpeg = findFfmpegPath()
+          if (!ffmpeg) {
+            throw new Error('ffmpeg not found — cannot extract frame')
           }
+          const imagePath = outputPath.replace(/\.[^.]+$/, '.png')
+          const extractResult = spawnSync(ffmpeg, [
+            '-y', '-i', outputPath, '-frames:v', '1', '-q:v', '2', imagePath,
+          ], { timeout: 30000 })
+          if (extractResult.status !== 0) {
+            throw new Error('Failed to extract frame from generated video')
+          }
+          logger.info(`Image extracted to: ${imagePath}`)
+          finalOutputPath = imagePath
         }
-        const ffmpeg = findFfmpegPath()
-        if (!ffmpeg) {
-          throw new Error('ffmpeg not found — cannot extract frame')
-        }
-        const imagePath = outputPath.replace(/\.[^.]+$/, '.png')
-        const extractResult = spawnSync(ffmpeg, [
-          '-y', '-i', outputPath, '-frames:v', '1', '-q:v', '2', imagePath,
-        ], { timeout: 30000 })
-        if (extractResult.status !== 0) {
-          throw new Error('Failed to extract frame from generated video')
-        }
-        logger.info(`Image extracted to: ${imagePath}`)
-        return {
-          status: 'complete',
-          image_path: imagePath,
+      }
+
+      // Update pending render entry with filename and enhanced prompt
+      if (params.projectName) {
+        try {
+          const safeProjectName = params.projectName.replace(/[<>:"/\\|?*]/g, '_')
+          const videoDir = path.join(outputDir, safeProjectName, 'video')
+          const rendersPath = path.join(videoDir, '.renders.json')
+          if (fs.existsSync(rendersPath)) {
+            const renders = JSON.parse(fs.readFileSync(rendersPath, 'utf-8')) as Record<string, unknown>[]
+            const entry = renders.find(r => r.promptId === result.prompt_id)
+            if (entry) {
+              entry.filename = path.basename(finalOutputPath)
+              entry.enhancedPrompt = enhancedPrompt ?? null
+              entry.status = 'complete'
+            }
+            fs.writeFileSync(rendersPath, JSON.stringify(renders, null, 2))
+          }
+        } catch (err) {
+          logger.warn(`Failed to update render entry: ${err}`)
         }
       }
 
       return {
         status: 'complete',
-        video_path: outputPath,
+        ...(params.imageMode
+          ? { image_path: finalOutputPath }
+          : { video_path: finalOutputPath }),
+        enhanced_prompt: enhancedPrompt,
       }
     } catch (error) {
       const message =
@@ -292,6 +328,21 @@ export function registerComfyUIHandlers(): void {
       logger.error(`ComfyUI generation failed: ${message}`)
       return { status: 'error', error: message }
     } finally {
+      // Remove pending render entries that never completed (no filename)
+      if (params.projectName) {
+        try {
+          const safePN = params.projectName.replace(/[<>:"/\\|?*]/g, '_')
+          const videoDir = path.join(outputDir, safePN, 'video')
+          const rendersPath = path.join(videoDir, '.renders.json')
+          if (fs.existsSync(rendersPath)) {
+            const renders = JSON.parse(fs.readFileSync(rendersPath, 'utf-8')) as Record<string, unknown>[]
+            const cleaned = renders.filter(r => r.status !== 'pending')
+            fs.writeFileSync(rendersPath, JSON.stringify(cleaned, null, 2))
+          }
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
       activePromptId = null
       progressTracker.disconnect()
       progressTracker.reset()
@@ -368,6 +419,86 @@ export function registerComfyUIHandlers(): void {
     } catch (error) {
       logger.error(`Failed to fetch model lists: ${error}`)
       return { checkpoints: [], textEncoders: [], upscaleModels: [], loras: [] }
+    }
+  })
+
+  ipcMain.handle('comfyui:get-project-renders', (_event, projectName: string) => {
+    try {
+      const settings = getComfyUISettings()
+      const outputDir = settings.comfyuiOutputDir || path.join(app.getPath('documents'), 'ComfyUI', 'output')
+      const safeProjectName = projectName.replace(/[<>:"/\\|?*]/g, '_')
+      const projectDir = path.join(outputDir, safeProjectName)
+      const videoDir = path.join(projectDir, 'video')
+      const rendersPath = path.join(videoDir, '.renders.json')
+
+      // Load existing .renders.json (may not exist yet)
+      let renders: Record<string, unknown>[] = []
+      if (fs.existsSync(rendersPath)) {
+        const parsed = JSON.parse(fs.readFileSync(rendersPath, 'utf-8'))
+        if (Array.isArray(parsed)) renders = parsed
+      }
+
+      // Scan video/ and image/ subdirectories for actual files on disk
+      const VIDEO_EXTS = new Set(['.mp4', '.webm', '.avi', '.mov'])
+      const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
+      const diskFiles = new Map<string, { filePath: string; type: string }>()
+
+      for (const [subDir, exts, type] of [
+        ['video', VIDEO_EXTS, 'video'],
+        ['image', IMAGE_EXTS, 'image'],
+      ] as const) {
+        const dir = path.join(projectDir, subDir)
+        if (!fs.existsSync(dir)) continue
+        for (const file of fs.readdirSync(dir)) {
+          const ext = path.extname(file).toLowerCase()
+          if (exts.has(ext)) {
+            diskFiles.set(file, { filePath: path.join(dir, file), type })
+          }
+        }
+      }
+
+      // Remove JSON entries whose files no longer exist
+      const trackedFilenames = new Set<string>()
+      renders = renders.filter(r => {
+        const filename = r.filename as string
+        if (diskFiles.has(filename)) {
+          trackedFilenames.add(filename)
+          return true
+        }
+        return false
+      })
+
+      // Add entries for files on disk that aren't in the JSON
+      for (const [filename, info] of diskFiles) {
+        if (trackedFilenames.has(filename)) continue
+        const stat = fs.statSync(info.filePath)
+        renders.push({
+          filename,
+          type: info.type,
+          prompt: '',
+          enhancedPrompt: null,
+          seed: 0,
+          resolution: '',
+          aspectRatio: '',
+          duration: 0,
+          fps: 0,
+          timestamp: stat.mtime.toISOString(),
+        })
+      }
+
+      // Write reconciled JSON back
+      fs.mkdirSync(videoDir, { recursive: true })
+      fs.writeFileSync(rendersPath, JSON.stringify(renders, null, 2))
+
+      // Return with full file paths
+      return renders.map(r => {
+        const subDir = r.type === 'image' ? 'image' : 'video'
+        const filePath = path.join(projectDir, subDir, r.filename as string)
+        return { ...r, filePath }
+      })
+    } catch (err) {
+      logger.warn(`Failed to read project renders: ${err}`)
+      return []
     }
   })
 

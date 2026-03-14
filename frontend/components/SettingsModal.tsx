@@ -1,7 +1,7 @@
 import { Info, Package, Settings, Sliders, X, RefreshCw, CheckCircle, AlertTriangle, Download } from 'lucide-react'
 import React, { useEffect, useState } from 'react'
 import { Button } from './ui/button'
-import { useAppSettings, type AppSettings } from '../contexts/AppSettingsContext'
+import { useAppSettings, DEFAULT_APP_SETTINGS, type AppSettings } from '../contexts/AppSettingsContext'
 import { logger } from '../lib/logger'
 
 interface SettingsModalProps {
@@ -367,6 +367,32 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                     <span className="text-blue-400 font-medium">Tip:</span> These values are sent to the RSLTXVGenerate node in ComfyUI.
                     Default: 20 steps, 3.0 CFG.
                   </p>
+                </div>
+              </div>
+
+              {/* Prompt Enhance System Prompt */}
+              <div className="space-y-4 pt-4 border-t border-zinc-800">
+                <div>
+                  <h3 className="text-sm font-semibold text-white">Prompt Enhance System Prompt</h3>
+                  <p className="text-xs text-zinc-500 mt-1">Instructions given to the LLM when expanding your prompt.</p>
+                </div>
+                <div className="bg-zinc-800/50 rounded-lg p-4 space-y-2">
+                  <textarea
+                    value={settings.promptEnhanceSystemPrompt}
+                    onChange={(e) => updateSettings({ promptEnhanceSystemPrompt: e.target.value })}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    rows={6}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                    placeholder="Enter system prompt for prompt enhancement..."
+                  />
+                  {settings.promptEnhanceSystemPrompt !== DEFAULT_APP_SETTINGS.promptEnhanceSystemPrompt && (
+                    <button
+                      onClick={() => updateSettings({ promptEnhanceSystemPrompt: DEFAULT_APP_SETTINGS.promptEnhanceSystemPrompt })}
+                      className="text-xs text-zinc-400 hover:text-white transition-colors"
+                    >
+                      Reset to default
+                    </button>
+                  )}
                 </div>
               </div>
 

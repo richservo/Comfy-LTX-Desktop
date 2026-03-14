@@ -27,6 +27,7 @@ export interface ComfyUISettings {
   sampler: string
   promptFormatterTextEncoder: string
   imageGenerator: string
+  promptEnhanceSystemPrompt: string
 }
 
 function getDefaultSettings(): ComfyUISettings {
@@ -51,9 +52,10 @@ function getDefaultSettings(): ComfyUISettings {
     spatialUpscaleModel: 'ltx-2.3-spatial-upscaler-x2-1.0.safetensors',
     temporalUpscaleModel: 'ltx-2.3-temporal-upscaler-x2-1.0.safetensors',
     upscaleLora: 'ltx-2.3-22b-distilled-lora-384.safetensors',
-    sampler: 'euler_ancestral',
+    sampler: 'euler_ancestral_cfg_pp',
     promptFormatterTextEncoder: 'gemma_3_12B_it_fp4_mixed.safetensors',
     imageGenerator: 'none',
+    promptEnhanceSystemPrompt: "Expand the user's prompt into a detailed prose paragraph describing a video scene. Write in present tense. Describe what is seen and heard \u2014 the environment, lighting, textures, sounds, body language, and small physical details that make the scene feel real. If characters speak or discuss something, write the actual dialogue in quotation marks. Base everything on the user's prompt and reference images if provided \u2014 do not change the subject or setting, just flesh it out with rich, grounded detail. Output ONLY the scene description.",
   }
 }
 

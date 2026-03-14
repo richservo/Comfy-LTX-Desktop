@@ -267,7 +267,7 @@
   },
   "27": {
     "inputs": {
-      "sampler_name": "euler_ancestral"
+      "sampler_name": "euler_ancestral_cfg_pp"
     },
     "class_type": "KSamplerSelect",
     "_meta": { "title": "Sampler" }
