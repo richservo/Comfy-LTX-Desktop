@@ -183,6 +183,9 @@ export function registerComfyUIHandlers(): void {
       })
       progressTracker.connect(clientId)
 
+      // Resolve output directory early (needed for render tracking and file resolution)
+      const outputDir = settings.comfyuiOutputDir || path.join(app.getPath('documents'), 'ComfyUI', 'output')
+
       // 7. Submit to ComfyUI
       logger.info('Submitting workflow to ComfyUI...')
       const result = await comfyClient.submitWorkflow(workflow, clientId)
@@ -239,7 +242,6 @@ export function registerComfyUIHandlers(): void {
       }
 
       // 10. Resolve output file path on disk
-      const outputDir = settings.comfyuiOutputDir || path.join(app.getPath('documents'), 'ComfyUI', 'output')
       const subfolder = fileInfo.subfolder || ''
       const outputPath = path.join(outputDir, subfolder, fileInfo.filename)
 

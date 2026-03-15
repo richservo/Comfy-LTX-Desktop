@@ -57,7 +57,7 @@ export function SettingsPanel({
   }
 
   const maxDuration = settings.temporalUpscale ? 40 : 20
-  const durationOptions = [5, 6, 8, 10, 20, 30, 40].filter(d => d <= maxDuration)
+  const durationOptions = [5, 6, 8, 10, 12, 15, 18, 20, 30, 40].filter(d => d <= maxDuration)
   const resolutionOptions = hasRtxSuperRes ? ['4K', '1080p', '720p', '540p'] : ['1080p', '720p', '540p']
   const fpsOptions = [24, 25, 30, 50, 60]
 
