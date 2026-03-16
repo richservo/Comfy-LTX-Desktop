@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useCallback } from 'react'
 import type { TimelineClip, Track, Asset } from '../../types/project'
+import { fetchAudioBuffer } from '../../lib/audio-decode'
 
 export interface UsePlaybackEngineParams {
   isPlaying: boolean
@@ -89,20 +90,13 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     decodingUrlsRef.current.add(url)
 
     try {
-      let arrayBuffer: ArrayBuffer
-      if (url.startsWith('file://') && (window as any).electronAPI?.readLocalFile) {
-        const { data } = await (window as any).electronAPI.readLocalFile(url)
-        const bin = atob(data)
-        const bytes = new Uint8Array(bin.length)
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-        arrayBuffer = bytes.buffer
-      } else {
-        const resp = await fetch(url)
-        arrayBuffer = await resp.arrayBuffer()
-      }
+      console.log('[audio] decoding', url)
+      const arrayBuffer = await fetchAudioBuffer(url)
+      console.log('[audio] got buffer', url, 'size:', arrayBuffer.byteLength)
 
       const ctx = getAudioCtx()
       const decoded = await ctx.decodeAudioData(arrayBuffer)
+      console.log('[audio] decoded', url, 'duration:', decoded.duration, 'channels:', decoded.numberOfChannels)
 
       // Create reversed copy
       const reversed = ctx.createBuffer(decoded.numberOfChannels, decoded.length, decoded.sampleRate)
@@ -113,8 +107,9 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       }
 
       decodedCacheRef.current.set(url, { fwd: decoded, rev: reversed })
-    } catch {
-      // Decode failed — audio will be silent for this URL
+      console.log('[audio] cached', url)
+    } catch (err) {
+      console.error('[audio] decode FAILED for', url, err)
     } finally {
       decodingUrlsRef.current.delete(url)
     }

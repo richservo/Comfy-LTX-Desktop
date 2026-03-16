@@ -32,6 +32,8 @@ interface SettingsPanelProps {
   disabled?: boolean
   mode?: GenerationMode
   hasAudio?: boolean
+  hideDuration?: boolean
+  hideIterations?: boolean
 }
 
 export function SettingsPanel({
@@ -40,6 +42,8 @@ export function SettingsPanel({
   disabled,
   mode = 'text-to-video',
   hasAudio = false,
+  hideDuration = false,
+  hideIterations = false,
 }: SettingsPanelProps) {
   const [hasRtxSuperRes, setHasRtxSuperRes] = useState(false)
   useEffect(() => {
@@ -109,19 +113,21 @@ export function SettingsPanel({
       </Select>
 
       {/* Duration, Resolution, FPS, Iterations Row */}
-      <div className="grid grid-cols-4 gap-3">
-        <Select
-          label={hasAudio ? 'Duration (auto)' : 'Duration'}
-          value={settings.duration}
-          onChange={(e) => handleChange('duration', parseInt(e.target.value))}
-          disabled={disabled || hasAudio}
-        >
-          {durationOptions.map((duration) => (
-            <option key={duration} value={duration}>
-              {duration} sec
-            </option>
-          ))}
-        </Select>
+      <div className={`grid gap-3 ${hideDuration && hideIterations ? 'grid-cols-2' : hideDuration || hideIterations ? 'grid-cols-3' : 'grid-cols-4'}`}>
+        {!hideDuration && (
+          <Select
+            label={hasAudio ? 'Duration (auto)' : 'Duration'}
+            value={settings.duration}
+            onChange={(e) => handleChange('duration', parseInt(e.target.value))}
+            disabled={disabled || hasAudio}
+          >
+            {durationOptions.map((duration) => (
+              <option key={duration} value={duration}>
+                {duration} sec
+              </option>
+            ))}
+          </Select>
+        )}
 
         <Select
           label="Resolution"
@@ -149,18 +155,20 @@ export function SettingsPanel({
           ))}
         </Select>
 
-        <Select
-          label="Iterations"
-          value={settings.iterations || 1}
-          onChange={(e) => handleChange('iterations', parseInt(e.target.value))}
-          disabled={disabled}
-        >
-          {[1, 2, 3, 4, 5].map((n) => (
-            <option key={n} value={n}>
-              {n}x
-            </option>
-          ))}
-        </Select>
+        {!hideIterations && (
+          <Select
+            label="Iterations"
+            value={settings.iterations || 1}
+            onChange={(e) => handleChange('iterations', parseInt(e.target.value))}
+            disabled={disabled}
+          >
+            {[1, 2, 3, 4, 5].map((n) => (
+              <option key={n} value={n}>
+                {n}x
+              </option>
+            ))}
+          </Select>
+        )}
       </div>
 
       {/* Aspect Ratio */}

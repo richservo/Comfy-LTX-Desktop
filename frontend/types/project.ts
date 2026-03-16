@@ -388,6 +388,23 @@ export interface TimelineClip {
   letterbox?: LetterboxSettings
   // Text overlay
   textStyle?: TextOverlayStyle
+  // Inference stack membership
+  inferenceStackId?: string  // ID of the inference stack this clip belongs to
+  hiddenByStack?: boolean    // True when a rendered video replaces this clip visually
+}
+
+export interface InferenceStack {
+  id: string
+  clipIds: string[]                    // image + optional audio clip IDs
+  prompt: string
+  settings: GenerationSettings
+  strengths: { first?: number; middle?: number; last?: number }
+  singleFramePosition?: 'first' | 'last'  // When stack has 1 image: use as first or last frame
+  renderState: 'pending' | 'rendering' | 'complete' | 'error'
+  renderedAssetId?: string             // generated video asset
+  renderedClipId?: string              // video clip on timeline
+  errorMessage?: string
+  createdAt: number
 }
 
 export interface Timeline {
@@ -397,6 +414,7 @@ export interface Timeline {
   tracks: Track[]
   clips: TimelineClip[]
   subtitles?: SubtitleClip[]  // Subtitle cues on subtitle tracks
+  inferenceStacks?: InferenceStack[]
 }
 
 export interface Project {

@@ -11,7 +11,6 @@ export interface GenerationProgress {
 }
 
 export interface GenerationContext {
-  hasFirstImage: boolean
   hasUpscale: boolean
   imageMode: boolean
   /** Node IDs that are prompt formatters (show "Enhancing prompt" phase) */
@@ -58,16 +57,11 @@ export class ComfyUIProgressTracker {
       this.stageLabels = ctx.hasUpscale
         ? ['Generating image', 'Generating video', 'Rediffusing']
         : ['Generating image', 'Generating video']
-    } else if (ctx.hasFirstImage) {
-      // I2V: no first frame generation needed
-      this.stageLabels = ctx.hasUpscale
-        ? ['Generating video', 'Rediffusing']
-        : ['Generating video']
     } else {
-      // T2V: first frame generated, then video, then optional rediffuse
+      // T2V or I2V: generate video, then optional upscale
       this.stageLabels = ctx.hasUpscale
-        ? ['Generating first frame', 'Generating video', 'Rediffusing']
-        : ['Generating first frame', 'Generating video']
+        ? ['Generating video', 'Upscaling']
+        : ['Generating video']
     }
     this.stageIndex = 0
     this.lastValue = null

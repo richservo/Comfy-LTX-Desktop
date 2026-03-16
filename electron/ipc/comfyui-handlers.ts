@@ -175,7 +175,6 @@ export function registerComfyUIHandlers(): void {
           ? [...ltxvFormatterIds, ...zImageFormatterIds]
           : ltxvFormatterIds
       progressTracker.setGenerationContext({
-        hasFirstImage: !!uploadedImage || (useZImage && !params.imageMode),
         hasUpscale: !!(params.spatialUpscale),
         imageMode: !!params.imageMode,
         formatterNodeIds,
@@ -504,6 +503,38 @@ export function registerComfyUIHandlers(): void {
     }
   })
 
+  ipcMain.handle('comfyui:extract-audio-segment', async (_event, params: { sourcePath: string; startTime: number; duration: number }) => {
+    const ffmpegPath = findFfmpegPath()
+    if (!ffmpegPath) {
+      throw new Error('ffmpeg not found — cannot extract audio segment')
+    }
+
+    const { sourcePath, startTime, duration } = params
+    const tempDir = path.join(app.getPath('temp'), 'ltx-audio-segments')
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true })
+
+    const outPath = path.join(tempDir, `audio-segment-${randomUUID()}.wav`)
+
+    const result = spawnSync(ffmpegPath, [
+      '-y',
+      '-ss', String(startTime),
+      '-t', String(duration),
+      '-i', sourcePath,
+      '-vn',
+      '-acodec', 'pcm_s16le',
+      '-ar', '44100',
+      '-ac', '2',
+      outPath,
+    ], { encoding: 'utf8', timeout: 30000 })
+
+    if (result.status !== 0) {
+      throw new Error(`ffmpeg audio extraction failed: ${result.stderr}`)
+    }
+
+    logger.info(`Extracted audio segment: ${outPath} (start=${startTime}s, dur=${duration}s)`)
+    return outPath
+  })
+
   ipcMain.handle('comfyui:read-video-metadata', (_event, filePath: string) => {
     const ffmpegPath = findFfmpegPath()
     if (!ffmpegPath) {
@@ -534,5 +565,87 @@ export function registerComfyUIHandlers(): void {
       logger.error(`readVideoMetadata parse error: ${err}`)
       return null
     }
+  })
+
+  // ── Transcribe audio using WhisperX via ComfyUI ──
+  ipcMain.handle('transcribe-audio', async (_event, audioPath: string, startTime?: number, duration?: number) => {
+    logger.info(`Transcribing audio via ComfyUI: ${audioPath} (start=${startTime || 0}, dur=${duration || 0})`)
+
+    // 1. Upload audio to ComfyUI
+    const uploadResult = await comfyClient.uploadAudio(audioPath)
+    logger.info(`Uploaded audio: ${uploadResult.name}`)
+
+    // 2. Build WhisperX workflow
+    const workflow: Record<string, unknown> = {
+      '2': {
+        inputs: {
+          audio: uploadResult.name,
+          start_time: startTime || 0,
+          duration: duration || 0,
+        },
+        class_type: 'VHS_LoadAudioUpload',
+        _meta: { title: 'Load Audio' },
+      },
+      '3': {
+        inputs: {
+          model: 'tiny',
+          if_translate: false,
+          translator: 'alibaba',
+          to_language: 'en',
+          audio: ['2', 0],
+        },
+        class_type: 'Apply WhisperX',
+        _meta: { title: 'Apply WhisperX' },
+      },
+      '5': {
+        inputs: {
+          preview_markdown: '',
+          preview_text: '',
+          previewMode: false,
+          source: ['3', 0],
+        },
+        class_type: 'PreviewAny',
+        _meta: { title: 'Preview as Text' },
+      },
+    }
+
+    // 3. Submit workflow
+    const clientId = randomUUID()
+    const promptResult = await comfyClient.submitWorkflow(workflow, clientId)
+    const promptId = promptResult.prompt_id
+    logger.info(`WhisperX workflow submitted: ${promptId}`)
+
+    // 4. Poll for completion (timeout 5 min)
+    const deadline = Date.now() + 300_000
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 500))
+      const history = await comfyClient.getHistory(promptId)
+      const entry = history[promptId]
+      if (!entry) continue
+      if (!entry.status.completed) continue
+
+      // 5. Extract text from PreviewText node (4) or WhisperX node (3)
+      const outputs = entry.outputs as Record<string, Record<string, unknown>>
+      for (const nodeId of ['5', '3']) {
+        const nodeOutput = outputs[nodeId]
+        if (!nodeOutput) continue
+        // Check all keys for string arrays (different nodes use different key names)
+        for (const [key, val] of Object.entries(nodeOutput)) {
+          if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'string') {
+            const text = val.join(' ').trim()
+            if (text) {
+              logger.info(`Transcription from node ${nodeId}.${key}: ${text.substring(0, 100)}...`)
+              return { text, error: null }
+            }
+          }
+        }
+        logger.warn(`Node ${nodeId} output keys: ${Object.keys(nodeOutput).join(', ')}`)
+      }
+
+      logger.warn(`Full outputs: ${JSON.stringify(outputs).substring(0, 1000)}`)
+      return { text: null, error: 'Could not extract text from WhisperX output' }
+    }
+
+    return { text: null, error: 'Transcription timed out' }
   })
 }

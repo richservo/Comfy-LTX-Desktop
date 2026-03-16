@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import type { Asset, TimelineClip, Track } from '../../types/project'
 import { DEFAULT_COLOR_CORRECTION } from '../../types/project'
 import { resolveOverlaps } from './video-editor-utils'
+import { fetchAudioBuffer } from '../../lib/audio-decode'
 
 interface UseSourceMonitorParams {
   currentTime: number
@@ -64,18 +65,7 @@ export function useSourceMonitor({ currentTime, tracks, pushUndo, setClips }: Us
   const decodeAudioForAsset = useCallback(async (url: string) => {
     if (!url || bufferedUrlRef.current === url) return
     try {
-      let arrayBuffer: ArrayBuffer
-      if (url.startsWith('file://') && (window as any).electronAPI?.readLocalFile) {
-        const { data } = await (window as any).electronAPI.readLocalFile(url)
-        // base64 → ArrayBuffer
-        const bin = atob(data)
-        const bytes = new Uint8Array(bin.length)
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-        arrayBuffer = bytes.buffer
-      } else {
-        const resp = await fetch(url)
-        arrayBuffer = await resp.arrayBuffer()
-      }
+      const arrayBuffer = await fetchAudioBuffer(url)
 
       const ctx = getAudioCtx()
       const decoded = await ctx.decodeAudioData(arrayBuffer)
@@ -137,8 +127,106 @@ export function useSourceMonitor({ currentTime, tracks, pushUndo, setClips }: Us
 
   // ── Forward playback engine ──
   // Uses native video.playbackRate for 1x/2x/4x. Browser handles decode natively.
+  // For audio-only assets, uses Web Audio API directly.
   useEffect(() => {
     const vid = sourceVideoRef.current
+    const isAudioOnly = sourceAsset?.type === 'audio'
+
+    if (isAudioOnly) {
+      // Audio-only playback via Web Audio API
+      if (sourceSpeed > 0) {
+        const buf = fwdBufferRef.current
+        if (!buf) return
+        const ctx = getAudioCtx()
+        stopActiveSource()
+
+        const src = ctx.createBufferSource()
+        src.buffer = buf
+        src.playbackRate.value = sourceSpeed
+        src.connect(ctx.destination)
+        const startOffset = Math.max(0, Math.min(sourceTimeRef.current, buf.duration))
+        src.start(0, startOffset)
+        activeSourceRef.current = src
+        setSourceIsPlaying(true)
+
+        let lastTs: number | null = null
+        let pos = sourceTimeRef.current
+        const tick = (timestamp: number) => {
+          if (sourceSpeedRef.current <= 0) return
+          if (lastTs === null) lastTs = timestamp
+          const dt = (timestamp - lastTs) / 1000
+          lastTs = timestamp
+          pos += dt * sourceSpeedRef.current
+          const sOut = sourceOutRef.current
+          if (sOut !== null && pos >= sOut) {
+            stopActiveSource()
+            setSourceSpeed(0)
+            setSourceIsPlaying(false)
+            setSourceTime(sOut)
+            return
+          }
+          if (pos >= buf.duration) {
+            stopActiveSource()
+            setSourceSpeed(0)
+            setSourceIsPlaying(false)
+            setSourceTime(buf.duration)
+            return
+          }
+          setSourceTime(pos)
+          sourceAnimRef.current = requestAnimationFrame(tick)
+        }
+        sourceAnimRef.current = requestAnimationFrame(tick)
+        return () => {
+          cancelAnimationFrame(sourceAnimRef.current)
+          stopActiveSource()
+        }
+      } else if (sourceSpeed === 0) {
+        stopActiveSource()
+        setSourceIsPlaying(false)
+      } else {
+        // Reverse audio playback
+        const buf = revBufferRef.current
+        if (!buf) return
+        const ctx = getAudioCtx()
+        stopActiveSource()
+
+        const offset = Math.max(0, buf.duration - sourceTimeRef.current)
+        const src = ctx.createBufferSource()
+        src.buffer = buf
+        src.playbackRate.value = Math.abs(sourceSpeed)
+        src.connect(ctx.destination)
+        src.start(0, offset)
+        activeSourceRef.current = src
+        setSourceIsPlaying(false) // visual state — not "playing" in the forward sense
+
+        let lastTs: number | null = null
+        let pos = sourceTimeRef.current
+        const tick = (timestamp: number) => {
+          if (sourceSpeedRef.current >= 0) return
+          if (lastTs === null) lastTs = timestamp
+          const dt = (timestamp - lastTs) / 1000
+          lastTs = timestamp
+          pos -= dt * Math.abs(sourceSpeedRef.current)
+          const sIn = sourceInRef.current
+          if (pos <= (sIn ?? 0)) {
+            stopActiveSource()
+            setSourceSpeed(0)
+            setSourceTime(sIn ?? 0)
+            return
+          }
+          setSourceTime(pos)
+          sourceAnimRef.current = requestAnimationFrame(tick)
+        }
+        sourceAnimRef.current = requestAnimationFrame(tick)
+        return () => {
+          cancelAnimationFrame(sourceAnimRef.current)
+          stopActiveSource()
+        }
+      }
+      return
+    }
+
+    // Video playback path
     if (!vid) return
 
     if (sourceSpeed > 0) {
@@ -171,7 +259,7 @@ export function useSourceMonitor({ currentTime, tracks, pushUndo, setClips }: Us
       if (!vid.paused) vid.pause()
       setSourceIsPlaying(false)
     }
-  }, [sourceSpeed])
+  }, [sourceSpeed, sourceAsset?.type])
 
   // ── Scrub audio: play 1 frame of audio whenever sourceTime changes while stopped ──
   const lastScrubTimeRef = useRef<number>(-1)

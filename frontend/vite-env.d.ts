@@ -10,6 +10,8 @@ interface Window {
   electronAPI: {
     getModelsPath: () => Promise<string>
     readLocalFile: (filePath: string) => Promise<{ data: string; mimeType: string }>
+    readLocalFileBuffer: (filePath: string) => Promise<ArrayBuffer>
+    approvePath: (filePath: string) => Promise<void>
     checkGpu: () => Promise<{ available: boolean; name?: string; vram?: number }>
     getAppInfo: () => Promise<{ version: string; isPackaged: boolean; modelsPath: string; userDataPath: string }>
     checkFirstRun: () => Promise<{ needsSetup: boolean; needsLicense: boolean }>
@@ -91,6 +93,7 @@ interface Window {
     checkComfyUIHealth: () => Promise<{ connected: boolean }>
     getModelLists: () => Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[]; hasRtxSuperRes?: boolean; hasZImage?: boolean }>
     readVideoMetadata: (filePath: string) => Promise<Record<string, unknown> | null>
+    extractAudioSegment: (params: { sourcePath: string; startTime: number; duration: number }) => Promise<string>
     getProjectRenders: (projectName: string) => Promise<Array<{
       filename: string; filePath: string; type: string; prompt: string;
       enhancedPrompt: string | null; seed: number; resolution: string;
@@ -106,6 +109,7 @@ interface Window {
       cfg: number
     }>
     updateSettings: (patch: Record<string, unknown>) => Promise<Record<string, unknown>>
+    transcribeAudio: (audioPath: string, startTime?: number, duration?: number) => Promise<{ text: string | null; error: string | null }>
     extractVideoFrame: (videoUrl: string, seekTime: number, width?: number, quality?: number) => Promise<{ path: string; url: string }>
     writeLog: (level: string, message: string) => Promise<void>
     checkNodeUpdates: () => Promise<{ results: { name: string; hasUpdate: boolean; error?: string }[]; hasAnyUpdates: boolean }>

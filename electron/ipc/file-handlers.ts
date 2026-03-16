@@ -106,6 +106,29 @@ export function registerFileHandlers(): void {
     }
   })
 
+  // Approve a file path so it passes validatePath in future IPC calls.
+  // Used when files are imported via <input> or drag-drop (no native dialog).
+  ipcMain.handle('approve-path', async (_event, filePath: string) => {
+    const cleaned = filePath.startsWith('file://') ? filePath.replace(/^file:\/\/\//, '').replace(/^file:\/\//, '') : filePath
+    const resolved = path.resolve(decodeURIComponent(cleaned).replace(/\//g, path.sep))
+    approvePath(resolved)
+  })
+
+  // Read a local file as a raw Buffer (transferred as ArrayBuffer over IPC).
+  // Much more efficient than base64 for large binary files like WAV audio.
+  ipcMain.handle('read-local-file-buffer', async (_event, filePath: string) => {
+    try {
+      const normalizedPath = validatePath(filePath, getAllowedRoots())
+      if (!fs.existsSync(normalizedPath)) {
+        throw new Error(`File not found: ${normalizedPath}`)
+      }
+      return fs.readFileSync(normalizedPath)
+    } catch (error) {
+      logger.error(`Error reading local file as buffer: ${error}`)
+      throw error
+    }
+  })
+
   ipcMain.handle('show-save-dialog', async (_event, options: {
     title?: string
     defaultPath?: string

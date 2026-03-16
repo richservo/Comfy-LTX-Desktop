@@ -284,7 +284,12 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
     if (activeTool === 'select' || activeTool === 'ripple' || activeTool === 'roll') {
       // Compute the effective selection BEFORE React processes the state update
       let effectiveSelection: Set<string>
-      if (e.shiftKey) {
+
+      // Right-click on an already-selected clip: preserve the current selection
+      // so multi-select context menus work without losing the selection
+      if (e.button === 2 && selectedClipIds.has(clip.id)) {
+        effectiveSelection = selectedClipIds
+      } else if (e.shiftKey) {
         // Shift+click: toggle clip in/out of multi-selection (toggle linked group together)
         effectiveSelection = new Set(selectedClipIds)
         if (effectiveSelection.has(clip.id)) {
@@ -312,6 +317,9 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
         setSelectedClipIds(effectiveSelection)
       }
       
+      // Don't start a drag on right-click (context menu)
+      if (e.button === 2) return
+
       // Record undo before drag begins
       pushUndo()
       // Only drag clips that are in the effective (visual) selection.
@@ -327,7 +335,7 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
       if (!originalPositions[clip.id]) {
         originalPositions[clip.id] = { startTime: clip.startTime, trackIndex: clip.trackIndex }
       }
-      
+
       // Set up dragging. Alt+drag duplication is deferred to first mouseMove
       // so that Alt+click (no drag) only changes selection without creating duplicates.
       setDraggingClip({

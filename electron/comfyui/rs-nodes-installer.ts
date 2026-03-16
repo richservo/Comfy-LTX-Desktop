@@ -287,6 +287,17 @@ export async function installRsNodes(
     await installCustomNode(comfyPath, repo, onProgress)
   }
 
+  // Install faster-whisper for audio transcription
+  const python = findComfyPython(comfyPath)
+  if (python) {
+    onProgress({ phase: 'installing-deps', message: 'Installing audio transcription (faster-whisper)...' })
+    try {
+      await execPromise(python, ['-m', 'pip', 'install', 'faster-whisper'], { cwd: comfyPath })
+    } catch (err) {
+      logger.warn(`Failed to install faster-whisper: ${err}`)
+    }
+  }
+
   onProgress({ phase: 'complete', message: 'Custom nodes installed successfully' })
 }
 

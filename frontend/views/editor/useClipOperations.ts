@@ -273,6 +273,8 @@ export function useClipOperations(params: UseClipOperationsParams) {
         const normalized = electronFilePath.replace(/\\/g, '/')
         persistentUrl = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
         persistentPath = electronFilePath
+        // Approve path so IPC file reads (audio decode, etc.) pass validation
+        window.electronAPI?.approvePath?.(electronFilePath)
       } else {
         // Non-Electron environment: use blob URL
         persistentUrl = URL.createObjectURL(file)

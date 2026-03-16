@@ -1,0 +1,44 @@
+{
+  "2": {
+    "inputs": {
+      "audio": "Mamdani.wav",
+      "start_time": 0,
+      "duration": 0
+    },
+    "class_type": "VHS_LoadAudioUpload",
+    "_meta": {
+      "title": "Load Audio (Upload)🎥🅥🅗🅢"
+    }
+  },
+  "3": {
+    "inputs": {
+      "model": "tiny",
+      "if_translate": false,
+      "translator": "alibaba",
+      "to_language": "en",
+      "audio": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "Apply WhisperX",
+    "_meta": {
+      "title": "Apply WhisperX"
+    }
+  },
+  "5": {
+    "inputs": {
+      "preview_markdown": "",
+      "preview_text": "",
+      "previewMode": false,
+      "source": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "PreviewAny",
+    "_meta": {
+      "title": "Preview as Text"
+    }
+  }
+}

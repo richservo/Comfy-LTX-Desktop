@@ -25,7 +25,7 @@ import { MenuBar, type MenuDefinition } from '../components/MenuBar'
 import { ImportTimelineModal } from '../components/ImportTimelineModal'
 import { ClipWaveform } from '../components/AudioWaveform'
 // IC-LORA HIDDEN - import { ICLoraPanel } from '../components/ICLoraPanel'
-import type { TimelineClip, Track, SubtitleClip, Asset } from '../types/project' // EFFECTS HIDDEN: removed EffectType
+import type { TimelineClip, Track, SubtitleClip, Asset, InferenceStack } from '../types/project' // EFFECTS HIDDEN: removed EffectType
 import { DEFAULT_TRACKS } from '../types/project' // EFFECTS HIDDEN: removed EFFECT_DEFINITIONS
 import {
   type ToolType, PRIMARY_TOOLS, TRIM_TOOLS,
@@ -48,6 +48,7 @@ import { useUndoRedo } from './editor/useUndoRedo'
 import { useEditorKeyboard } from './editor/useEditorKeyboard'
 import { useGapGeneration } from './editor/useGapGeneration'
 import { useRegeneration } from './editor/useRegeneration'
+import { useInferenceStacks } from './editor/useInferenceStacks'
 import { useSubtitleOperations } from './editor/useSubtitleOperations'
 import { useSourceMonitor } from './editor/useSourceMonitor'
 import { useClipOperations } from './editor/useClipOperations'
@@ -58,6 +59,7 @@ import { usePlaybackEngine } from './editor/usePlaybackEngine'
 import { GapGenerationModal } from './editor/GapGenerationModal'
 import { GenerationErrorDialog } from '../components/GenerationErrorDialog'
 import { I2vGenerationModal } from './editor/I2vGenerationModal'
+import { InferenceStackPanel } from './editor/InferenceStackPanel'
 import { SubtitleTrackStyleEditor } from './editor/SubtitleTrackStyleEditor'
 
 // Custom scissors cursor SVG for the blade tool (white with dark outline for contrast)
@@ -108,6 +110,7 @@ export function VideoEditor() {
   const [clips, setClips] = useState<TimelineClip[]>((activeTimeline?.clips || []).map(migrateClip))
   const [tracks, setTracks] = useState<Track[]>(migrateTracks(activeTimeline?.tracks || DEFAULT_TRACKS.map(t => ({ ...t }))))
   const [subtitles, setSubtitles] = useState<SubtitleClip[]>(activeTimeline?.subtitles || [])
+  const [inferenceStacks, setInferenceStacks] = useState<InferenceStack[]>(activeTimeline?.inferenceStacks || [])
   
   // Transient UI state (not persisted)
   const [currentTime, setCurrentTime] = useState(0)
@@ -546,6 +549,15 @@ export function VideoEditor() {
   
   // Keep assetsRef in sync (declared after assets to avoid forward-reference)
   useEffect(() => { assetsRef.current = assets }, [assets])
+
+  // Approve all asset file paths so IPC reads (audio decode, etc.) pass validation.
+  // Needed for assets from saved projects (approvePath set is in-memory only).
+  useEffect(() => {
+    if (!window.electronAPI?.approvePath) return
+    for (const asset of assets) {
+      if (asset.path) window.electronAPI.approvePath(asset.path)
+    }
+  }, [assets])
   
   // Compute bins from assets
   const bins = useMemo(() => {
@@ -760,13 +772,14 @@ export function VideoEditor() {
     // Save current timeline before switching (if we had one loaded)
     if (loadedTimelineIdRef.current && currentProjectId) {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
-      updateTimeline(currentProjectId, loadedTimelineIdRef.current, { clips, tracks, subtitles })
+      updateTimeline(currentProjectId, loadedTimelineIdRef.current, { clips, tracks, subtitles, inferenceStacks })
     }
-    
+
     // Load new timeline (migrate old clips without new effect fields)
     setClips((activeTimeline.clips || []).map(migrateClip))
     setTracks(migrateTracks(activeTimeline.tracks?.length > 0 ? activeTimeline.tracks : DEFAULT_TRACKS.map(t => ({ ...t }))))
     setSubtitles(activeTimeline.subtitles || [])
+    setInferenceStacks(activeTimeline.inferenceStacks || [])
     setCurrentTime(0)
     setIsPlaying(false)
     setPlayingInOut(false)
@@ -783,13 +796,13 @@ export function VideoEditor() {
     
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
     autoSaveTimerRef.current = setTimeout(() => {
-      updateTimeline(currentProjectId, loadedTimelineIdRef.current!, { clips, tracks, subtitles })
+      updateTimeline(currentProjectId, loadedTimelineIdRef.current!, { clips, tracks, subtitles, inferenceStacks })
     }, AUTOSAVE_DELAY)
-    
+
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
     }
-  }, [clips, tracks, subtitles, currentProjectId])
+  }, [clips, tracks, subtitles, inferenceStacks, currentProjectId])
   
   // Save on unmount
   useEffect(() => {
@@ -1135,7 +1148,25 @@ export function VideoEditor() {
     regenCancel, regenReset, regenError,
     assetSavePath: currentProject?.assetSavePath,
   })
-  
+
+  // Inference stacks hook
+  const {
+    activeStackId, setActiveStackId,
+    renderingStackId, isRendering: isStackRendering,
+    renderProgress: stackRenderProgress, renderStatusMessage: stackRenderStatusMessage,
+    createStack, updateStack, deleteStack, removeClipFromStack, revertStack,
+    renderStack, renderAllStacks, cancelRender: cancelStackRender,
+  } = useInferenceStacks({
+    clips, setClips, inferenceStacks, setInferenceStacks,
+    assets, currentProjectId,
+    addAsset, addTakeToAsset, resolveClipSrc,
+    regenGenerate, regenVideoUrl, regenVideoPath,
+    isRegenerating, regenProgress, regenStatusMessage,
+    regenCancel, regenReset, regenError,
+    assetSavePath: currentProject?.assetSavePath,
+    projectName: currentProject?.name,
+  })
+
   useEditorKeyboard({
     refs: {
       kbLayoutRef,
@@ -1431,7 +1462,7 @@ export function VideoEditor() {
     // Force-save current timeline before switching
     if (loadedTimelineIdRef.current) {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
-      updateTimeline(currentProjectId, loadedTimelineIdRef.current, { clips, tracks })
+      updateTimeline(currentProjectId, loadedTimelineIdRef.current, { clips, tracks, inferenceStacks })
     }
     loadedTimelineIdRef.current = null // Reset so the useEffect picks up the new one
     setActiveTimeline(currentProjectId, timelineId)
@@ -3178,9 +3209,11 @@ export function VideoEditor() {
                     )
                   })()}
                   
-                  {clips.map(clip => {
+                  {clips.filter(c => !c.hiddenByStack).map(clip => {
                     const liveAsset = clip.assetId ? assets.find(a => a.id === clip.assetId) : null
                     const clipColor = getColorLabel(clip.colorLabel || liveAsset?.colorLabel || clip.asset?.colorLabel)
+                    const isInStack = !!clip.inferenceStackId
+                    const isRenderingClip = !!renderingStackId && clip.inferenceStackId === renderingStackId
                     // Compute positional drift between linked clips (start time only, not trim/duration)
                     let driftSeconds = 0
                     if (clip.linkedClipIds?.length) {
@@ -3201,6 +3234,8 @@ export function VideoEditor() {
                           ? 'border-red-500 shadow-lg shadow-red-500/20'
                           : selectedClipIds.has(clip.id)
                           ? 'border-blue-500 shadow-lg shadow-blue-500/20'
+                          : isInStack
+                          ? 'border-violet-500/70 shadow-md shadow-violet-500/10'
                           : clipColor
                             ? `hover:brightness-125`
                             : 'border-zinc-600 hover:border-zinc-500'
@@ -3313,6 +3348,7 @@ export function VideoEditor() {
                             {clip.colorCorrection && Object.values(clip.colorCorrection).some(v => v !== 0) && <span className="text-orange-400">CC</span>}
                             {clip.letterbox?.enabled && <span className="text-blue-400">LB</span>}
                             {clip.linkedClipIds?.length && <Link2 className="h-2.5 w-2.5 text-zinc-500 inline" />}
+                            {isInStack && <Layers className="h-2.5 w-2.5 text-violet-400 inline cursor-pointer hover:text-violet-300" onClick={(e) => { e.stopPropagation(); setActiveStackId(clip.inferenceStackId!) }} />}
                           </div>
                         </div>
                         
@@ -3400,6 +3436,27 @@ export function VideoEditor() {
                             >
                               Cancel
                             </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Stack rendering overlay */}
+                      {isRenderingClip && (
+                        <div className="absolute inset-0 bg-violet-900/40 z-10 flex flex-col justify-end">
+                          <div className="px-1.5 py-0.5 flex items-center gap-1">
+                            <Loader2 className="h-2.5 w-2.5 text-violet-300 animate-spin" />
+                            <span className="text-[8px] text-violet-200 font-medium truncate flex-1">
+                              {stackRenderStatusMessage || 'Rendering...'}
+                            </span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); cancelStackRender() }}
+                              className="px-1 py-0.5 rounded bg-zinc-800/80 border border-zinc-600/60 text-[8px] text-zinc-300 hover:text-red-400 hover:border-red-500/50 hover:bg-red-900/30 transition-colors"
+                            >
+                              Stop
+                            </button>
+                          </div>
+                          <div className="h-1 bg-violet-950/60">
+                            <div className="h-full bg-violet-400 transition-all duration-300" style={{ width: `${stackRenderProgress}%` }} />
                           </div>
                         </div>
                       )}
@@ -4061,8 +4118,34 @@ export function VideoEditor() {
             <Upload className="h-3 w-3 mr-1" />
             Export
           </Button>
-          
-          
+
+          {inferenceStacks.length > 0 && (
+            <>
+              <div className="w-px h-4 bg-zinc-700" />
+              {isStackRendering ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 border-red-700 text-red-400 text-[10px] px-2 hover:bg-red-900/30"
+                  onClick={cancelStackRender}
+                >
+                  <X className="h-3 w-3 mr-1" />
+                  Stop Render
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 border-violet-700 text-violet-400 text-[10px] px-2 hover:bg-violet-900/30"
+                  onClick={renderAllStacks}
+                >
+                  <Layers className="h-3 w-3 mr-1" />
+                  Render All Stacks ({inferenceStacks.length})
+                </Button>
+              )}
+            </>
+          )}
+
           {/* Subtitle import/export */}
           {tracks.some(t => t.type === 'subtitle') && (
             <>
@@ -4376,6 +4459,10 @@ export function VideoEditor() {
             setShowICLoraPanel={_setShowICLoraPanel}
             onCaptureFrameForVideo={handleCaptureFrameForVideo}
             onCreateVideoFromAudio={handleCreateVideoFromAudio}
+            onCreateStack={createStack}
+            onRemoveFromStack={removeClipFromStack}
+            onEditStack={setActiveStackId}
+            onRevertStack={revertStack}
           />
         )
       })()}
@@ -4522,7 +4609,28 @@ export function VideoEditor() {
         regenReset={regenReset}
         handleI2vGenerate={handleI2vGenerate}
       />
-      
+
+      {activeStackId && (() => {
+        const stack = inferenceStacks.find(s => s.id === activeStackId)
+        if (!stack) return null
+        return (
+          <InferenceStackPanel
+            stack={stack}
+            clips={clips}
+            resolveClipSrc={resolveClipSrc}
+            isRendering={isStackRendering && renderingStackId === activeStackId}
+            renderStatusMessage={stackRenderStatusMessage}
+            renderProgress={stackRenderProgress}
+            onUpdateStack={updateStack}
+            onRenderStack={renderStack}
+            onDeleteStack={deleteStack}
+            onRevertStack={revertStack}
+            onCancelRender={cancelStackRender}
+            onClose={() => setActiveStackId(null)}
+          />
+        )
+      })()}
+
       {subtitleTrackStyleIdx !== null && (
         <SubtitleTrackStyleEditor
           subtitleTrackStyleIdx={subtitleTrackStyleIdx}

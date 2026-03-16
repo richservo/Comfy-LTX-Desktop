@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { formatKeyCombo, type ActionId, type KeyboardLayout } from '../../lib/keyboard-shortcuts'
 export type { KeyboardLayout } from '../../lib/keyboard-shortcuts'
-import type { TimelineClip, TransitionType, Track, ClipEffect, EffectMask } from '../../types/project'
+import type { TimelineClip, TransitionType, Track, ClipEffect, EffectMask, InferenceStack } from '../../types/project'
 import { DEFAULT_COLOR_CORRECTION } from '../../types/project'
 
 // ── Tool types & definitions ────────────────────────────────────────
@@ -619,4 +619,81 @@ export function parseTime(tc: string): number | null {
     return secs
   }
   return null
+}
+
+// ── Inference Stack utilities ──
+
+/**
+ * Validate that a set of clips is a valid inference stack selection:
+ * 1-3 image clips + 0-1 audio clips, nothing else.
+ */
+export function isValidStackSelection(selectedClips: TimelineClip[]): boolean {
+  const images = selectedClips.filter(c => c.type === 'image')
+  const audios = selectedClips.filter(c => c.type === 'audio')
+  const others = selectedClips.filter(c => c.type !== 'image' && c.type !== 'audio')
+  return images.length >= 1 && images.length <= 3 && audios.length <= 1 && others.length === 0
+}
+
+/**
+ * Get all clips belonging to a stack. Uses `inferenceStackId` on clips
+ * as the source of truth (survives splits where clip IDs change).
+ */
+export function getStackClips(stack: InferenceStack, allClips: TimelineClip[]): TimelineClip[] {
+  return allClips.filter(c => c.inferenceStackId === stack.id)
+}
+
+/**
+ * Given an inference stack and the full clip list, return the frame mapping:
+ * { first, middle?, last? } referencing clips sorted by startTime.
+ * Also returns the middle frame time offset (relative to first clip start).
+ */
+export function getStackFrameMapping(stack: InferenceStack, allClips: TimelineClip[]): {
+  first: TimelineClip
+  middle?: TimelineClip
+  last?: TimelineClip
+  middleFrameOffset?: number
+} | null {
+  const imageClips = getStackClips(stack, allClips)
+    .filter(c => c.type === 'image')
+    .sort((a, b) => a.startTime - b.startTime)
+
+  if (imageClips.length === 0) return null
+
+  if (imageClips.length === 1) {
+    return { first: imageClips[0] }
+  }
+  if (imageClips.length === 2) {
+    return { first: imageClips[0], last: imageClips[1] }
+  }
+  // 3 images — use first, middle, and last
+  const first = imageClips[0]
+  const last = imageClips[imageClips.length - 1]
+  const middle = imageClips[Math.floor(imageClips.length / 2)]
+  return {
+    first,
+    middle,
+    last,
+    middleFrameOffset: middle.startTime - first.startTime,
+  }
+}
+
+/**
+ * Compute the duration for an inference stack render.
+ * With audio: audio clip's duration is source of truth.
+ * Without audio: span from first clip start to last clip end.
+ */
+export function getStackDuration(stack: InferenceStack, allClips: TimelineClip[]): number {
+  const stackClips = getStackClips(stack, allClips)
+
+  const audioClip = stackClips.find(c => c.type === 'audio')
+  if (audioClip) {
+    return audioClip.duration
+  }
+
+  // No audio — use image span
+  if (stackClips.length === 0) return 5 // fallback
+  const sorted = [...stackClips].sort((a, b) => a.startTime - b.startTime)
+  const first = sorted[0]
+  const last = sorted[sorted.length - 1]
+  return (last.startTime + last.duration) - first.startTime
 }

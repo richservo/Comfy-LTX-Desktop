@@ -4,11 +4,11 @@ import {
   ZoomIn, Film, Eye, FolderOpen, RotateCcw, Volume2, VolumeX,
   FlipHorizontal2, FlipVertical2, Link2, Unlink2, ArrowLeftRight,
   ChevronLeft, ChevronRight, // IC-LORA HIDDEN: removed Sparkles
-  Video, Camera,
+  Video, Camera, Box,
 } from 'lucide-react'
 import type { Asset, TimelineClip, Track, TextOverlayStyle } from '../../types/project'
 import { TEXT_PRESETS } from '../../types/project'
-import { COLOR_LABELS } from './video-editor-utils'
+import { COLOR_LABELS, isValidStackSelection } from './video-editor-utils'
 
 export interface ClipContextMenuProps {
   clipContextMenu: { clipId: string; x: number; y: number }
@@ -54,6 +54,10 @@ export interface ClipContextMenuProps {
   setShowICLoraPanel: (v: boolean) => void
   onCaptureFrameForVideo: (clip: TimelineClip) => void
   onCreateVideoFromAudio: (clip: TimelineClip) => void
+  onCreateStack: (clipIds: string[]) => void
+  onRemoveFromStack: (clipId: string) => void
+  onEditStack: (stackId: string) => void
+  onRevertStack: (stackId: string) => void
 }
 
 // Reusable menu item component
@@ -133,6 +137,10 @@ export function ClipContextMenu({
   setShowICLoraPanel, // IC-LORA HIDDEN: still passed to SingleClipMenu
   onCaptureFrameForVideo,
   onCreateVideoFromAudio,
+  onCreateStack,
+  onRemoveFromStack,
+  onEditStack,
+  onRevertStack,
 }: ClipContextMenuProps) {
   const close = () => setClipContextMenu(null)
   const isBackground = !contextClip
@@ -204,6 +212,7 @@ export function ClipContextMenu({
           handleCopy={handleCopy} handleCut={handleCut} handlePaste={handlePaste}
           pushUndo={pushUndo} setClips={setClips}
           getMaxClipDuration={getMaxClipDuration}
+          onCreateStack={onCreateStack}
           close={close}
         />
       ) : contextClip ? (
@@ -250,6 +259,10 @@ export function ClipContextMenu({
           setShowICLoraPanel={setShowICLoraPanel}
           onCaptureFrameForVideo={onCaptureFrameForVideo}
           onCreateVideoFromAudio={onCreateVideoFromAudio}
+          onCreateStack={onCreateStack}
+          onRemoveFromStack={onRemoveFromStack}
+          onEditStack={onEditStack}
+          onRevertStack={onRevertStack}
           close={close}
         />
       ) : null}
@@ -282,6 +295,10 @@ function SingleClipMenu({
   setI2vClipId, setI2vPrompt, onRetakeClip, setIcLoraSourceClipId: _setIcLoraSourceClipId, setShowICLoraPanel: _setShowICLoraPanel, // IC-LORA HIDDEN
   onCaptureFrameForVideo,
   onCreateVideoFromAudio,
+  onCreateStack,
+  onRemoveFromStack,
+  onEditStack,
+  onRevertStack,
   close,
 }: {
   contextClip: TimelineClip
@@ -315,6 +332,10 @@ function SingleClipMenu({
   setShowICLoraPanel: (v: boolean) => void
   onCaptureFrameForVideo: (clip: TimelineClip) => void
   onCreateVideoFromAudio: (clip: TimelineClip) => void
+  onCreateStack: (clipIds: string[]) => void
+  onRemoveFromStack: (clipId: string) => void
+  onEditStack: (stackId: string) => void
+  onRevertStack: (stackId: string) => void
   close: () => void
 }) {
   const liveAsset = getLiveAsset(contextClip)
@@ -486,6 +507,26 @@ function SingleClipMenu({
         ))}
       </div>
 
+      {/* ── Inference Stack ── */}
+      {isImage && !contextClip.inferenceStackId && (
+        <>
+          <Divider />
+          <MenuItem icon={Box} iconClass="text-violet-400" label="Create Inference Stack"
+            onClick={() => { onCreateStack([contextClip.id]); close() }} />
+        </>
+      )}
+      {contextClip.inferenceStackId && (
+        <>
+          <Divider />
+          <MenuItem icon={Layers} iconClass="text-violet-400" label="Edit Stack"
+            onClick={() => { onEditStack(contextClip.inferenceStackId!); close() }} />
+          <MenuItem icon={RotateCcw} iconClass="text-amber-400" label="Reset Stack"
+            onClick={() => { onRevertStack(contextClip.inferenceStackId!); close() }} />
+          <MenuItem icon={X} iconClass="text-violet-400" label="Remove from Stack"
+            onClick={() => { onRemoveFromStack(contextClip.id); close() }} />
+        </>
+      )}
+
       {/* ── 7. AI Tools ── */}
       {hasAI && (
         <>
@@ -631,7 +672,8 @@ function SingleClipMenu({
 function MultiClipMenu({
   clips, selectedClipIds, setSelectedClipIds, hasClipboard,
   currentProjectId, updateAsset,
-  handleCopy, handleCut, handlePaste, pushUndo, setClips, getMaxClipDuration, close,
+  handleCopy, handleCut, handlePaste, pushUndo, setClips, getMaxClipDuration,
+  onCreateStack, close,
 }: {
   clips: TimelineClip[]
   selectedClipIds: Set<string>; setSelectedClipIds: React.Dispatch<React.SetStateAction<Set<string>>>
@@ -641,6 +683,7 @@ function MultiClipMenu({
   handleCopy: () => void; handleCut: () => void; handlePaste: () => void
   pushUndo: () => void; setClips: React.Dispatch<React.SetStateAction<TimelineClip[]>>
   getMaxClipDuration: (clip: TimelineClip) => number
+  onCreateStack: (clipIds: string[]) => void
   close: () => void
 }) {
   const n = selectedClipIds.size
@@ -746,7 +789,16 @@ function MultiClipMenu({
         }} />
       )}
 
-      {/* ── 5. Color Label ── */}
+      {/* ── 5. Inference Stack ── */}
+      {isValidStackSelection(selectedClips) && (
+        <>
+          <Divider />
+          <MenuItem icon={Box} iconClass="text-violet-400" label="Create Inference Stack"
+            onClick={() => { onCreateStack([...selectedClipIds]); close() }} />
+        </>
+      )}
+
+      {/* ── 6. Color Label ── */}
       <Divider />
       <SectionLabel>Label</SectionLabel>
       <div className="px-3 py-1.5 flex items-center gap-1 flex-wrap">

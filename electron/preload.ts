@@ -9,6 +9,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Read a local file and return as base64
   readLocalFile: (filePath: string): Promise<{ data: string; mimeType: string }> =>
     ipcRenderer.invoke('read-local-file', filePath),
+  readLocalFileBuffer: (filePath: string): Promise<Buffer> =>
+    ipcRenderer.invoke('read-local-file-buffer', filePath),
+  approvePath: (filePath: string): Promise<void> =>
+    ipcRenderer.invoke('approve-path', filePath),
 
   // Check GPU availability
   checkGpu: (): Promise<{ available: boolean; name?: string; vram?: number }> =>
@@ -126,6 +130,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('comfyui:model-lists'),
   readVideoMetadata: (filePath: string): Promise<Record<string, unknown> | null> =>
     ipcRenderer.invoke('comfyui:read-video-metadata', filePath),
+  extractAudioSegment: (params: { sourcePath: string; startTime: number; duration: number }): Promise<string> =>
+    ipcRenderer.invoke('comfyui:extract-audio-segment', params),
   getProjectRenders: (projectName: string): Promise<Array<{
     filename: string; filePath: string; type: string; prompt: string;
     enhancedPrompt: string | null; seed: number; resolution: string;
@@ -144,6 +150,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   }> => ipcRenderer.invoke('settings:get'),
   updateSettings: (patch: Record<string, unknown>): Promise<Record<string, unknown>> =>
     ipcRenderer.invoke('settings:update', patch),
+
+  // Transcribe audio using WhisperX via ComfyUI
+  transcribeAudio: (audioPath: string, startTime?: number, duration?: number): Promise<{ text: string | null; error: string | null }> =>
+    ipcRenderer.invoke('transcribe-audio', audioPath, startTime, duration),
 
   // Extract a single video frame via ffmpeg (returns file path + file:// URL)
   extractVideoFrame: (videoUrl: string, seekTime: number, width?: number, quality?: number): Promise<{ path: string; url: string }> =>
