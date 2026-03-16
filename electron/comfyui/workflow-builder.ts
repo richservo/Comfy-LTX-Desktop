@@ -393,29 +393,29 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   // Quantize dimensions to match actual gen node output (LTX latent alignment)
   const actualDims = quantizeResolution(params.width, params.height, !!params.spatialUpscale)
 
-  // Connect frame images if provided (LoadImage → ImageScale → RSLTXVGenerate)
-  // Crop dimensions match the quantized output so guidance frames align exactly
+  // Connect frame images if provided (LoadImage → RSRTXSuperResolution → RSLTXVGenerate)
+  // Target dimensions match the quantized output so guidance frames align exactly
   if (params.firstImage) {
     workflow[OPTIONAL_NODE_IDS.firstFrame].inputs['image'] = params.firstImage.name
     const cropFirst = workflow[OPTIONAL_NODE_IDS.cropFirstFrame]
-    cropFirst.inputs['width'] = actualDims.width
-    cropFirst.inputs['height'] = actualDims.height
+    cropFirst.inputs['resize_type.width'] = actualDims.width
+    cropFirst.inputs['resize_type.height'] = actualDims.height
     genNode.inputs['first_image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
     genNode.inputs['first_strength'] = params.firstStrength ?? 1
   }
   if (params.middleImage) {
     workflow[OPTIONAL_NODE_IDS.middleFrame].inputs['image'] = params.middleImage.name
     const cropMiddle = workflow[OPTIONAL_NODE_IDS.cropMiddleFrame]
-    cropMiddle.inputs['width'] = actualDims.width
-    cropMiddle.inputs['height'] = actualDims.height
+    cropMiddle.inputs['resize_type.width'] = actualDims.width
+    cropMiddle.inputs['resize_type.height'] = actualDims.height
     genNode.inputs['middle_image'] = [OPTIONAL_NODE_IDS.cropMiddleFrame, 0]
     genNode.inputs['middle_strength'] = params.middleStrength ?? 1
   }
   if (params.lastImage) {
     workflow[OPTIONAL_NODE_IDS.lastFrame].inputs['image'] = params.lastImage.name
     const cropLast = workflow[OPTIONAL_NODE_IDS.cropLastFrame]
-    cropLast.inputs['width'] = actualDims.width
-    cropLast.inputs['height'] = actualDims.height
+    cropLast.inputs['resize_type.width'] = actualDims.width
+    cropLast.inputs['resize_type.height'] = actualDims.height
     genNode.inputs['last_image'] = [OPTIONAL_NODE_IDS.cropLastFrame, 0]
     genNode.inputs['last_strength'] = params.lastStrength ?? 1
   }

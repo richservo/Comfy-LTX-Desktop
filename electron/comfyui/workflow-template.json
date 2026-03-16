@@ -445,36 +445,39 @@
   },
   "57": {
     "inputs": {
-      "upscale_method": "lanczos",
-      "width": 960,
-      "height": 544,
-      "crop": "center",
-      "image": ["20", 0]
+      "mode": "upscale (high bitrate)",
+      "quality": "ULTRA",
+      "resize_type": "target dimensions",
+      "resize_type.width": 960,
+      "resize_type.height": 544,
+      "images": ["20", 0]
     },
-    "class_type": "ImageScale",
-    "_meta": { "title": "Crop First Frame" }
+    "class_type": "RSRTXSuperResolution",
+    "_meta": { "title": "Upscale First Frame" }
   },
   "58": {
     "inputs": {
-      "upscale_method": "lanczos",
-      "width": 960,
-      "height": 544,
-      "crop": "center",
-      "image": ["21", 0]
+      "mode": "upscale (high bitrate)",
+      "quality": "ULTRA",
+      "resize_type": "target dimensions",
+      "resize_type.width": 960,
+      "resize_type.height": 544,
+      "images": ["21", 0]
     },
-    "class_type": "ImageScale",
-    "_meta": { "title": "Crop Middle Frame" }
+    "class_type": "RSRTXSuperResolution",
+    "_meta": { "title": "Upscale Middle Frame" }
   },
   "59": {
     "inputs": {
-      "upscale_method": "lanczos",
-      "width": 960,
-      "height": 544,
-      "crop": "center",
-      "image": ["22", 0]
+      "mode": "upscale (high bitrate)",
+      "quality": "ULTRA",
+      "resize_type": "target dimensions",
+      "resize_type.width": 960,
+      "resize_type.height": 544,
+      "images": ["22", 0]
     },
-    "class_type": "ImageScale",
-    "_meta": { "title": "Crop Last Frame" }
+    "class_type": "RSRTXSuperResolution",
+    "_meta": { "title": "Upscale Last Frame" }
   },
   "60": {
     "inputs": {
