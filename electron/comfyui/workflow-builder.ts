@@ -73,6 +73,8 @@ export interface WorkflowParams {
   imageAspectRatio?: string
   /** Enable RTX Video Super Resolution (4K output) */
   rtxSuperRes?: boolean
+  /** Whether the GPU supports RTX (for frame upscale fallback) */
+  gpuSupportsRtx?: boolean
   /** Project name for organizing output into subfolders */
   projectName?: string
 }
@@ -393,29 +395,58 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   // Quantize dimensions to match actual gen node output (LTX latent alignment)
   const actualDims = quantizeResolution(params.width, params.height, !!params.spatialUpscale)
 
-  // Connect frame images if provided (LoadImage → RSRTXSuperResolution → RSLTXVGenerate)
-  // Target dimensions match the quantized output so guidance frames align exactly
+  // Connect frame images if provided (LoadImage → upscale → RSLTXVGenerate)
+  // Uses RTX Super Resolution on NVIDIA GPUs, falls back to lanczos ImageScale otherwise
+  const useRtxFrameUpscale = params.gpuSupportsRtx !== false
+
+  if (!useRtxFrameUpscale) {
+    // Replace RSRTXSuperResolution nodes with ImageScale for non-NVIDIA GPUs
+    for (const [id, srcId] of [
+      [OPTIONAL_NODE_IDS.cropFirstFrame, OPTIONAL_NODE_IDS.firstFrame],
+      [OPTIONAL_NODE_IDS.cropMiddleFrame, OPTIONAL_NODE_IDS.middleFrame],
+      [OPTIONAL_NODE_IDS.cropLastFrame, OPTIONAL_NODE_IDS.lastFrame],
+    ] as const) {
+      workflow[id] = {
+        class_type: 'ImageScale',
+        inputs: {
+          upscale_method: 'lanczos',
+          width: actualDims.width,
+          height: actualDims.height,
+          crop: 'center',
+          image: [srcId, 0],
+        },
+        _meta: { title: workflow[id]?._meta?.title ?? 'Scale Frame' },
+      }
+    }
+  }
+
   if (params.firstImage) {
     workflow[OPTIONAL_NODE_IDS.firstFrame].inputs['image'] = params.firstImage.name
     const cropFirst = workflow[OPTIONAL_NODE_IDS.cropFirstFrame]
-    cropFirst.inputs['resize_type.width'] = actualDims.width
-    cropFirst.inputs['resize_type.height'] = actualDims.height
+    if (useRtxFrameUpscale) {
+      cropFirst.inputs['resize_type.width'] = actualDims.width
+      cropFirst.inputs['resize_type.height'] = actualDims.height
+    }
     genNode.inputs['first_image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
     genNode.inputs['first_strength'] = params.firstStrength ?? 1
   }
   if (params.middleImage) {
     workflow[OPTIONAL_NODE_IDS.middleFrame].inputs['image'] = params.middleImage.name
     const cropMiddle = workflow[OPTIONAL_NODE_IDS.cropMiddleFrame]
-    cropMiddle.inputs['resize_type.width'] = actualDims.width
-    cropMiddle.inputs['resize_type.height'] = actualDims.height
+    if (useRtxFrameUpscale) {
+      cropMiddle.inputs['resize_type.width'] = actualDims.width
+      cropMiddle.inputs['resize_type.height'] = actualDims.height
+    }
     genNode.inputs['middle_image'] = [OPTIONAL_NODE_IDS.cropMiddleFrame, 0]
     genNode.inputs['middle_strength'] = params.middleStrength ?? 1
   }
   if (params.lastImage) {
     workflow[OPTIONAL_NODE_IDS.lastFrame].inputs['image'] = params.lastImage.name
     const cropLast = workflow[OPTIONAL_NODE_IDS.cropLastFrame]
-    cropLast.inputs['resize_type.width'] = actualDims.width
-    cropLast.inputs['resize_type.height'] = actualDims.height
+    if (useRtxFrameUpscale) {
+      cropLast.inputs['resize_type.width'] = actualDims.width
+      cropLast.inputs['resize_type.height'] = actualDims.height
+    }
     genNode.inputs['last_image'] = [OPTIONAL_NODE_IDS.cropLastFrame, 0]
     genNode.inputs['last_strength'] = params.lastStrength ?? 1
   }

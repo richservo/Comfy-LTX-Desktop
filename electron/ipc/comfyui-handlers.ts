@@ -12,6 +12,7 @@ import {
 } from '../comfyui/workflow-builder'
 import { getComfyUISettings } from './settings-handlers'
 import { findFfmpegPath } from '../export/ffmpeg-utils'
+import { getGpuInfo } from '../gpu'
 import { logger } from '../logger'
 import { approvePath } from '../path-validation'
 
@@ -149,6 +150,7 @@ export function registerComfyUIHandlers(): void {
         imageSteps: params.imageSteps,
         imageAspectRatio: params.aspectRatio,
         rtxSuperRes: params.imageMode ? false : (params.rtxSuperRes ?? false),
+        gpuSupportsRtx: getGpuInfo().supportsRtx,
         projectName: params.projectName,
       })
 
@@ -413,7 +415,7 @@ export function registerComfyUIHandlers(): void {
         upscaleModels: extractOptions('LatentUpscaleModelLoader', 'model_name'),
         loras: extractOptions('RSLTXVGenerate', 'upscale_lora'),
         samplers: extractOptions('KSamplerSelect', 'sampler_name'),
-        hasRtxSuperRes: 'RSRTXSuperResolution' in info,
+        hasRtxSuperRes: ('RSRTXSuperResolution' in info) && getGpuInfo().supportsRtx,
         hasZImage: 'RSZImageGenerate' in info,
       }
       logger.info(`comfyui:model-lists counts: checkpoints=${result.checkpoints.length}, textEncoders=${result.textEncoders.length}, upscaleModels=${result.upscaleModels.length}, loras=${result.loras.length}, samplers=${result.samplers.length}, rtxSuperRes=${result.hasRtxSuperRes}, zImage=${result.hasZImage}`)

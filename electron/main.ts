@@ -16,6 +16,7 @@ import { initAutoUpdater } from './updater'
 import { createWindow, getMainWindow } from './window'
 import { checkAndRepairNodes, installRsNodes } from './comfyui/rs-nodes-installer'
 import { getComfyUISettings } from './ipc/settings-handlers'
+import { detectGpu } from './gpu'
 import { logger } from './logger'
 import fs from 'fs'
 import path from 'path'
@@ -59,6 +60,9 @@ if (!gotLock) {
     setupCSP()
     createWindow()
     initAutoUpdater()
+
+    // Detect GPU capabilities (cached for workflow builder)
+    detectGpu().catch(err => logger.warn(`GPU detection failed: ${err}`))
 
     // Check for missing/broken custom nodes in the background
     // After an app update, re-run full node install (git pull + pip) to ensure compatibility
