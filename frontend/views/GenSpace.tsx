@@ -1053,12 +1053,19 @@ export function GenSpace() {
 
     setPrompt(rerenderPrompt)
 
-    // Populate settings from the render entry
+    // Populate all settings from the render entry
+    // If rtxSuperRes was used, the stored resolution is '1080p' but the user selected '4K'
+    const effectiveResolution = entry?.rtxSuperRes ? '4K' : (entry?.resolution || settings.videoResolution)
     const updatedSettings: Partial<typeof settings> = entry ? {
-      videoResolution: entry.resolution || settings.videoResolution,
+      videoResolution: effectiveResolution,
       duration: entry.duration || settings.duration,
       fps: entry.fps || settings.fps,
       cameraMotion: entry.cameraMotion || settings.cameraMotion,
+      aspectRatio: entry.aspectRatio || settings.aspectRatio,
+      spatialUpscale: entry.spatialUpscale ?? settings.spatialUpscale,
+      temporalUpscale: entry.temporalUpscale ?? settings.temporalUpscale,
+      filmGrain: entry.filmGrain ?? settings.filmGrain,
+      promptEnhance: entry.promptEnhance ?? settings.promptEnhance,
     } : asset.generationParams ? {
       videoResolution: asset.generationParams.resolution || settings.videoResolution,
       duration: asset.generationParams.duration || settings.duration,
@@ -1067,6 +1074,11 @@ export function GenSpace() {
     } : {}
 
     handleSettingsChange({ ...settings, ...updatedSettings })
+
+    // Fill in the seed from the original render (user can lock it to reproduce)
+    if (entry?.seed != null) {
+      updateAppSettings({ lockedSeed: entry.seed })
+    }
 
     // Close the preview modal if open
     setSelectedAsset(null)

@@ -98,7 +98,9 @@ interface Window {
       filename: string; filePath: string; type: string; prompt: string;
       enhancedPrompt: string | null; seed: number; resolution: string;
       aspectRatio: string; duration: number; fps: number;
-      cameraMotion?: string; timestamp: string;
+      cameraMotion?: string; spatialUpscale?: boolean; temporalUpscale?: boolean;
+      filmGrain?: boolean; promptEnhance?: boolean; rtxSuperRes?: boolean;
+      timestamp: string;
     }>>
     getSettings: () => Promise<{
       comfyuiUrl: string

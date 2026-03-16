@@ -430,16 +430,17 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
   // Revert a rendered stack: remove the rendered clip, un-hide source clips, reset render state
   const revertStack = useCallback((stackId: string) => {
     const stack = inferenceStacks.find(s => s.id === stackId)
-    if (!stack || !stack.renderedClipId) return
+    if (!stack) return
 
-    setClips(prev => prev
-      .filter(c => c.id !== stack.renderedClipId)
-      .map(c =>
+    const renderedId = stack.renderedClipId
+    setClips(prev => {
+      const filtered = renderedId ? prev.filter(c => c.id !== renderedId) : prev
+      return filtered.map(c =>
         c.inferenceStackId === stackId
           ? { ...c, hiddenByStack: undefined }
           : c
       )
-    )
+    })
 
     updateStack(stackId, {
       renderState: 'pending',

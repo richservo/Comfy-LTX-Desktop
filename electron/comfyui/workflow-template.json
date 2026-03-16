@@ -478,12 +478,13 @@
   },
   "60": {
     "inputs": {
+      "mode": "upscale (high bitrate)",
+      "quality": "ULTRA",
       "resize_type": "scale by multiplier",
-      "resize_type.scale": 2,
-      "quality": "ULTRA"
+      "resize_type.scale": 2
     },
-    "class_type": "RTXVideoSuperResolution",
-    "_meta": { "title": "RTX Video Super Resolution" }
+    "class_type": "RSRTXSuperResolution",
+    "_meta": { "title": "RS RTX Super Resolution" }
   },
   "83": {
     "inputs": {

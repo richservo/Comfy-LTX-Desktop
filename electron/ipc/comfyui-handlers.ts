@@ -217,6 +217,7 @@ export function registerComfyUIHandlers(): void {
             temporalUpscale: params.temporalUpscale,
             filmGrain: params.filmGrain,
             promptEnhance: params.promptEnhance,
+            rtxSuperRes: params.rtxSuperRes,
             timestamp: new Date().toISOString(),
           })
           fs.mkdirSync(videoDir, { recursive: true })
@@ -412,7 +413,7 @@ export function registerComfyUIHandlers(): void {
         upscaleModels: extractOptions('LatentUpscaleModelLoader', 'model_name'),
         loras: extractOptions('RSLTXVGenerate', 'upscale_lora'),
         samplers: extractOptions('KSamplerSelect', 'sampler_name'),
-        hasRtxSuperRes: 'RTXVideoSuperResolution' in info,
+        hasRtxSuperRes: 'RSRTXSuperResolution' in info,
         hasZImage: 'RSZImageGenerate' in info,
       }
       logger.info(`comfyui:model-lists counts: checkpoints=${result.checkpoints.length}, textEncoders=${result.textEncoders.length}, upscaleModels=${result.upscaleModels.length}, loras=${result.loras.length}, samplers=${result.samplers.length}, rtxSuperRes=${result.hasRtxSuperRes}, zImage=${result.hasZImage}`)
