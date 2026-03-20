@@ -360,6 +360,21 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                       )}
                     </select>
                   </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-sm text-white">Upscale Tile</label>
+                      <p className="text-xs text-zinc-500">Temporal tiling for upscale pass (0 = auto)</p>
+                    </div>
+                    <input
+                      type="number"
+                      min="0"
+                      max="64"
+                      value={settings.tileT ?? 0}
+                      onChange={(e) => updateSettings({ tileT: Math.max(0, parseInt(e.target.value) || 0) })}
+                      className="w-20 px-3 py-1.5 bg-zinc-700 border border-zinc-600 rounded-lg text-sm text-white text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
                 </div>
 
                 <div className="bg-zinc-800/30 rounded-lg p-3">

@@ -4,7 +4,7 @@ import {
   Heart, Film, Volume2, VolumeX, Sparkles,
   Clock, Monitor, ChevronUp, Scissors, RefreshCw,
   ChevronLeft, ChevronRight, Copy, Check,
-  Menu, Square
+  Menu, Square, ArrowUpDown
 } from 'lucide-react'
 import { useProjects } from '../contexts/ProjectContext'
 import type { GenSpaceRetakeSource } from '../contexts/ProjectContext'
@@ -615,7 +615,7 @@ const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
 }
 
 export function GenSpace() {
-  const { currentProject, currentProjectId, addAsset, addTakeToAsset, deleteAsset, toggleFavorite, genSpaceEditImageUrl, setGenSpaceEditImageUrl, setGenSpaceEditMode, genSpaceRetakeSource, setGenSpaceRetakeSource, setPendingRetakeUpdate, updateProjectGenerationSettings } = useProjects()
+  const { currentProject, currentProjectId, addAsset, addTakeToAsset, deleteAsset, toggleFavorite, syncGeneratedAssets, genSpaceEditImageUrl, setGenSpaceEditImageUrl, setGenSpaceEditMode, genSpaceRetakeSource, setGenSpaceRetakeSource, setPendingRetakeUpdate, updateProjectGenerationSettings } = useProjects()
   const { settings: appSettings, updateSettings: updateAppSettings } = useAppSettings()
   const [mode, setMode] = useState<'video' | 'retake'>('video')
   const [genMode, setGenMode] = useState<GenerationMode>('text-to-video')
@@ -631,6 +631,8 @@ export function GenSpace() {
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
   const [copiedPrompt, setCopiedPrompt] = useState(false)
   const [showFavorites, setShowFavorites] = useState(false)
+  type SortOrder = 'newest' | 'oldest' | 'favorites'
+  const [sortOrder, setSortOrder] = useState<SortOrder>('newest')
   const [gallerySize, setGallerySize] = useState<GallerySize>('medium')
   const [showSizeMenu, setShowSizeMenu] = useState(false)
   const [isPanelOpen, setIsPanelOpen] = useState(false)
@@ -773,7 +775,8 @@ export function GenSpace() {
   const assets = (currentProject?.assets || []).filter(a => a.generationParams)
   const [lastPrompt, setLastPrompt] = useState('')
 
-  // Sync renders.json into project assets — picks up renders from crashes or external ComfyUI runs
+  // Sync project assets against renders.json (source of truth, reconciled against disk by backend)
+  // Runs every time the project is opened — removes stale assets, adds new ones, fixes paths
   const syncedProjectRef = useRef<string | null>(null)
   useEffect(() => {
     if (!currentProject || !currentProjectId) return
@@ -781,29 +784,20 @@ export function GenSpace() {
     syncedProjectRef.current = currentProjectId
 
     window.electronAPI.getProjectRenders(currentProject.name).then(renders => {
-      if (!renders || renders.length === 0) return
-      // Match by filename to avoid duplicates from different path formats
-      const existingFilenames = new Set(
-        (currentProject.assets || []).map(a => {
-          const p = a.path.replace(/\\/g, '/')
-          return p.split('/').pop() || ''
-        })
-      )
-      for (const r of renders) {
-        if (existingFilenames.has(r.filename)) continue
+      const validAssets = (renders || []).map(r => {
         const normalized = r.filePath.replace(/\\/g, '/')
         const fileUrl = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
-        addAsset(currentProjectId, {
-          type: r.type === 'image' ? 'image' : 'video',
+        return {
+          type: (r.type === 'image' ? 'image' : 'video') as 'video' | 'image',
           path: normalized,
           url: fileUrl,
           prompt: r.enhancedPrompt ?? r.prompt,
           resolution: r.resolution || '',
           duration: r.duration || 0,
           generationParams: {
-            mode: r.type === 'image' ? 'text-to-image' : 'text-to-video',
+            mode: (r.type === 'image' ? 'text-to-image' : 'text-to-video') as 'text-to-video' | 'text-to-image',
             prompt: r.enhancedPrompt ?? r.prompt,
-            model: 'unknown',
+            model: 'unknown' as const,
             duration: r.duration || 0,
             resolution: r.resolution || '',
             fps: r.fps || 0,
@@ -812,12 +806,13 @@ export function GenSpace() {
           },
           takes: [{ url: fileUrl, path: normalized, createdAt: new Date(r.timestamp).getTime() }],
           activeTakeIndex: 0,
-        })
-      }
+        }
+      })
+      syncGeneratedAssets(currentProjectId, validAssets)
     }).catch(err => {
       logger.error(`Failed to sync project renders: ${err}`)
     })
-  }, [currentProjectId, currentProject, addAsset])
+  }, [currentProjectId, currentProject?.name, syncGeneratedAssets])
 
   const assetSavePath = currentProject?.assetSavePath
 
@@ -1109,7 +1104,17 @@ export function GenSpace() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [showSizeMenu])
 
-  const filteredAssets = showFavorites ? assets.filter(a => a.favorite) : assets
+  const sortedAssets = [...assets].sort((a, b) => {
+    if (sortOrder === 'favorites') {
+      if (a.favorite && !b.favorite) return -1
+      if (!a.favorite && b.favorite) return 1
+    }
+    // Use take timestamp (from render) if available, fall back to asset createdAt
+    const timeA = a.takes?.[0]?.createdAt || a.createdAt || 0
+    const timeB = b.takes?.[0]?.createdAt || b.createdAt || 0
+    return sortOrder === 'newest' ? timeB - timeA : timeA - timeB
+  })
+  const filteredAssets = showFavorites ? sortedAssets.filter(a => a.favorite) : sortedAssets
   const favoriteCount = assets.filter(a => a.favorite).length
 
   // Navigation for the asset preview modal
@@ -1315,6 +1320,15 @@ export function GenSpace() {
                   {favoriteCount}
                 </span>
               )}
+            </button>
+
+            <button
+              onClick={() => setSortOrder(prev => prev === 'newest' ? 'oldest' : prev === 'oldest' ? 'favorites' : 'newest')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors text-zinc-400 hover:text-white hover:bg-zinc-800"
+              title={`Sort: ${sortOrder === 'newest' ? 'Newest first' : sortOrder === 'oldest' ? 'Oldest first' : 'Favorites first'}`}
+            >
+              <ArrowUpDown className="h-4 w-4" />
+              {sortOrder === 'newest' ? 'Newest' : sortOrder === 'oldest' ? 'Oldest' : 'Favorites'}
             </button>
 
             <div ref={sizeMenuRef} className="relative">

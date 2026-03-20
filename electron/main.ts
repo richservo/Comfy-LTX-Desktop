@@ -15,6 +15,7 @@ import { initSessionLog } from './logging-management'
 import { initAutoUpdater } from './updater'
 import { createWindow, getMainWindow } from './window'
 import { checkAndRepairNodes, installRsNodes } from './comfyui/rs-nodes-installer'
+import { comfyClient } from './comfyui/client'
 import { getComfyUISettings } from './ipc/settings-handlers'
 import { detectGpu } from './gpu'
 import { logger } from './logger'
@@ -63,6 +64,13 @@ if (!gotLock) {
 
     // Detect GPU capabilities (cached for workflow builder)
     detectGpu().catch(err => logger.warn(`GPU detection failed: ${err}`))
+
+    // Auto-discover ComfyUI port at startup
+    comfyClient.checkHealth().then(connected => {
+      if (connected) {
+        logger.info(`ComfyUI connected at ${comfyClient.getBaseUrl()}`)
+      }
+    }).catch(() => {})
 
     // Check for missing/broken custom nodes in the background
     // After an app update, re-run full node install (git pull + pip) to ensure compatibility

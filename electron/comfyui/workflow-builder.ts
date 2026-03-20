@@ -75,6 +75,8 @@ export interface WorkflowParams {
   rtxSuperRes?: boolean
   /** Whether the GPU supports RTX (for frame upscale fallback) */
   gpuSupportsRtx?: boolean
+  /** tile_t (0 = auto) */
+  tileT?: number
   /** Project name for organizing output into subfolders */
   projectName?: string
 }
@@ -378,6 +380,7 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   genNode.inputs['seed_mode'] = 'fixed'
 
   // Connect upscalers if enabled
+  genNode.inputs['tile_t'] = params.tileT ?? 0
   genNode.inputs['upscale'] = !!params.spatialUpscale
   if (params.spatialUpscale) {
     genNode.inputs['upscale_model'] = [OPTIONAL_NODE_IDS.spatialUpscaler, 0]

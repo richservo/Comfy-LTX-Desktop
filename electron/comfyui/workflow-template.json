@@ -56,7 +56,7 @@
       "cfg_end": -1,
       "stg_end": -1,
       "stg_blocks": "29",
-      "rescale": 0.7,
+      "rescale": 0.70,
       "video_modality_scale": 0,
       "audio_modality_scale": 3,
       "cfg_star_rescale": true,

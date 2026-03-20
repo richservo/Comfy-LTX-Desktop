@@ -16,6 +16,28 @@ import { getGpuInfo } from '../gpu'
 import { logger } from '../logger'
 import { approvePath } from '../path-validation'
 
+// Helpers for reading/writing .renders.json (supports both old flat array and new wrapped format)
+function readRendersJson(rendersPath: string): Record<string, unknown>[] {
+  if (!fs.existsSync(rendersPath)) return []
+  try {
+    const parsed = JSON.parse(fs.readFileSync(rendersPath, 'utf-8'))
+    if (Array.isArray(parsed)) return parsed
+    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.renders)) return parsed.renders
+    return []
+  } catch { return [] }
+}
+
+function writeRendersJson(rendersPath: string, renders: Record<string, unknown>[], diskTotalBytes?: number): void {
+  const dir = path.dirname(rendersPath)
+  fs.mkdirSync(dir, { recursive: true })
+  if (diskTotalBytes !== undefined) {
+    fs.writeFileSync(rendersPath, JSON.stringify({ _diskTotalBytes: diskTotalBytes, renders }, null, 2))
+  } else {
+    // Invalidate checksum so next full load triggers reconciliation
+    fs.writeFileSync(rendersPath, JSON.stringify({ _diskTotalBytes: -1, renders }, null, 2))
+  }
+}
+
 interface GenerateParams {
   prompt: string
   imagePath?: string | null
@@ -150,6 +172,7 @@ export function registerComfyUIHandlers(): void {
         imageSteps: params.imageSteps,
         imageAspectRatio: params.aspectRatio,
         rtxSuperRes: params.imageMode ? false : (params.rtxSuperRes ?? false),
+        tileT: settings.tileT,
         gpuSupportsRtx: getGpuInfo().supportsRtx,
         projectName: params.projectName,
       })
@@ -162,7 +185,8 @@ export function registerComfyUIHandlers(): void {
       logger.info(`Workflow node IDs: ${Object.keys(workflow).join(', ')}`)
 
       // 6. Connect WebSocket for progress
-      progressTracker.setBaseUrl(settings.comfyuiUrl)
+      // Use the client's actual URL (may have been auto-discovered on a different port)
+      progressTracker.setBaseUrl(comfyClient.getBaseUrl())
       const ollamaEnabled = settings.ollamaEnabled ?? false
       const usePromptEnhance = params.promptEnhance !== false
       const promptEnhancerId = ollamaEnabled ? '84' : '83'
@@ -199,9 +223,7 @@ export function registerComfyUIHandlers(): void {
           const safePN = params.projectName.replace(/[<>:"/\\|?*]/g, '_')
           const videoDir = path.join(outputDir, safePN, 'video')
           const rendersPath = path.join(videoDir, '.renders.json')
-          const renders: unknown[] = fs.existsSync(rendersPath)
-            ? JSON.parse(fs.readFileSync(rendersPath, 'utf-8'))
-            : []
+          const renders = readRendersJson(rendersPath)
           renders.push({
             promptId: result.prompt_id,
             filename: null,
@@ -222,8 +244,7 @@ export function registerComfyUIHandlers(): void {
             rtxSuperRes: params.rtxSuperRes,
             timestamp: new Date().toISOString(),
           })
-          fs.mkdirSync(videoDir, { recursive: true })
-          fs.writeFileSync(rendersPath, JSON.stringify(renders, null, 2))
+          writeRendersJson(rendersPath, renders)
         } catch (err) {
           logger.warn(`Failed to write pending render entry: ${err}`)
         }
@@ -301,16 +322,14 @@ export function registerComfyUIHandlers(): void {
           const safeProjectName = params.projectName.replace(/[<>:"/\\|?*]/g, '_')
           const videoDir = path.join(outputDir, safeProjectName, 'video')
           const rendersPath = path.join(videoDir, '.renders.json')
-          if (fs.existsSync(rendersPath)) {
-            const renders = JSON.parse(fs.readFileSync(rendersPath, 'utf-8')) as Record<string, unknown>[]
-            const entry = renders.find(r => r.promptId === result.prompt_id)
-            if (entry) {
-              entry.filename = path.basename(finalOutputPath)
-              entry.enhancedPrompt = enhancedPrompt ?? null
-              entry.status = 'complete'
-            }
-            fs.writeFileSync(rendersPath, JSON.stringify(renders, null, 2))
+          const renders = readRendersJson(rendersPath)
+          const entry = renders.find(r => r.promptId === result.prompt_id)
+          if (entry) {
+            entry.filename = path.basename(finalOutputPath)
+            entry.enhancedPrompt = enhancedPrompt ?? null
+            entry.status = 'complete'
           }
+          writeRendersJson(rendersPath, renders)
         } catch (err) {
           logger.warn(`Failed to update render entry: ${err}`)
         }
@@ -328,6 +347,15 @@ export function registerComfyUIHandlers(): void {
         error instanceof Error ? error.message : 'Unknown generation error'
       if (message === 'Generation cancelled') {
         return { status: 'cancelled' }
+      }
+      // If it looks like a connection error, try re-discovering the port
+      if (message.includes('ECONNREFUSED') || message.includes('Invalid argument') || message.includes('fetch failed')) {
+        logger.info('Generation failed with connection error — re-discovering ComfyUI port...')
+        const reconnected = await comfyClient.checkHealth()
+        if (reconnected) {
+          logger.info(`ComfyUI re-discovered at ${comfyClient.getBaseUrl()} — please retry`)
+          return { status: 'error', error: `ComfyUI port changed to ${comfyClient.getBaseUrl()} — please try again` }
+        }
       }
       logger.error(`ComfyUI generation failed: ${message}`)
       return { status: 'error', error: message }
@@ -435,18 +463,12 @@ export function registerComfyUIHandlers(): void {
       const videoDir = path.join(projectDir, 'video')
       const rendersPath = path.join(videoDir, '.renders.json')
 
-      // Load existing .renders.json (may not exist yet)
-      let renders: Record<string, unknown>[] = []
-      if (fs.existsSync(rendersPath)) {
-        const parsed = JSON.parse(fs.readFileSync(rendersPath, 'utf-8'))
-        if (Array.isArray(parsed)) renders = parsed
-      }
-
-      // Scan video/ and image/ subdirectories for actual files on disk
       const VIDEO_EXTS = new Set(['.mp4', '.webm', '.avi', '.mov'])
       const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
-      const diskFiles = new Map<string, { filePath: string; type: string }>()
 
+      // Single scan: collect all media files and compute total bytes
+      let diskTotalBytes = 0
+      const diskFiles = new Map<string, { filePath: string; type: string; size: number }>()
       for (const [subDir, exts, type] of [
         ['video', VIDEO_EXTS, 'video'],
         ['image', IMAGE_EXTS, 'image'],
@@ -454,14 +476,37 @@ export function registerComfyUIHandlers(): void {
         const dir = path.join(projectDir, subDir)
         if (!fs.existsSync(dir)) continue
         for (const file of fs.readdirSync(dir)) {
-          const ext = path.extname(file).toLowerCase()
-          if (exts.has(ext)) {
-            diskFiles.set(file, { filePath: path.join(dir, file), type })
+          if (exts.has(path.extname(file).toLowerCase())) {
+            const filePath = path.join(dir, file)
+            const stat = fs.statSync(filePath)
+            diskTotalBytes += stat.size
+            diskFiles.set(file, { filePath, type, size: stat.size })
           }
         }
       }
 
-      // Remove JSON entries whose files no longer exist
+      // Load existing .renders.json (may not exist yet)
+      let renders = readRendersJson(rendersPath)
+      let storedChecksum = -1
+      if (fs.existsSync(rendersPath)) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(rendersPath, 'utf-8'))
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            storedChecksum = parsed._diskTotalBytes ?? -1
+          }
+        } catch { /* ignore */ }
+      }
+
+      // Fast path: if total bytes match, disk hasn't changed — skip reconciliation
+      if (storedChecksum === diskTotalBytes && renders.length > 0) {
+        return renders.map(r => {
+          const subDir = r.type === 'image' ? 'image' : 'video'
+          const filePath = path.join(projectDir, subDir, r.filename as string)
+          return { ...r, filePath }
+        })
+      }
+
+      // Full reconciliation: remove entries with no files, add files not in JSON
       const trackedFilenames = new Set<string>()
       renders = renders.filter(r => {
         const filename = r.filename as string
@@ -472,7 +517,6 @@ export function registerComfyUIHandlers(): void {
         return false
       })
 
-      // Add entries for files on disk that aren't in the JSON
       for (const [filename, info] of diskFiles) {
         if (trackedFilenames.has(filename)) continue
         const stat = fs.statSync(info.filePath)
@@ -486,13 +530,12 @@ export function registerComfyUIHandlers(): void {
           aspectRatio: '',
           duration: 0,
           fps: 0,
-          timestamp: stat.mtime.toISOString(),
+          timestamp: stat.birthtime.toISOString(),
         })
       }
 
-      // Write reconciled JSON back
-      fs.mkdirSync(videoDir, { recursive: true })
-      fs.writeFileSync(rendersPath, JSON.stringify(renders, null, 2))
+      // Write reconciled JSON with checksum
+      writeRendersJson(rendersPath, renders, diskTotalBytes)
 
       // Return with full file paths
       return renders.map(r => {

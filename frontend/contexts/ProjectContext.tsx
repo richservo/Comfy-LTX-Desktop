@@ -30,7 +30,8 @@ interface ProjectContextType {
   deleteTakeFromAsset: (projectId: string, assetId: string, takeIndex: number) => void
   setAssetActiveTake: (projectId: string, assetId: string, takeIndex: number) => void
   toggleFavorite: (projectId: string, assetId: string) => void
-  
+  syncGeneratedAssets: (projectId: string, validAssets: Omit<Asset, 'id' | 'createdAt'>[]) => void
+
   // Timelines
   addTimeline: (projectId: string, name?: string) => Timeline
   deleteTimeline: (projectId: string, timelineId: string) => void
@@ -362,6 +363,42 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     ))
   }, [])
   
+  // Replace all generated assets with the canonical list from renders.json
+  // Preserves non-generated assets (imported files) and favorites
+  const syncGeneratedAssets = useCallback((projectId: string, validAssets: Omit<Asset, 'id' | 'createdAt'>[]) => {
+    setProjects(prev => prev.map(p => {
+      if (p.id !== projectId) return p
+
+      // Keep non-generated assets untouched
+      const nonGenerated = p.assets.filter(a => !a.generationParams)
+
+      // Build map of existing generated assets by filename to preserve IDs and favorites
+      const existingByFilename = new Map<string, Asset>()
+      for (const a of p.assets) {
+        if (!a.generationParams) continue
+        const filename = a.path.replace(/\\/g, '/').split('/').pop() || ''
+        if (filename) existingByFilename.set(filename, a)
+      }
+
+      // Build new generated asset list, reusing existing IDs/favorites where possible
+      const newGenerated: Asset[] = validAssets.map(va => {
+        const filename = va.path.replace(/\\/g, '/').split('/').pop() || ''
+        const existing = existingByFilename.get(filename)
+        if (existing) {
+          // Update path/url but keep id, createdAt, favorite
+          return { ...existing, path: va.path, url: va.url }
+        }
+        return {
+          ...va,
+          id: `asset-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          createdAt: va.takes?.[0]?.createdAt || Date.now(),
+        }
+      })
+
+      return { ...p, assets: [...newGenerated, ...nonGenerated], updatedAt: Date.now() }
+    }))
+  }, [])
+
   // --- Timeline CRUD ---
   
   const addTimeline = useCallback((projectId: string, name?: string): Timeline => {
@@ -512,6 +549,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       deleteTakeFromAsset,
       setAssetActiveTake,
       toggleFavorite,
+      syncGeneratedAssets,
       addTimeline,
       deleteTimeline,
       renameTimeline,

@@ -172,10 +172,33 @@ export class ComfyUIClient {
   }
 
   async checkHealth(): Promise<boolean> {
+    // Scan all common ComfyUI ports and use the highest one that responds
+    // (ComfyUI increments port when previous instance is still bound)
+    const baseHost = new URL(this.baseUrl).hostname
+    let bestUrl: string | null = null
+
+    for (let port = 8188; port <= 8199; port++) {
+      const candidateUrl = `http://${baseHost}:${port}`
+      if (await this.probeUrl(candidateUrl)) {
+        bestUrl = candidateUrl // keep going — highest port wins
+      }
+    }
+
+    if (bestUrl) {
+      if (bestUrl !== this.baseUrl) {
+        logger.info(`ComfyUI auto-discovered on ${bestUrl} (was: ${this.baseUrl})`)
+        this.baseUrl = bestUrl
+      }
+      return true
+    }
+    return false
+  }
+
+  private async probeUrl(url: string): Promise<boolean> {
     try {
       const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 3000)
-      const response = await fetch(`${this.baseUrl}/system_stats`, {
+      const timeout = setTimeout(() => controller.abort(), 1000)
+      const response = await fetch(`${url}/system_stats`, {
         signal: controller.signal,
       })
       clearTimeout(timeout)
