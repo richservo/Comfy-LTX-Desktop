@@ -3017,6 +3017,7 @@ export function VideoEditor() {
                       setEditingSubtitleId(null)
                       setSelectedGap(null)
                       setGapGenerateMode(null)
+                      setSelectedTrimEdge(null)
                       if (activeTool === 'trackForward') {
                         // Track Select Forward: click empty area → select all clips from click time forward
                         const container = trackContainerRef.current

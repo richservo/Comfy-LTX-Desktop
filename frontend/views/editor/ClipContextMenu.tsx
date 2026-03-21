@@ -508,7 +508,7 @@ function SingleClipMenu({
       </div>
 
       {/* ── Inference Stack ── */}
-      {isImage && !contextClip.inferenceStackId && (
+      {(isImage || contextClip.type === 'audio') && !contextClip.inferenceStackId && (
         <>
           <Divider />
           <MenuItem icon={Box} iconClass="text-violet-400" label="Create Inference Stack"

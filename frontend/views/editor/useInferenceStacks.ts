@@ -193,30 +193,34 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     if (!stack || !currentProjectId) return
 
     const frameMapping = getStackFrameMapping(stack, clips)
-    if (!frameMapping) return
 
-    // Extract image paths
-    const imageUrl = resolveClipSrc(frameMapping.first)
-    const imagePath = fileUrlToPath(imageUrl)
-    if (!imagePath) {
-      logger.error(`Stack render: cannot extract path from ${imageUrl}`)
-      return
-    }
-
-    // Single image: respect singleFramePosition (first or last)
-    const isSingleAsLast = !frameMapping.last && !frameMapping.middle && stack.singleFramePosition === 'last'
-    const firstImagePath = isSingleAsLast ? null : imagePath
-
+    // Extract image paths (null for audio-only stacks)
+    let firstImagePath: string | null = null
     let middleImagePath: string | null = null
-    if (frameMapping.middle) {
-      const url = resolveClipSrc(frameMapping.middle)
-      middleImagePath = fileUrlToPath(url)
-    }
+    let lastImagePath: string | null = null
 
-    let lastImagePath: string | null = isSingleAsLast ? imagePath : null
-    if (frameMapping.last) {
-      const url = resolveClipSrc(frameMapping.last)
-      lastImagePath = fileUrlToPath(url)
+    if (frameMapping) {
+      const imageUrl = resolveClipSrc(frameMapping.first)
+      const imagePath = fileUrlToPath(imageUrl)
+      if (!imagePath) {
+        logger.error(`Stack render: cannot extract path from ${imageUrl}`)
+        return
+      }
+
+      // Single image: respect singleFramePosition (first or last)
+      const isSingleAsLast = !frameMapping.last && !frameMapping.middle && stack.singleFramePosition === 'last'
+      firstImagePath = isSingleAsLast ? null : imagePath
+
+      if (frameMapping.middle) {
+        const url = resolveClipSrc(frameMapping.middle)
+        middleImagePath = fileUrlToPath(url)
+      }
+
+      lastImagePath = isSingleAsLast ? imagePath : null
+      if (frameMapping.last) {
+        const url = resolveClipSrc(frameMapping.last)
+        lastImagePath = fileUrlToPath(url)
+      }
     }
 
     // Extract audio if present
@@ -248,7 +252,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     const settings: GenerationSettings = {
       ...stack.settings,
       duration: Math.min(Math.max(1, Math.round(duration)), stack.settings.model === 'pro' ? 10 : 20),
-      ...(frameMapping.middle ? { temporalUpscale: false } : {}),
+      ...(frameMapping?.middle ? { temporalUpscale: false } : {}),
       // If no audio clip, still generate audio from video
       audio: audioClip ? true : stack.settings.audio,
     }
@@ -295,7 +299,8 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
         // Find stack clips by inferenceStackId (survives splits)
         const currentStackClips = getStackClips(stack, clips)
         const imageClips = currentStackClips.filter(c => c.type === 'image').sort((a, b) => a.startTime - b.startTime)
-        const firstClip = imageClips[0]
+        // Use first image clip for placement, or fall back to first stack clip (audio-only)
+        const firstClip = imageClips[0] ?? currentStackClips.sort((a, b) => a.startTime - b.startTime)[0]
         if (!firstClip) return
 
         if (stack.renderedAssetId) {

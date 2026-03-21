@@ -105,99 +105,99 @@ export function InferenceStackPanel({
 
         {/* Body */}
         <div className="flex-1 overflow-auto p-5 space-y-4">
-          {/* Frame previews */}
-          <div>
-            <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold mb-1.5 block">
-              Frame Guidance
-            </label>
-            <div className="flex gap-2">
-              {frameMapping && (
-                <>
-                  {/* Single image: show with first/last toggle */}
-                  {!frameMapping.last && !frameMapping.middle ? (
-                    <div className="flex-1 min-w-0">
-                      <FramePreview
-                        label={stack.singleFramePosition === 'last' ? 'Last' : 'First'}
-                        clip={frameMapping.first}
-                        resolveClipSrc={resolveClipSrc}
-                        strength={stack.strengths.first}
-                        onStrengthChange={(v) => onUpdateStack(stack.id, {
-                          strengths: { ...stack.strengths, first: v }
-                        })}
-                      />
-                      <div className="flex items-center mt-1.5 bg-zinc-800 rounded-lg border border-zinc-700 p-0.5">
-                        <button
-                          onClick={() => onUpdateStack(stack.id, { singleFramePosition: 'first' })}
-                          className={`flex-1 text-[9px] font-medium py-1 rounded-md transition-colors ${
-                            stack.singleFramePosition !== 'last'
-                              ? 'bg-violet-600 text-white'
-                              : 'text-zinc-400 hover:text-zinc-300'
-                          }`}
-                        >
-                          First Frame
-                        </button>
-                        <button
-                          onClick={() => onUpdateStack(stack.id, { singleFramePosition: 'last' })}
-                          className={`flex-1 text-[9px] font-medium py-1 rounded-md transition-colors ${
-                            stack.singleFramePosition === 'last'
-                              ? 'bg-violet-600 text-white'
-                              : 'text-zinc-400 hover:text-zinc-300'
-                          }`}
-                        >
-                          Last Frame
-                        </button>
-                      </div>
+          {/* Frame previews (only when images present) */}
+          {frameMapping && (
+            <div>
+              <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold mb-1.5 block">
+                Frame Guidance
+              </label>
+              <div className="flex gap-2">
+                {/* Single image: show with first/last toggle */}
+                {!frameMapping.last && !frameMapping.middle ? (
+                  <div className="flex-1 min-w-0">
+                    <FramePreview
+                      label={stack.singleFramePosition === 'last' ? 'Last' : 'First'}
+                      clip={frameMapping.first}
+                      resolveClipSrc={resolveClipSrc}
+                      strength={stack.strengths.first}
+                      onStrengthChange={(v) => onUpdateStack(stack.id, {
+                        strengths: { ...stack.strengths, first: v }
+                      })}
+                    />
+                    <div className="flex items-center mt-1.5 bg-zinc-800 rounded-lg border border-zinc-700 p-0.5">
+                      <button
+                        onClick={() => onUpdateStack(stack.id, { singleFramePosition: 'first' })}
+                        className={`flex-1 text-[9px] font-medium py-1 rounded-md transition-colors ${
+                          stack.singleFramePosition !== 'last'
+                            ? 'bg-violet-600 text-white'
+                            : 'text-zinc-400 hover:text-zinc-300'
+                        }`}
+                      >
+                        First Frame
+                      </button>
+                      <button
+                        onClick={() => onUpdateStack(stack.id, { singleFramePosition: 'last' })}
+                        className={`flex-1 text-[9px] font-medium py-1 rounded-md transition-colors ${
+                          stack.singleFramePosition === 'last'
+                            ? 'bg-violet-600 text-white'
+                            : 'text-zinc-400 hover:text-zinc-300'
+                        }`}
+                      >
+                        Last Frame
+                      </button>
                     </div>
-                  ) : (
-                    <>
+                  </div>
+                ) : (
+                  <>
+                    <FramePreview
+                      label="First"
+                      clip={frameMapping.first}
+                      resolveClipSrc={resolveClipSrc}
+                      strength={stack.strengths.first}
+                      onStrengthChange={(v) => onUpdateStack(stack.id, {
+                        strengths: { ...stack.strengths, first: v }
+                      })}
+                    />
+                    {frameMapping.middle && (
                       <FramePreview
-                        label="First"
-                        clip={frameMapping.first}
+                        label="Middle"
+                        clip={frameMapping.middle}
                         resolveClipSrc={resolveClipSrc}
-                        strength={stack.strengths.first}
+                        strength={stack.strengths.middle}
                         onStrengthChange={(v) => onUpdateStack(stack.id, {
-                          strengths: { ...stack.strengths, first: v }
+                          strengths: { ...stack.strengths, middle: v }
                         })}
                       />
-                      {frameMapping.middle && (
-                        <FramePreview
-                          label="Middle"
-                          clip={frameMapping.middle}
-                          resolveClipSrc={resolveClipSrc}
-                          strength={stack.strengths.middle}
-                          onStrengthChange={(v) => onUpdateStack(stack.id, {
-                            strengths: { ...stack.strengths, middle: v }
-                          })}
-                        />
-                      )}
-                      {frameMapping.last && (
-                        <FramePreview
-                          label="Last"
-                          clip={frameMapping.last}
-                          resolveClipSrc={resolveClipSrc}
-                          strength={stack.strengths.last}
-                          onStrengthChange={(v) => onUpdateStack(stack.id, {
-                            strengths: { ...stack.strengths, last: v }
-                          })}
-                        />
-                      )}
-                    </>
-                  )}
-                </>
-              )}
+                    )}
+                    {frameMapping.last && (
+                      <FramePreview
+                        label="Last"
+                        clip={frameMapping.last}
+                        resolveClipSrc={resolveClipSrc}
+                        strength={stack.strengths.last}
+                        onStrengthChange={(v) => onUpdateStack(stack.id, {
+                          strengths: { ...stack.strengths, last: v }
+                        })}
+                      />
+                    )}
+                  </>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Preserve aspect ratio */}
-          <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={stack.preserveAspectRatio ?? false}
-              onChange={(e) => onUpdateStack(stack.id, { preserveAspectRatio: e.target.checked })}
-              className="rounded border-zinc-600 bg-zinc-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
-            />
-            Preserve aspect ratio
-          </label>
+          {/* Preserve aspect ratio (only relevant when images present) */}
+          {frameMapping && (
+            <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={stack.preserveAspectRatio ?? false}
+                onChange={(e) => onUpdateStack(stack.id, { preserveAspectRatio: e.target.checked })}
+                className="rounded border-zinc-600 bg-zinc-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+              />
+              Preserve aspect ratio
+            </label>
+          )}
 
           {/* Prompt */}
           <div>
@@ -246,7 +246,7 @@ export function InferenceStackPanel({
                   settings: hasMiddleFrame ? { ...settings, temporalUpscale: false } : settings
                 })}
                 disabled={isRendering}
-                mode="image-to-video"
+                mode={frameMapping ? 'image-to-video' : 'text-to-video'}
                 hideDuration
                 hideIterations
               />
