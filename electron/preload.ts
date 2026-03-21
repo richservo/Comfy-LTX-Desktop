@@ -113,6 +113,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     duration: number
     fps: number
     cameraMotion?: string
+    preserveAspectRatio?: boolean
     projectName?: string
   }): Promise<{ status: string; video_path?: string; enhanced_prompt?: string; error?: string }> =>
     ipcRenderer.invoke('comfyui:generate', params),
@@ -137,6 +138,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     enhancedPrompt: string | null; seed: number; resolution: string;
     aspectRatio: string; duration: number; fps: number;
     cameraMotion?: string; timestamp: string;
+    imagePath?: string | null; middleImagePath?: string | null; lastImagePath?: string | null;
+    firstStrength?: number; middleStrength?: number; lastStrength?: number;
+    preserveAspectRatio?: boolean;
   }>> => ipcRenderer.invoke('comfyui:get-project-renders', projectName),
 
   // Settings (stored locally by Electron)
@@ -243,6 +247,7 @@ declare global {
         duration: number
         fps: number
         cameraMotion?: string
+        preserveAspectRatio?: boolean
         projectName?: string
       }) => Promise<{ status: string; video_path?: string; enhanced_prompt?: string; error?: string }>
       getGenerationProgress: () => Promise<{
@@ -261,6 +266,9 @@ declare global {
         enhancedPrompt: string | null; seed: number; resolution: string;
         aspectRatio: string; duration: number; fps: number;
         cameraMotion?: string; timestamp: string;
+        imagePath?: string | null; middleImagePath?: string | null; lastImagePath?: string | null;
+        firstStrength?: number; middleStrength?: number; lastStrength?: number;
+        preserveAspectRatio?: boolean;
       }>>
       getSettings: () => Promise<{
         comfyuiUrl: string

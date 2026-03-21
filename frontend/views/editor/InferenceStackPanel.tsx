@@ -188,6 +188,17 @@ export function InferenceStackPanel({
             </div>
           </div>
 
+          {/* Preserve aspect ratio */}
+          <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={stack.preserveAspectRatio ?? false}
+              onChange={(e) => onUpdateStack(stack.id, { preserveAspectRatio: e.target.checked })}
+              className="rounded border-zinc-600 bg-zinc-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+            />
+            Preserve aspect ratio
+          </label>
+
           {/* Prompt */}
           <div>
             <div className="flex items-center justify-between mb-1.5">

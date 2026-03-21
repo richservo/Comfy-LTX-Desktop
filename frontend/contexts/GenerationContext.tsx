@@ -24,7 +24,7 @@ interface GenerationProgress {
 }
 
 export interface GenerationContextType extends GenerationState {
-  generate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string) => Promise<void>
+  generate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string, preserveAspectRatio?: boolean) => Promise<void>
   generateImage: (prompt: string, settings: GenerationSettings, imagePath?: string | null, strength?: number, projectName?: string) => Promise<void>
   cancel: () => void
   reset: () => void
@@ -72,6 +72,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
     lastImagePath?: string | null,
     strengths?: { first?: number; middle?: number; last?: number },
     projectName?: string,
+    preserveAspectRatio?: boolean,
   ) => {
     const iterations = settings.iterations || 1
 
@@ -133,6 +134,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
         middleStrength: strengths?.middle,
         lastStrength: strengths?.last,
         rtxSuperRes: is4K,
+        preserveAspectRatio,
         projectName,
       }
 

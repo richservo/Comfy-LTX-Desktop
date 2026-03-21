@@ -627,6 +627,7 @@ export function GenSpace() {
   const [firstStrength, setFirstStrength] = useState(1)
   const [middleStrength, setMiddleStrength] = useState(1)
   const [lastStrength, setLastStrength] = useState(1)
+  const [preserveAspectRatio, setPreserveAspectRatio] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
   const [copiedPrompt, setCopiedPrompt] = useState(false)
@@ -1012,6 +1013,7 @@ export function GenSpace() {
         last: lastStrength,
       },
       currentProject?.name,
+      preserveAspectRatio,
     )
   }
 
@@ -1073,6 +1075,22 @@ export function GenSpace() {
     // Fill in the seed from the original render (user can lock it to reproduce)
     if (entry?.seed != null) {
       updateAppSettings({ lockedSeed: entry.seed })
+    }
+
+    // Restore injected images from the render entry
+    if (entry) {
+      const toFileUrl = (p: string | null | undefined) => {
+        if (!p) return null
+        const normalized = p.replace(/\\/g, '/')
+        return normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
+      }
+      setInputImage(toFileUrl(entry.imagePath))
+      setSelectedMiddleImage(toFileUrl(entry.middleImagePath))
+      setSelectedLastImage(toFileUrl(entry.lastImagePath))
+      setFirstStrength(entry.firstStrength ?? 1)
+      setMiddleStrength(entry.middleStrength ?? 1)
+      setLastStrength(entry.lastStrength ?? 1)
+      setPreserveAspectRatio(entry.preserveAspectRatio ?? false)
     }
 
     // Close the preview modal if open
@@ -1220,6 +1238,18 @@ export function GenSpace() {
                   selectedAudio={selectedAudio}
                   onAudioSelect={setSelectedAudio}
                 />
+
+                {(inputImage || selectedMiddleImage || selectedLastImage) && (
+                  <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={preserveAspectRatio}
+                      onChange={(e) => setPreserveAspectRatio(e.target.checked)}
+                      className="rounded border-zinc-600 bg-zinc-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+                    />
+                    Preserve aspect ratio
+                  </label>
+                )}
               </>
             )}
 

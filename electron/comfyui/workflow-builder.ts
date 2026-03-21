@@ -77,6 +77,10 @@ export interface WorkflowParams {
   gpuSupportsRtx?: boolean
   /** tile_t (0 = auto) */
   tileT?: number
+  /** Preserve source image aspect ratio (scale by longest edge) */
+  preserveAspectRatio?: boolean
+  /** Source image dimensions (width, height) — read from disk in electron layer */
+  sourceImageDims?: { width: number; height: number }
   /** Project name for organizing output into subfolders */
   projectName?: string
 }
@@ -371,8 +375,44 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     genNode.inputs['sampler'] = ['27', 0]
   }
 
-  genNode.inputs['width'] = params.width
-  genNode.inputs['height'] = params.height
+  // Quantize dimensions to match actual gen node output (LTX latent alignment)
+  const actualDims = quantizeResolution(params.width, params.height, !!params.spatialUpscale)
+
+  // Compute frame resize dimensions: if preserveAspectRatio is on and we know the source
+  // image size, scale using the longest target edge so the image isn't distorted.
+  // e.g. 1:1 source into 1920x1088 target → 1920x1920 (longest edge = 1920, both axes match)
+  let frameDims = { width: actualDims.width, height: actualDims.height }
+  if (params.sourceImageDims && params.preserveAspectRatio) {
+    const src = params.sourceImageDims
+    const srcAspect = src.width / src.height
+    const longestEdge = Math.max(actualDims.width, actualDims.height)
+    if (src.width >= src.height) {
+      // Landscape or square source — width = longest edge, height scales proportionally
+      frameDims = {
+        width: longestEdge,
+        height: Math.round(longestEdge / srcAspect),
+      }
+    } else {
+      // Portrait source — height = longest edge, width scales proportionally
+      frameDims = {
+        width: Math.round(longestEdge * srcAspect),
+        height: longestEdge,
+      }
+    }
+    // Quantize to multiples of 32 for LTX latent alignment
+    frameDims.width = Math.floor(frameDims.width / 32) * 32
+    frameDims.height = Math.floor(frameDims.height / 32) * 32
+  }
+
+  // When preserving aspect ratio, the gen node resolution must match the frame dimensions
+  // so the injected image isn't distorted by a resolution mismatch
+  if (params.preserveAspectRatio && params.sourceImageDims) {
+    genNode.inputs['width'] = frameDims.width
+    genNode.inputs['height'] = frameDims.height
+  } else {
+    genNode.inputs['width'] = params.width
+    genNode.inputs['height'] = params.height
+  }
   genNode.inputs['num_frames'] = params.numFrames
   genNode.inputs['steps'] = params.steps
   genNode.inputs['cfg'] = params.cfg
@@ -395,12 +435,11 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     genNode.inputs['audio'] = [OPTIONAL_NODE_IDS.uploadAudio, 0]
   }
 
-  // Quantize dimensions to match actual gen node output (LTX latent alignment)
-  const actualDims = quantizeResolution(params.width, params.height, !!params.spatialUpscale)
-
   // Connect frame images if provided (LoadImage → upscale → RSLTXVGenerate)
   // Uses RTX Super Resolution on NVIDIA GPUs, falls back to lanczos ImageScale otherwise
   const useRtxFrameUpscale = params.gpuSupportsRtx !== false
+  // When not preserving aspect ratio, center crop to target aspect ratio before scaling
+  const frameCrop = params.preserveAspectRatio ? 'disabled' : 'center'
 
   if (!useRtxFrameUpscale) {
     // Replace RSRTXSuperResolution nodes with ImageScale for non-NVIDIA GPUs
@@ -413,9 +452,9 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
         class_type: 'ImageScale',
         inputs: {
           upscale_method: 'lanczos',
-          width: actualDims.width,
-          height: actualDims.height,
-          crop: 'center',
+          width: frameDims.width,
+          height: frameDims.height,
+          crop: frameCrop,
           image: [srcId, 0],
         },
         _meta: { title: workflow[id]?._meta?.title ?? 'Scale Frame' },
@@ -427,8 +466,8 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     workflow[OPTIONAL_NODE_IDS.firstFrame].inputs['image'] = params.firstImage.name
     const cropFirst = workflow[OPTIONAL_NODE_IDS.cropFirstFrame]
     if (useRtxFrameUpscale) {
-      cropFirst.inputs['resize_type.width'] = actualDims.width
-      cropFirst.inputs['resize_type.height'] = actualDims.height
+      cropFirst.inputs['resize_type.width'] = frameDims.width
+      cropFirst.inputs['resize_type.height'] = frameDims.height
     }
     genNode.inputs['first_image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
     genNode.inputs['first_strength'] = params.firstStrength ?? 1
@@ -437,8 +476,8 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     workflow[OPTIONAL_NODE_IDS.middleFrame].inputs['image'] = params.middleImage.name
     const cropMiddle = workflow[OPTIONAL_NODE_IDS.cropMiddleFrame]
     if (useRtxFrameUpscale) {
-      cropMiddle.inputs['resize_type.width'] = actualDims.width
-      cropMiddle.inputs['resize_type.height'] = actualDims.height
+      cropMiddle.inputs['resize_type.width'] = frameDims.width
+      cropMiddle.inputs['resize_type.height'] = frameDims.height
     }
     genNode.inputs['middle_image'] = [OPTIONAL_NODE_IDS.cropMiddleFrame, 0]
     genNode.inputs['middle_strength'] = params.middleStrength ?? 1
@@ -447,8 +486,8 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     workflow[OPTIONAL_NODE_IDS.lastFrame].inputs['image'] = params.lastImage.name
     const cropLast = workflow[OPTIONAL_NODE_IDS.cropLastFrame]
     if (useRtxFrameUpscale) {
-      cropLast.inputs['resize_type.width'] = actualDims.width
-      cropLast.inputs['resize_type.height'] = actualDims.height
+      cropLast.inputs['resize_type.width'] = frameDims.width
+      cropLast.inputs['resize_type.height'] = frameDims.height
     }
     genNode.inputs['last_image'] = [OPTIONAL_NODE_IDS.cropLastFrame, 0]
     genNode.inputs['last_strength'] = params.lastStrength ?? 1

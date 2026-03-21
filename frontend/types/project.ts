@@ -399,6 +399,7 @@ export interface InferenceStack {
   prompt: string
   settings: GenerationSettings
   strengths: { first?: number; middle?: number; last?: number }
+  preserveAspectRatio?: boolean            // Scale by longest edge instead of stretching
   singleFramePosition?: 'first' | 'last'  // When stack has 1 image: use as first or last frame
   renderState: 'pending' | 'rendering' | 'complete' | 'error'
   renderedAssetId?: string             // generated video asset

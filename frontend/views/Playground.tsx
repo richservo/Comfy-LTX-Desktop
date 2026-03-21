@@ -44,6 +44,7 @@ export function Playground() {
   const [firstStrength, setFirstStrength] = useState(1)
   const [middleStrength, setMiddleStrength] = useState(1)
   const [lastStrength, setLastStrength] = useState(1)
+  const [preserveAspectRatio, setPreserveAspectRatio] = useState(false)
   const [settings, setSettings] = useState<GenerationSettings>(() => ({
     ...DEFAULT_SETTINGS,
     filmGrain: appSettings.filmGrain,
@@ -144,7 +145,7 @@ export function Playground() {
         first: firstStrength,
         middle: middleStrength,
         last: lastStrength,
-      })
+      }, undefined, preserveAspectRatio)
     }
   }
   
@@ -299,6 +300,18 @@ export function Playground() {
                   selectedAudio={selectedAudio}
                   onAudioSelect={setSelectedAudio}
                 />
+
+                {(selectedImage || selectedMiddleImage || selectedLastImage) && (
+                  <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={preserveAspectRatio}
+                      onChange={(e) => setPreserveAspectRatio(e.target.checked)}
+                      className="rounded border-zinc-600 bg-zinc-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+                    />
+                    Preserve aspect ratio
+                  </label>
+                )}
               </>
             )}
 

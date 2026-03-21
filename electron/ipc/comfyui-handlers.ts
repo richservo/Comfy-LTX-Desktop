@@ -38,6 +38,53 @@ function writeRendersJson(rendersPath: string, renders: Record<string, unknown>[
   }
 }
 
+/** Read image dimensions from file header (PNG/JPEG/WebP) without loading full image */
+function getImageDimensions(filePath: string): { width: number; height: number } | null {
+  try {
+    const fd = fs.openSync(filePath, 'r')
+    const header = Buffer.alloc(32)
+    fs.readSync(fd, header, 0, 32, 0)
+    fs.closeSync(fd)
+
+    // PNG: bytes 16-23 contain width (4 bytes) and height (4 bytes) in IHDR
+    if (header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47) {
+      return { width: header.readUInt32BE(16), height: header.readUInt32BE(20) }
+    }
+
+    // JPEG: need to scan for SOF marker
+    const buf = fs.readFileSync(filePath)
+    if (buf[0] === 0xFF && buf[1] === 0xD8) {
+      let offset = 2
+      while (offset < buf.length - 9) {
+        if (buf[offset] !== 0xFF) break
+        const marker = buf[offset + 1]
+        // SOF0-SOF3 markers contain dimensions
+        if (marker >= 0xC0 && marker <= 0xC3) {
+          return { height: buf.readUInt16BE(offset + 5), width: buf.readUInt16BE(offset + 7) }
+        }
+        offset += 2 + buf.readUInt16BE(offset + 2)
+      }
+    }
+
+    // WebP: RIFF header, 'WEBP' at offset 8, VP8 at offset 12
+    if (header.toString('ascii', 0, 4) === 'RIFF' && header.toString('ascii', 8, 12) === 'WEBP') {
+      const chunk = header.toString('ascii', 12, 16)
+      if (chunk === 'VP8 ') {
+        // Lossy: dimensions at offset 26-29
+        const extra = Buffer.alloc(4)
+        const fd2 = fs.openSync(filePath, 'r')
+        fs.readSync(fd2, extra, 0, 4, 26)
+        fs.closeSync(fd2)
+        return { width: extra.readUInt16LE(0) & 0x3FFF, height: extra.readUInt16LE(2) & 0x3FFF }
+      }
+    }
+
+    return null
+  } catch {
+    return null
+  }
+}
+
 interface GenerateParams {
   prompt: string
   imagePath?: string | null
@@ -57,10 +104,12 @@ interface GenerateParams {
   filmGrainIntensity?: number
   filmGrainSize?: number
   firstStrength?: number
+  middleStrength?: number
   lastStrength?: number
   imageMode?: boolean
   imageSteps?: number
   rtxSuperRes?: boolean
+  preserveAspectRatio?: boolean
   projectName?: string
 }
 
@@ -113,6 +162,13 @@ export function registerComfyUIHandlers(): void {
         logger.info(
           `Audio uploaded: ${uploadedAudio.name} (${uploadedAudio.subfolder})`,
         )
+      }
+
+      // 2e. Read source image dimensions for aspect-ratio-aware scaling
+      const firstImagePath = params.imagePath || params.middleImagePath || params.lastImagePath
+      const sourceImageDims = firstImagePath ? getImageDimensions(firstImagePath) : null
+      if (sourceImageDims) {
+        logger.info(`Source image dimensions: ${sourceImageDims.width}x${sourceImageDims.height}`)
       }
 
       // 3. Build prompt text (append camera motion if specified)
@@ -174,6 +230,8 @@ export function registerComfyUIHandlers(): void {
         rtxSuperRes: params.imageMode ? false : (params.rtxSuperRes ?? false),
         tileT: settings.tileT,
         gpuSupportsRtx: getGpuInfo().supportsRtx,
+        preserveAspectRatio: params.preserveAspectRatio ?? false,
+        sourceImageDims: sourceImageDims ?? undefined,
         projectName: params.projectName,
       })
 
@@ -242,6 +300,13 @@ export function registerComfyUIHandlers(): void {
             filmGrain: params.filmGrain,
             promptEnhance: params.promptEnhance,
             rtxSuperRes: params.rtxSuperRes,
+            imagePath: params.imagePath || null,
+            middleImagePath: params.middleImagePath || null,
+            lastImagePath: params.lastImagePath || null,
+            firstStrength: params.firstStrength,
+            middleStrength: params.middleStrength,
+            lastStrength: params.lastStrength,
+            preserveAspectRatio: params.preserveAspectRatio || false,
             timestamp: new Date().toISOString(),
           })
           writeRendersJson(rendersPath, renders)

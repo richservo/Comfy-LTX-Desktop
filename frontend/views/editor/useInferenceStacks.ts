@@ -17,7 +17,7 @@ export interface UseInferenceStacksParams {
   addTakeToAsset: (projectId: string, assetId: string, take: { url: string; path: string; createdAt: number }) => void
   resolveClipSrc: (clip: TimelineClip | null) => string
   // Generation hook values
-  regenGenerate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string) => Promise<void>
+  regenGenerate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string, preserveAspectRatio?: boolean) => Promise<void>
   regenVideoUrl: string | null
   regenVideoPath: string | null
   isRegenerating: boolean
@@ -251,6 +251,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
         lastImagePath,
         stack.strengths,
         projectName,
+        stack.preserveAspectRatio,
       )
     } catch (err) {
       logger.error(`Stack render failed: ${err}`)
