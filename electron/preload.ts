@@ -139,6 +139,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     aspectRatio: string; duration: number; fps: number;
     cameraMotion?: string; timestamp: string;
     imagePath?: string | null; middleImagePath?: string | null; lastImagePath?: string | null;
+    audioPath?: string | null;
     firstStrength?: number; middleStrength?: number; lastStrength?: number;
     preserveAspectRatio?: boolean;
   }>> => ipcRenderer.invoke('comfyui:get-project-renders', projectName),
@@ -267,6 +268,7 @@ declare global {
         aspectRatio: string; duration: number; fps: number;
         cameraMotion?: string; timestamp: string;
         imagePath?: string | null; middleImagePath?: string | null; lastImagePath?: string | null;
+        audioPath?: string | null;
         firstStrength?: number; middleStrength?: number; lastStrength?: number;
         preserveAspectRatio?: boolean;
       }>>

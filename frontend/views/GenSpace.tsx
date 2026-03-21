@@ -1048,12 +1048,9 @@ export function GenSpace() {
 
     const rerenderPrompt = (entry?.enhancedPrompt ?? entry?.prompt) || asset.prompt
 
-    setPrompt(rerenderPrompt)
-
-    // Populate all settings from the render entry
-    // If rtxSuperRes was used, the stored resolution is '1080p' but the user selected '4K'
+    // Build effective settings from the render entry
     const effectiveResolution = entry?.rtxSuperRes ? '4K' : (entry?.resolution || settings.videoResolution)
-    const updatedSettings: Partial<typeof settings> = entry ? {
+    const rerenderSettings = { ...settings, ...(entry ? {
       videoResolution: effectiveResolution,
       duration: entry.duration || settings.duration,
       fps: entry.fps || settings.fps,
@@ -1068,33 +1065,59 @@ export function GenSpace() {
       duration: asset.generationParams.duration || settings.duration,
       fps: asset.generationParams.fps || settings.fps,
       cameraMotion: asset.generationParams.cameraMotion || settings.cameraMotion,
-    } : {}
+    } : {}) }
 
-    handleSettingsChange({ ...settings, ...updatedSettings })
+    // Update UI to reflect what's being re-rendered
+    setPrompt(rerenderPrompt)
+    handleSettingsChange(rerenderSettings)
 
     // Fill in the seed from the original render (user can lock it to reproduce)
     if (entry?.seed != null) {
       updateAppSettings({ lockedSeed: entry.seed })
     }
 
-    // Restore injected images from the render entry
-    if (entry) {
-      const toFileUrl = (p: string | null | undefined) => {
-        if (!p) return null
-        const normalized = p.replace(/\\/g, '/')
-        return normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
-      }
-      setInputImage(toFileUrl(entry.imagePath))
-      setSelectedMiddleImage(toFileUrl(entry.middleImagePath))
-      setSelectedLastImage(toFileUrl(entry.lastImagePath))
-      setFirstStrength(entry.firstStrength ?? 1)
-      setMiddleStrength(entry.middleStrength ?? 1)
-      setLastStrength(entry.lastStrength ?? 1)
-      setPreserveAspectRatio(entry.preserveAspectRatio ?? false)
+    // Restore injected images and audio in UI
+    const toFileUrl = (p: string | null | undefined) => {
+      if (!p) return null
+      const normalized = p.replace(/\\/g, '/')
+      return normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
     }
+    const firstImg = entry?.imagePath || null
+    const middleImg = entry?.middleImagePath || null
+    const lastImg = entry?.lastImagePath || null
+    const audioFile = entry?.audioPath || null
+    const fStrength = entry?.firstStrength ?? 1
+    const mStrength = entry?.middleStrength ?? 1
+    const lStrength = entry?.lastStrength ?? 1
+    const preserveAR = entry?.preserveAspectRatio ?? false
 
-    // Close the preview modal if open
+    setInputImage(toFileUrl(firstImg))
+    setSelectedMiddleImage(toFileUrl(middleImg))
+    setSelectedLastImage(toFileUrl(lastImg))
+    setSelectedAudio(toFileUrl(audioFile))
+    setFirstStrength(fStrength)
+    setMiddleStrength(mStrength)
+    setLastStrength(lStrength)
+    setPreserveAspectRatio(preserveAR)
+
+    // Close the preview modal
     setSelectedAsset(null)
+
+    // Force model to pro if audio is present
+    const finalSettings = audioFile ? { ...rerenderSettings, model: 'pro' as const } : rerenderSettings
+
+    // Actually trigger generation with stored values (don't rely on React state)
+    generate(
+      rerenderPrompt,
+      firstImg,
+      finalSettings,
+      audioFile,
+      middleImg,
+      lastImg,
+      { first: fStrength, middle: mStrength, last: lStrength },
+      currentProject.name,
+      preserveAR,
+    )
   }
 
   const isRetakeMode = mode === 'retake'

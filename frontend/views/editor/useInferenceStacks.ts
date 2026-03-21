@@ -172,6 +172,22 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     }
   }, [clips, inferenceStacks, setInferenceStacks])
 
+  // Reconcile: if a stack is pending/error but its clips are still hidden, un-hide them
+  useEffect(() => {
+    const pendingStackIds = new Set(
+      inferenceStacks.filter(s => s.renderState === 'pending' || s.renderState === 'error').map(s => s.id)
+    )
+    if (pendingStackIds.size === 0) return
+    const needsFix = clips.some(c => c.hiddenByStack && c.inferenceStackId && pendingStackIds.has(c.inferenceStackId))
+    if (needsFix) {
+      setClips(prev => prev.map(c =>
+        c.hiddenByStack && c.inferenceStackId && pendingStackIds.has(c.inferenceStackId)
+          ? { ...c, hiddenByStack: false }
+          : c
+      ))
+    }
+  }, [clips, inferenceStacks, setClips])
+
   const renderStack = useCallback(async (stackId: string) => {
     const stack = inferenceStacks.find(s => s.id === stackId)
     if (!stack || !currentProjectId) return
@@ -434,15 +450,23 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     if (!stack) return
 
     const renderedId = stack.renderedClipId
+    logger.info(`[revertStack] stackId=${stackId} renderedClipId=${renderedId}`)
+
+    // Single setClips call: remove rendered clip AND un-hide source clips atomically
     setClips(prev => {
-      const filtered = renderedId ? prev.filter(c => c.id !== renderedId) : prev
-      return filtered.map(c =>
-        c.inferenceStackId === stackId
-          ? { ...c, hiddenByStack: undefined }
-          : c
-      )
+      const sourceClips = prev.filter(c => c.inferenceStackId === stackId && c.id !== renderedId)
+      logger.info(`[revertStack] total clips=${prev.length}, source clips in stack=${sourceClips.length}, hidden=${sourceClips.filter(c => c.hiddenByStack).length}`)
+
+      return prev
+        .filter(c => c.id !== renderedId)
+        .map(c =>
+          c.inferenceStackId === stackId
+            ? { ...c, hiddenByStack: false }
+            : c
+        )
     })
 
+    // Reset stack state after clips are updated
     updateStack(stackId, {
       renderState: 'pending',
       renderedClipId: undefined,

@@ -101,6 +101,7 @@ interface Window {
       cameraMotion?: string; spatialUpscale?: boolean; temporalUpscale?: boolean;
       filmGrain?: boolean; promptEnhance?: boolean; rtxSuperRes?: boolean;
       imagePath?: string | null; middleImagePath?: string | null; lastImagePath?: string | null;
+      audioPath?: string | null;
       firstStrength?: number; middleStrength?: number; lastStrength?: number;
       preserveAspectRatio?: boolean;
       timestamp: string;

@@ -303,6 +303,7 @@ export function registerComfyUIHandlers(): void {
             imagePath: params.imagePath || null,
             middleImagePath: params.middleImagePath || null,
             lastImagePath: params.lastImagePath || null,
+            audioPath: params.audioPath || null,
             firstStrength: params.firstStrength,
             middleStrength: params.middleStrength,
             lastStrength: params.lastStrength,
