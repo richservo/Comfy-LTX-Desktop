@@ -21,6 +21,7 @@ interface KeyboardRefs {
     currentTime: number
     inPoint: number | null
     outPoint: number | null
+    selectedTrimEdge: { clipId: string; edge: 'left' | 'right' } | null
   }>
   clipsRef: React.MutableRefObject<TimelineClip[]>
   tracksRef: React.MutableRefObject<Track[]>
@@ -69,6 +70,7 @@ interface KeyboardSetters {
   setGapGenerateMode: React.Dispatch<React.SetStateAction<'text-to-video' | 'image-to-video' | 'text-to-image' | null>>
   setSelectedGap: (v: any) => void
   setSelectedAssetIds: React.Dispatch<React.SetStateAction<Set<string>>>
+  setSelectedTrimEdge: React.Dispatch<React.SetStateAction<{ clipId: string; edge: 'left' | 'right' } | null>>
 }
 
 interface KeyboardContext {
@@ -105,6 +107,8 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
       if (!action) return
 
       e.preventDefault()
+
+      const { selectedTrimEdge } = refs.keyboardStateRef.current
 
       switch (action) {
         // Tools
@@ -281,6 +285,7 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
           setters.setSelectedClipIds(new Set(c.map(cl => cl.id)))
           break
         case 'edit.deselect':
+          setters.setSelectedTrimEdge(null)
           if (refs.gapGenerateModeRef.current) {
             setters.setGapGenerateMode(null); setters.setSelectedGap(null)
           } else {
@@ -316,8 +321,67 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
             setters.setSelectedAssetIds(new Set())
           }
           break
-        case 'edit.insertEdit':    refs.insertEditRef.current(); break
-        case 'edit.overwriteEdit': refs.overwriteEditRef.current(); break
+        case 'edit.insertEdit':
+          if (selectedTrimEdge) {
+            // Nudge trim edge backward by 1 frame
+            refs.pushUndoRef.current()
+            const { clipId: trimId, edge: trimEdge } = selectedTrimEdge
+            setters.setClips(prev => prev.map(cl => {
+              if (cl.id !== trimId) return cl
+              if (trimEdge === 'left') {
+                const newStart = Math.max(0, cl.startTime - FRAME_DURATION)
+                const delta = cl.startTime - newStart
+                return { ...cl, startTime: newStart, duration: cl.duration + delta, trimStart: Math.max(0, cl.trimStart - delta * cl.speed) }
+              } else {
+                return { ...cl, duration: Math.max(0.5, cl.duration - FRAME_DURATION) }
+              }
+            }))
+          } else if (sel.size > 0) {
+            // Nudge selected clips (and their linked partners) backward by 1 frame
+            refs.pushUndoRef.current()
+            const nudgeBackIds = new Set(sel)
+            for (const id of sel) {
+              const clip = refs.clipsRef.current.find(cl => cl.id === id)
+              clip?.linkedClipIds?.forEach(lid => nudgeBackIds.add(lid))
+            }
+            setters.setClips(prev => prev.map(cl =>
+              nudgeBackIds.has(cl.id) ? { ...cl, startTime: Math.max(0, cl.startTime - FRAME_DURATION) } : cl
+            ))
+          } else {
+            refs.insertEditRef.current()
+          }
+          break
+        case 'edit.overwriteEdit':
+          if (selectedTrimEdge) {
+            // Nudge trim edge forward by 1 frame
+            refs.pushUndoRef.current()
+            const { clipId: trimId2, edge: trimEdge2 } = selectedTrimEdge
+            setters.setClips(prev => prev.map(cl => {
+              if (cl.id !== trimId2) return cl
+              if (trimEdge2 === 'left') {
+                const newStart = cl.startTime + FRAME_DURATION
+                const newDur = cl.duration - FRAME_DURATION
+                if (newDur < 0.5) return cl
+                return { ...cl, startTime: newStart, duration: newDur, trimStart: cl.trimStart + FRAME_DURATION * cl.speed }
+              } else {
+                return { ...cl, duration: cl.duration + FRAME_DURATION }
+              }
+            }))
+          } else if (sel.size > 0) {
+            // Nudge selected clips (and their linked partners) forward by 1 frame
+            refs.pushUndoRef.current()
+            const nudgeFwdIds = new Set(sel)
+            for (const id of sel) {
+              const clip = refs.clipsRef.current.find(cl => cl.id === id)
+              clip?.linkedClipIds?.forEach(lid => nudgeFwdIds.add(lid))
+            }
+            setters.setClips(prev => prev.map(cl =>
+              nudgeFwdIds.has(cl.id) ? { ...cl, startTime: cl.startTime + FRAME_DURATION } : cl
+            ))
+          } else {
+            refs.overwriteEditRef.current()
+          }
+          break
         case 'edit.matchFrame':    refs.matchFrameRef.current(); break
 
         // Marking — panel-aware

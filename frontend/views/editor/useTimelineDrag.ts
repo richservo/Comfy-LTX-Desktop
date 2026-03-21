@@ -104,6 +104,7 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
   const [draggingClip, setDraggingClip] = useState<DraggingClipState | null>(null)
   const [resizingClip, setResizingClip] = useState<ResizingClipState | null>(null)
   const [slipSlideClip, setSlipSlideClip] = useState<SlipSlideClipState | null>(null)
+  const [selectedTrimEdge, setSelectedTrimEdge] = useState<{ clipId: string; edge: 'left' | 'right' } | null>(null)
   const [lassoRect, setLassoRect] = useState<{ startX: number; startY: number; currentX: number; currentY: number } | null>(null)
   const lassoOriginRef = useRef<{ scrollLeft: number; containerLeft: number; containerTop: number } | null>(null)
 
@@ -167,7 +168,8 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
   
   const handleClipMouseDown = (e: React.MouseEvent, clip: TimelineClip) => {
     e.stopPropagation()
-    
+    setSelectedTrimEdge(null)
+
     // Prevent all interactions on locked tracks (except selection)
     const clipTrack = tracks[clip.trackIndex]
     if (clipTrack?.locked) {
@@ -872,7 +874,8 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
     if (tracks[clip.trackIndex]?.locked) return
     
     setSelectedClipIds(expandWithLinkedClips(new Set([clip.id])))
-    
+    setSelectedTrimEdge({ clipId: clip.id, edge })
+
     // For Roll trim, find the adjacent clip at the edit point
     let adjacentClip: TimelineClip | undefined
     if (activeTool === 'roll') {
@@ -1112,6 +1115,7 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
     draggingClip, setDraggingClip,
     resizingClip, setResizingClip,
     slipSlideClip, setSlipSlideClip,
+    selectedTrimEdge, setSelectedTrimEdge,
     lassoRect, setLassoRect,
     isScrubbing,
     scrubFromEvent,

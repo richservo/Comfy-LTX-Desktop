@@ -1074,6 +1074,7 @@ export function VideoEditor() {
     draggingClip,
     resizingClip,
     slipSlideClip,
+    selectedTrimEdge, setSelectedTrimEdge,
     lassoRect, setLassoRect,
     handleRulerMouseDown,
     expandWithLinkedClips,
@@ -1103,12 +1104,13 @@ export function VideoEditor() {
     clips: clips,
     selectedClipIds: selectedClipIds,
     totalDuration: totalDuration,
+    selectedTrimEdge: selectedTrimEdge as { clipId: string; edge: 'left' | 'right' } | null,
     selectedAssetIds: selectedAssetIds,
     currentTime: currentTime,
     inPoint: inPoint as number | null,
     outPoint: outPoint as number | null,
   })
-  keyboardStateRef.current = { clips, selectedClipIds, totalDuration, selectedAssetIds, currentTime, inPoint, outPoint }
+  keyboardStateRef.current = { clips, selectedClipIds, totalDuration, selectedAssetIds, currentTime, inPoint, outPoint, selectedTrimEdge }
   
   // These handler refs are populated after the useCallbacks below
   const undoRef = useRef<() => void>(() => {})
@@ -1218,6 +1220,7 @@ export function VideoEditor() {
       setSelectedAssetIds,
       setZoom,
       setSnapEnabled,
+      setSelectedTrimEdge,
       clearInOut,
     },
     context: {
@@ -3503,10 +3506,12 @@ export function VideoEditor() {
                         )
                       })()}
 
-                      <div 
+                      <div
                         className={`absolute left-0 top-0 bottom-0 w-3 ${activeTool === 'trackForward' || activeTool === 'blade' ? '' : 'cursor-ew-resize'} transition-colors flex items-center justify-center ${
                           resizingClip?.clipId === clip.id && resizingClip?.edge === 'left'
                             ? activeTool === 'roll' ? 'bg-yellow-500' : activeTool === 'ripple' ? 'bg-green-500' : 'bg-blue-500'
+                            : selectedTrimEdge?.clipId === clip.id && selectedTrimEdge?.edge === 'left'
+                            ? 'bg-blue-500/70'
                             : activeTool === 'roll' ? 'hover:bg-yellow-500/50' : activeTool === 'ripple' ? 'hover:bg-green-500/50' : 'hover:bg-blue-500/50'
                         }`}
                         style={activeTool === 'blade' ? { cursor: SCISSORS_CURSOR } : activeTool === 'trackForward' ? { cursor: bladeShiftHeld ? TRACK_FWD_ONE_CURSOR : TRACK_FWD_ALL_CURSOR } : {}}
@@ -3516,10 +3521,12 @@ export function VideoEditor() {
                           activeTool === 'roll' ? 'bg-yellow-300' : activeTool === 'ripple' ? 'bg-green-300' : 'bg-zinc-500'
                         }`} />
                       </div>
-                      <div 
+                      <div
                         className={`absolute right-0 top-0 bottom-0 w-3 ${activeTool === 'trackForward' || activeTool === 'blade' ? '' : 'cursor-ew-resize'} transition-colors flex items-center justify-center ${
                           resizingClip?.clipId === clip.id && resizingClip?.edge === 'right'
                             ? activeTool === 'roll' ? 'bg-yellow-500' : activeTool === 'ripple' ? 'bg-green-500' : 'bg-blue-500'
+                            : selectedTrimEdge?.clipId === clip.id && selectedTrimEdge?.edge === 'right'
+                            ? 'bg-blue-500/70'
                             : activeTool === 'roll' ? 'hover:bg-yellow-500/50' : activeTool === 'ripple' ? 'hover:bg-green-500/50' : 'hover:bg-blue-500/50'
                         }`}
                         style={activeTool === 'blade' ? { cursor: SCISSORS_CURSOR } : activeTool === 'trackForward' ? { cursor: bladeShiftHeld ? TRACK_FWD_ONE_CURSOR : TRACK_FWD_ALL_CURSOR } : {}}
