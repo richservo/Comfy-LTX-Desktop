@@ -303,6 +303,10 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
         const firstClip = imageClips[0] ?? currentStackClips.sort((a, b) => a.startTime - b.startTime)[0]
         if (!firstClip) return
 
+        // For audio-only stacks, place the rendered video on track 0 (video track) instead of the audio track
+        const isAudioOnly = imageClips.length === 0
+        const videoTrackIndex = isAudioOnly ? 0 : firstClip.trackIndex
+
         if (stack.renderedAssetId) {
           // Re-render: add take to existing asset
           addTakeToAsset(currentProjectId, stack.renderedAssetId, {
@@ -366,7 +370,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
               reversed: false,
               muted: false,
               volume: 1,
-              trackIndex: firstClip.trackIndex,
+              trackIndex: videoTrackIndex,
               asset,
               flipH: false,
               flipV: false,
@@ -378,11 +382,12 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
             }
 
             return [
-              ...prev.map(c =>
-                stackMemberIds.has(c.id) && c.type !== 'audio'
-                  ? { ...c, hiddenByStack: true }
-                  : c
-              ),
+              ...prev.map(c => {
+                if (!stackMemberIds.has(c.id)) return c
+                // Hide all stack members; for image+audio stacks keep audio visible
+                if (c.type === 'audio' && !isAudioOnly) return c
+                return { ...c, hiddenByStack: true }
+              }),
               newClip,
             ]
           })

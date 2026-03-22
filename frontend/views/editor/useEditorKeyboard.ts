@@ -22,6 +22,7 @@ interface KeyboardRefs {
     inPoint: number | null
     outPoint: number | null
     selectedTrimEdge: { clipId: string; edge: 'left' | 'right' } | null
+    selectedCutPoint: { leftClipId: string; rightClipId: string; time: number; trackIndex: number } | null
   }>
   clipsRef: React.MutableRefObject<TimelineClip[]>
   tracksRef: React.MutableRefObject<Track[]>
@@ -71,6 +72,7 @@ interface KeyboardSetters {
   setSelectedGap: (v: any) => void
   setSelectedAssetIds: React.Dispatch<React.SetStateAction<Set<string>>>
   setSelectedTrimEdge: React.Dispatch<React.SetStateAction<{ clipId: string; edge: 'left' | 'right' } | null>>
+  setSelectedCutPoint: React.Dispatch<React.SetStateAction<{ leftClipId: string; rightClipId: string; time: number; trackIndex: number } | null>>
 }
 
 interface KeyboardContext {
@@ -108,7 +110,7 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
 
       e.preventDefault()
 
-      const { selectedTrimEdge } = refs.keyboardStateRef.current
+      const { selectedTrimEdge, selectedCutPoint } = refs.keyboardStateRef.current
 
       switch (action) {
         // Tools
@@ -286,6 +288,7 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
           break
         case 'edit.deselect':
           setters.setSelectedTrimEdge(null)
+          setters.setSelectedCutPoint(null)
           if (refs.gapGenerateModeRef.current) {
             setters.setGapGenerateMode(null); setters.setSelectedGap(null)
           } else {
@@ -322,7 +325,30 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
           }
           break
         case 'edit.insertEdit':
-          if (selectedTrimEdge) {
+          if (selectedCutPoint) {
+            // Rolling edit: move cut point backward by 1 frame (shrink left clip, extend right clip earlier)
+            refs.pushUndoRef.current()
+            const dt = -FRAME_DURATION
+            setters.setClips(prev => {
+              const leftCl = prev.find(cl => cl.id === selectedCutPoint.leftClipId)
+              const rightCl = prev.find(cl => cl.id === selectedCutPoint.rightClipId)
+              if (!leftCl || !rightCl) return prev
+              // Can't shrink left clip below 0.5s
+              if (leftCl.duration + dt < 0.5) return prev
+              // Can't extend right clip earlier if no media before current trimStart
+              if (rightCl.type !== 'image' && rightCl.trimStart + dt * rightCl.speed < 0) return prev
+              return prev.map(cl => {
+                if (cl.id === selectedCutPoint.leftClipId) {
+                  return { ...cl, duration: cl.duration + dt }
+                }
+                if (cl.id === selectedCutPoint.rightClipId) {
+                  return { ...cl, startTime: cl.startTime + dt, duration: cl.duration - dt, trimStart: Math.max(0, cl.trimStart + dt * cl.speed) }
+                }
+                return cl
+              })
+            })
+            setters.setSelectedCutPoint(prev => prev && { ...prev, time: prev.time - FRAME_DURATION })
+          } else if (selectedTrimEdge) {
             // Nudge trim edge backward by 1 frame
             refs.pushUndoRef.current()
             const { clipId: trimId, edge: trimEdge } = selectedTrimEdge
@@ -352,7 +378,33 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
           }
           break
         case 'edit.overwriteEdit':
-          if (selectedTrimEdge) {
+          if (selectedCutPoint) {
+            // Rolling edit: move cut point forward by 1 frame (extend left clip tail, shrink right clip head)
+            refs.pushUndoRef.current()
+            const dt2 = FRAME_DURATION
+            setters.setClips(prev => {
+              const leftCl = prev.find(cl => cl.id === selectedCutPoint.leftClipId)
+              const rightCl = prev.find(cl => cl.id === selectedCutPoint.rightClipId)
+              if (!leftCl || !rightCl) return prev
+              // Can't shrink right clip below 0.5s
+              if (rightCl.duration - dt2 < 0.5) return prev
+              // Can't extend left clip beyond its media duration
+              if (leftCl.type !== 'image' && leftCl.asset?.duration) {
+                const leftAvailable = (leftCl.asset.duration - leftCl.trimStart - leftCl.trimEnd) / leftCl.speed
+                if (leftCl.duration + dt2 > leftAvailable) return prev
+              }
+              return prev.map(cl => {
+                if (cl.id === selectedCutPoint.leftClipId) {
+                  return { ...cl, duration: cl.duration + dt2 }
+                }
+                if (cl.id === selectedCutPoint.rightClipId) {
+                  return { ...cl, startTime: cl.startTime + dt2, duration: cl.duration - dt2, trimStart: Math.max(0, cl.trimStart + dt2 * cl.speed) }
+                }
+                return cl
+              })
+            })
+            setters.setSelectedCutPoint(prev => prev && { ...prev, time: prev.time + FRAME_DURATION })
+          } else if (selectedTrimEdge) {
             // Nudge trim edge forward by 1 frame
             refs.pushUndoRef.current()
             const { clipId: trimId2, edge: trimEdge2 } = selectedTrimEdge

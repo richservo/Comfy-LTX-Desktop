@@ -331,6 +331,11 @@ export function VideoEditor() {
   const [hoveredCutPoint, setHoveredCutPoint] = useState<{
     leftClipId: string; rightClipId: string; time: number; trackIndex: number
   } | null>(null)
+
+  // Selected cut point for rolling edit via keyboard nudge
+  const [selectedCutPoint, setSelectedCutPoint] = useState<{
+    leftClipId: string; rightClipId: string; time: number; trackIndex: number
+  } | null>(null)
   
   // Clip right-click context menu
   const [clipContextMenu, setClipContextMenu] = useState<{
@@ -1105,12 +1110,13 @@ export function VideoEditor() {
     selectedClipIds: selectedClipIds,
     totalDuration: totalDuration,
     selectedTrimEdge: selectedTrimEdge as { clipId: string; edge: 'left' | 'right' } | null,
+    selectedCutPoint: selectedCutPoint as { leftClipId: string; rightClipId: string; time: number; trackIndex: number } | null,
     selectedAssetIds: selectedAssetIds,
     currentTime: currentTime,
     inPoint: inPoint as number | null,
     outPoint: outPoint as number | null,
   })
-  keyboardStateRef.current = { clips, selectedClipIds, totalDuration, selectedAssetIds, currentTime, inPoint, outPoint, selectedTrimEdge }
+  keyboardStateRef.current = { clips, selectedClipIds, totalDuration, selectedAssetIds, currentTime, inPoint, outPoint, selectedTrimEdge, selectedCutPoint }
   
   // These handler refs are populated after the useCallbacks below
   const undoRef = useRef<() => void>(() => {})
@@ -1221,6 +1227,7 @@ export function VideoEditor() {
       setZoom,
       setSnapEnabled,
       setSelectedTrimEdge,
+      setSelectedCutPoint,
       clearInOut,
     },
     context: {
@@ -3018,6 +3025,7 @@ export function VideoEditor() {
                       setSelectedGap(null)
                       setGapGenerateMode(null)
                       setSelectedTrimEdge(null)
+                      setSelectedCutPoint(null)
                       if (activeTool === 'trackForward') {
                         // Track Select Forward: click empty area → select all clips from click time forward
                         const container = trackContainerRef.current
@@ -3907,6 +3915,7 @@ export function VideoEditor() {
                     const leftPx = cp.time * pixelsPerSecond
                     const topPx = trackTopPx(cp.trackIndex, 4)
                     const isHovered = hoveredCutPoint?.leftClipId === cp.leftClip.id && hoveredCutPoint?.rightClipId === cp.rightClip.id
+                    const isSelected = selectedCutPoint?.leftClipId === cp.leftClip.id && selectedCutPoint?.rightClipId === cp.rightClip.id
                     const dissolveDur = cp.hasDissolve ? (cp.leftClip.transitionOut?.duration || DEFAULT_DISSOLVE_DURATION) : 0
                     const dissolveWidthPx = dissolveDur * pixelsPerSecond
                     
@@ -3928,14 +3937,67 @@ export function VideoEditor() {
                         })}
                         onMouseLeave={() => setHoveredCutPoint(null)}
                       >
-                        {/* Visible indicator line */}
-                        <div 
-                          className={`absolute top-6 bottom-0 w-0.5 transition-colors ${
-                            isHovered ? 'bg-blue-400' : cp.hasDissolve ? 'bg-blue-500/60' : 'bg-transparent'
-                          }`}
-                          style={{ left: `${cp.hasDissolve ? dissolveWidthPx : 10}px`, transform: 'translateX(-50%)' }}
-                        />
-                        
+                        {/* Visible indicator line — click to select, drag to roll edit */}
+                        <div
+                          className="absolute top-6 bottom-0 cursor-ew-resize z-25 flex items-stretch justify-center"
+                          style={{ left: `${cp.hasDissolve ? dissolveWidthPx : 10}px`, transform: 'translateX(-50%)', width: '12px' }}
+                          onMouseDown={(e) => {
+                            if (cp.hasDissolve) return // Don't roll edit over dissolves
+                            e.stopPropagation()
+                            e.preventDefault()
+                            const cpState = {
+                              leftClipId: cp.leftClip.id,
+                              rightClipId: cp.rightClip.id,
+                              time: cp.time,
+                              trackIndex: cp.trackIndex,
+                            }
+                            setSelectedCutPoint(cpState)
+                            setSelectedTrimEdge(null)
+                            setSelectedClipIds(new Set())
+                            // Start drag for rolling edit
+                            const startX = e.clientX
+                            const origLeftDur = cp.leftClip.duration
+                            const origRightStart = cp.rightClip.startTime
+                            const origRightDur = cp.rightClip.duration
+                            const origRightTrimStart = cp.rightClip.trimStart
+                            const rightSpeed = cp.rightClip.speed
+                            const leftMaxDur = (!cp.leftClip.asset?.duration || cp.leftClip.type === 'image') ? Infinity : Math.max(0.5, (cp.leftClip.asset.duration - cp.leftClip.trimStart - cp.leftClip.trimEnd) / cp.leftClip.speed)
+                            let hasMoved = false
+                            const onMove = (ev: MouseEvent) => {
+                              if (!hasMoved) { hasMoved = true; pushUndo() }
+                              const dx = ev.clientX - startX
+                              let dt = dx / pixelsPerSecond
+                              // Clamp: left clip min 0.5s, right clip min 0.5s
+                              dt = Math.max(-(origLeftDur - 0.5), dt)
+                              dt = Math.min(origRightDur - 0.5, dt)
+                              // Clamp: can't extend left beyond its media
+                              if (origLeftDur + dt > leftMaxDur) dt = leftMaxDur - origLeftDur
+                              // Clamp: can't extend right beyond its media (trimStart can't go below 0)
+                              if (origRightTrimStart + dt * rightSpeed < 0) dt = -origRightTrimStart / rightSpeed
+                              setClips(prev => prev.map(cl => {
+                                if (cl.id === cp.leftClip.id) return { ...cl, duration: origLeftDur + dt }
+                                if (cl.id === cp.rightClip.id) return { ...cl, startTime: origRightStart + dt, duration: origRightDur - dt, trimStart: Math.max(0, origRightTrimStart + dt * rightSpeed) }
+                                return cl
+                              }))
+                              setSelectedCutPoint(prev => prev && { ...prev, time: cp.time + dt })
+                            }
+                            const onUp = () => {
+                              document.removeEventListener('mousemove', onMove)
+                              document.removeEventListener('mouseup', onUp)
+                              document.body.style.cursor = ''
+                              document.body.style.userSelect = ''
+                            }
+                            document.addEventListener('mousemove', onMove)
+                            document.addEventListener('mouseup', onUp)
+                            document.body.style.cursor = 'ew-resize'
+                            document.body.style.userSelect = 'none'
+                          }}
+                        >
+                          <div className={`w-0.5 h-full transition-colors ${
+                            isSelected ? 'bg-amber-400 !w-1' : isHovered ? 'bg-blue-400' : cp.hasDissolve ? 'bg-blue-500/60' : 'bg-transparent'
+                          }`} style={isSelected ? { width: '3px', borderRadius: '1px' } : undefined} />
+                        </div>
+
                         {cp.hasDissolve ? (
                           <>
                             {/* Dissolve region visual (gradient bar on the clip area) */}
