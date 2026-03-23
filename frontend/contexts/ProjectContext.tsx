@@ -38,7 +38,7 @@ interface ProjectContextType {
   renameTimeline: (projectId: string, timelineId: string, name: string) => void
   duplicateTimeline: (projectId: string, timelineId: string) => Timeline | null
   setActiveTimeline: (projectId: string, timelineId: string) => void
-  updateTimeline: (projectId: string, timelineId: string, updates: Partial<Pick<Timeline, 'tracks' | 'clips' | 'subtitles' | 'inferenceStacks'>>) => void
+  updateTimeline: (projectId: string, timelineId: string, updates: Partial<Pick<Timeline, 'tracks' | 'clips' | 'subtitles' | 'inferenceStacks' | 'markers'>>) => void
   getActiveTimeline: (projectId: string) => Timeline | null
   
   // Navigation helpers
@@ -248,9 +248,9 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   }, [])
   
   const deleteAsset = useCallback((projectId: string, assetId: string) => {
-    setProjects(prev => prev.map(p => 
-      p.id === projectId 
-        ? { ...p, assets: p.assets.filter(a => a.id !== assetId), updatedAt: Date.now() } 
+    setProjects(prev => prev.map(p =>
+      p.id === projectId
+        ? { ...p, assets: p.assets.filter(a => a.id !== assetId), updatedAt: Date.now() }
         : p
     ))
   }, [])
@@ -395,7 +395,13 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
         }
       })
 
-      return { ...p, assets: [...newGenerated, ...nonGenerated], updatedAt: Date.now() }
+      // Deduplicate: remove non-generated assets that now have a generated version (same filename)
+      const generatedFilenames = new Set(newGenerated.map(a => a.path.replace(/\\/g, '/').split('/').pop() || ''))
+      const dedupedNonGen = nonGenerated.filter(a => {
+        const fn = a.path.replace(/\\/g, '/').split('/').pop() || ''
+        return !generatedFilenames.has(fn)
+      })
+      return { ...p, assets: [...newGenerated, ...dedupedNonGen], updatedAt: Date.now() }
     }))
   }, [])
 
@@ -489,7 +495,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     ))
   }, [])
   
-  const updateTimeline = useCallback((projectId: string, timelineId: string, updates: Partial<Pick<Timeline, 'tracks' | 'clips' | 'subtitles' | 'inferenceStacks'>>) => {
+  const updateTimeline = useCallback((projectId: string, timelineId: string, updates: Partial<Pick<Timeline, 'tracks' | 'clips' | 'subtitles' | 'inferenceStacks' | 'markers'>>) => {
     setProjects(prev => prev.map(p => 
       p.id === projectId 
         ? {

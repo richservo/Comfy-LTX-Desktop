@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { formatKeyCombo, type ActionId, type KeyboardLayout } from '../../lib/keyboard-shortcuts'
 export type { KeyboardLayout } from '../../lib/keyboard-shortcuts'
-import type { TimelineClip, TransitionType, Track, ClipEffect, EffectMask, InferenceStack } from '../../types/project'
+import type { TimelineClip, TransitionType, Track, ClipEffect, EffectMask, InferenceStack, TimelineMarker } from '../../types/project'
 import { DEFAULT_COLOR_CORRECTION } from '../../types/project'
 
 // ── Tool types & definitions ────────────────────────────────────────
@@ -81,14 +81,17 @@ export const SNAP_THRESHOLD = 0.2
 
 // ── Snap helpers ────────────────────────────────────────────────────
 
-/** Collect all snap target times from clips (start and end of each visible clip) */
-export function getSnapTargets(clips: TimelineClip[], excludeIds?: Set<string>): number[] {
+/** Collect all snap target times from clips (start and end of each visible clip) and markers */
+export function getSnapTargets(clips: TimelineClip[], excludeIds?: Set<string>, markers?: TimelineMarker[]): number[] {
   const targets: number[] = []
   for (const c of clips) {
     if (c.hiddenByStack) continue
     if (excludeIds?.has(c.id)) continue
     targets.push(c.startTime)
     targets.push(c.startTime + c.duration)
+  }
+  if (markers) {
+    for (const m of markers) targets.push(m.time)
   }
   return targets
 }

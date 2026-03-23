@@ -40,6 +40,10 @@ export type ActionId =
   | 'mark.clearIn'
   | 'mark.clearOut'
   | 'mark.clearInOut'
+  // Markers
+  | 'marker.addOrEdit'
+  | 'nav.prevMarker'
+  | 'nav.nextMarker'
   // 3-Point Editing
   | 'edit.insertEdit'
   | 'edit.overwriteEdit'
@@ -116,6 +120,10 @@ export const ACTION_REGISTRY: ActionDefinition[] = [
   { id: 'mark.clearIn',     label: 'Clear In Point',       category: 'Marking' },
   { id: 'mark.clearOut',    label: 'Clear Out Point',      category: 'Marking' },
   { id: 'mark.clearInOut',  label: 'Clear In / Out',       category: 'Marking' },
+  // Markers
+  { id: 'marker.addOrEdit', label: 'Add / Edit Marker',    category: 'Marking', description: 'Add a marker at playhead, or edit an existing marker at that position' },
+  { id: 'nav.prevMarker',   label: 'Previous Marker',      category: 'Transport', description: 'Jump playhead to the previous marker' },
+  { id: 'nav.nextMarker',   label: 'Next Marker',          category: 'Transport', description: 'Jump playhead to the next marker' },
   // Timeline
   { id: 'timeline.zoomIn',    label: 'Zoom In',            category: 'Timeline' },
   { id: 'timeline.zoomOut',   label: 'Zoom Out',           category: 'Timeline' },
@@ -188,6 +196,10 @@ export const LTX_DEFAULT_LAYOUT: KeyboardLayout = {
   'mark.clearIn':      [k('i', { alt: true })],
   'mark.clearOut':     [k('o', { alt: true })],
   'mark.clearInOut':   [k('x', { alt: true })],
+  // Markers
+  'marker.addOrEdit':  [k('m')],
+  'nav.prevMarker':    [k('arrowleft', { ctrl: true })],
+  'nav.nextMarker':    [k('arrowright', { ctrl: true })],
   // Timeline
   'timeline.zoomIn':    [k('='), k('+')],
   'timeline.zoomOut':   [k('-')],
@@ -243,6 +255,10 @@ export const PREMIERE_LAYOUT: KeyboardLayout = {
   'mark.clearIn':      [k('i', { alt: true })],   // Premiere: Alt+I / Option+I
   'mark.clearOut':     [k('o', { alt: true })],   // Premiere: Alt+O / Option+O
   'mark.clearInOut':   [k('x', { alt: true })],   // Premiere: Alt+X or Option+X
+  // Markers
+  'marker.addOrEdit':  [k('m')],                 // Premiere: M = add marker
+  'nav.prevMarker':    [k('arrowleft', { ctrl: true })],
+  'nav.nextMarker':    [k('arrowright', { ctrl: true })],
   // Timeline
   'timeline.zoomIn':    [k('=')],
   'timeline.zoomOut':   [k('-')],
@@ -298,6 +314,10 @@ export const DAVINCI_LAYOUT: KeyboardLayout = {
   'mark.clearIn':      [k('i', { alt: true })],
   'mark.clearOut':     [k('o', { alt: true })],
   'mark.clearInOut':   [k('x', { alt: true })],
+  // Markers
+  'marker.addOrEdit':  [k('m')],
+  'nav.prevMarker':    [k('arrowleft', { ctrl: true })],
+  'nav.nextMarker':    [k('arrowright', { ctrl: true })],
   // Timeline
   'timeline.zoomIn':    [k('=', { ctrl: true })],
   'timeline.zoomOut':   [k('-', { ctrl: true })],
@@ -353,6 +373,10 @@ export const AVID_LAYOUT: KeyboardLayout = {
   'mark.clearIn':      [k('i', { alt: true })],
   'mark.clearOut':     [k('o', { alt: true })],
   'mark.clearInOut':   [k('g')],           // Avid: G = clear both marks
+  // Markers
+  'marker.addOrEdit':  [k('m')],
+  'nav.prevMarker':    [k('arrowleft', { ctrl: true })],
+  'nav.nextMarker':    [k('arrowright', { ctrl: true })],
   // Timeline
   'timeline.zoomIn':    [k('=', { ctrl: true })],
   'timeline.zoomOut':   [k('-', { ctrl: true })],

@@ -25,8 +25,8 @@ import { MenuBar, type MenuDefinition } from '../components/MenuBar'
 import { ImportTimelineModal } from '../components/ImportTimelineModal'
 import { ClipWaveform } from '../components/AudioWaveform'
 // IC-LORA HIDDEN - import { ICLoraPanel } from '../components/ICLoraPanel'
-import type { TimelineClip, Track, SubtitleClip, Asset, InferenceStack } from '../types/project' // EFFECTS HIDDEN: removed EffectType
-import { DEFAULT_TRACKS } from '../types/project' // EFFECTS HIDDEN: removed EFFECT_DEFINITIONS
+import type { TimelineClip, Track, SubtitleClip, Asset, InferenceStack, TimelineMarker } from '../types/project' // EFFECTS HIDDEN: removed EffectType
+import { DEFAULT_TRACKS, MARKER_COLORS } from '../types/project' // EFFECTS HIDDEN: removed EFFECT_DEFINITIONS
 import {
   type ToolType, PRIMARY_TOOLS, TRIM_TOOLS,
   AUTOSAVE_DELAY, CUT_POINT_TOLERANCE, DEFAULT_DISSOLVE_DURATION, SNAP_THRESHOLD,
@@ -112,7 +112,8 @@ export function VideoEditor() {
   const [tracks, setTracks] = useState<Track[]>(migrateTracks(activeTimeline?.tracks || DEFAULT_TRACKS.map(t => ({ ...t }))))
   const [subtitles, setSubtitles] = useState<SubtitleClip[]>(activeTimeline?.subtitles || [])
   const [inferenceStacks, setInferenceStacks] = useState<InferenceStack[]>(activeTimeline?.inferenceStacks || [])
-  
+  const [markers, setMarkers] = useState<TimelineMarker[]>(activeTimeline?.markers || [])
+
   // Transient UI state (not persisted)
   const [currentTime, setCurrentTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -162,6 +163,15 @@ export function VideoEditor() {
   const [savingPresetName, setSavingPresetName] = useState<string | null>(null)
   const presetNameInputRef = useRef<HTMLInputElement>(null)
   const layoutMenuRef = useRef<HTMLDivElement>(null)
+
+  // Marker edit popover state
+  const [editingMarkerId, setEditingMarkerId] = useState<string | null>(null)
+  const [markerEditName, setMarkerEditName] = useState('')
+  const [markerEditColor, setMarkerEditColor] = useState('#F59E0B')
+  const [markerPopoverPos, setMarkerPopoverPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const markerPopoverRef = useRef<HTMLDivElement>(null)
+  const markersRef = useRef(markers)
+  markersRef.current = markers
 
   // Editable timecode state
   const [editingTimecode, setEditingTimecode] = useState(false)
@@ -778,7 +788,7 @@ export function VideoEditor() {
     // Save current timeline before switching (if we had one loaded)
     if (loadedTimelineIdRef.current && currentProjectId) {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
-      updateTimeline(currentProjectId, loadedTimelineIdRef.current, { clips, tracks, subtitles, inferenceStacks })
+      updateTimeline(currentProjectId, loadedTimelineIdRef.current, { clips, tracks, subtitles, inferenceStacks, markers })
     }
 
     // Load new timeline (migrate old clips without new effect fields)
@@ -786,11 +796,13 @@ export function VideoEditor() {
     setTracks(migrateTracks(activeTimeline.tracks?.length > 0 ? activeTimeline.tracks : DEFAULT_TRACKS.map(t => ({ ...t }))))
     setSubtitles(activeTimeline.subtitles || [])
     setInferenceStacks(activeTimeline.inferenceStacks || [])
+    setMarkers(activeTimeline.markers || [])
     setCurrentTime(0)
     setIsPlaying(false)
     setPlayingInOut(false)
     setSelectedClipIds(new Set())
     setSelectedSubtitleId(null)
+    setEditingMarkerId(null)
     undoStackRef.current = []
     redoStackRef.current = []
     loadedTimelineIdRef.current = activeTimeline.id
@@ -802,13 +814,13 @@ export function VideoEditor() {
     
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
     autoSaveTimerRef.current = setTimeout(() => {
-      updateTimeline(currentProjectId, loadedTimelineIdRef.current!, { clips, tracks, subtitles, inferenceStacks })
+      updateTimeline(currentProjectId, loadedTimelineIdRef.current!, { clips, tracks, subtitles, inferenceStacks, markers })
     }, AUTOSAVE_DELAY)
 
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
     }
-  }, [clips, tracks, subtitles, inferenceStacks, currentProjectId])
+  }, [clips, tracks, subtitles, inferenceStacks, markers, currentProjectId])
   
   // Save on unmount
   useEffect(() => {
@@ -1101,6 +1113,7 @@ export function VideoEditor() {
     orderedTracks, trackDisplayRow, getTrackHeight, trackTopPx, cutPoints,
     splitClipAtPlayhead, setSelectedSubtitleId, setSelectedGap,
     audioTrackHeight, videoTrackHeight, subtitleTrackHeight,
+    markers,
   })
   
   // Compute set of clip IDs with highlighted trim edges (uses selectedClipIds which respects Ctrl for independent selection)
@@ -1139,7 +1152,7 @@ export function VideoEditor() {
   const overwriteEditRef = useRef<() => void>(() => {})
   const matchFrameRef = useRef<() => void>(() => {})
   const splitAtPlayheadRef = useRef<() => void>(() => {})
-  
+  const addOrEditMarkerRef = useRef<() => void>(() => {})
 
   // Ref for renderStack — assigned after useInferenceStacks, used by useRegeneration
   const renderStackRef = useRef<(stackId: string) => void>(() => {})
@@ -1218,6 +1231,8 @@ export function VideoEditor() {
       overwriteEditRef,
       matchFrameRef,
       splitAtPlayheadRef,
+      markersRef,
+      addOrEditMarkerRef,
     },
     setters: {
       setActiveTool,
@@ -1379,6 +1394,50 @@ export function VideoEditor() {
     }
   }
 
+  // --- Close marker popover on click outside ---
+  useEffect(() => {
+    if (!editingMarkerId) return
+    const handleClick = (e: MouseEvent) => {
+      if (markerPopoverRef.current && !markerPopoverRef.current.contains(e.target as Node)) {
+        // Save changes before closing
+        setMarkers(prev => prev.map(m => m.id === editingMarkerId ? { ...m, name: markerEditName, color: markerEditColor } : m))
+        setEditingMarkerId(null)
+      }
+    }
+    // Delay to avoid the same click that opened it closing it immediately
+    const timer = setTimeout(() => window.addEventListener('mousedown', handleClick), 0)
+    return () => { clearTimeout(timer); window.removeEventListener('mousedown', handleClick) }
+  }, [editingMarkerId, markerEditName, markerEditColor])
+
+  // --- Add or Edit Marker at playhead ---
+  addOrEditMarkerRef.current = () => {
+    const ct = currentTime
+    // Check if there's already a marker near the playhead
+    const existing = markers.find(m => Math.abs(m.time - ct) < 0.05)
+    if (existing) {
+      // Compute screen position from the ruler
+      if (timelineRef.current) {
+        const rulerRect = timelineRef.current.getBoundingClientRect()
+        const scrollLeft = rulerScrollRef.current?.scrollLeft ?? 0
+        const markerScreenX = rulerRect.left + existing.time * pixelsPerSecond - scrollLeft
+        setMarkerPopoverPos({ x: markerScreenX, y: rulerRect.bottom + 4 })
+      }
+      // Open edit popover for this marker
+      setEditingMarkerId(existing.id)
+      setMarkerEditName(existing.name)
+      setMarkerEditColor(existing.color)
+    } else {
+      // Add new marker at current time
+      const newMarker: TimelineMarker = {
+        id: `marker-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        time: ct,
+        color: '#F59E0B',
+        name: '',
+      }
+      setMarkers(prev => [...prev, newMarker])
+    }
+  }
+
   // Get active subtitle at current playhead time
   const activeSubtitles = useMemo(() => {
     return subtitles.filter(s => {
@@ -1502,7 +1561,7 @@ export function VideoEditor() {
     // Force-save current timeline before switching
     if (loadedTimelineIdRef.current) {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
-      updateTimeline(currentProjectId, loadedTimelineIdRef.current, { clips, tracks, inferenceStacks })
+      updateTimeline(currentProjectId, loadedTimelineIdRef.current, { clips, tracks, subtitles, inferenceStacks, markers })
     }
     loadedTimelineIdRef.current = null // Reset so the useEffect picks up the new one
     setActiveTimeline(currentProjectId, timelineId)
@@ -2628,8 +2687,46 @@ export function VideoEditor() {
                       <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 text-[8px] font-bold text-blue-400 whitespace-nowrap pointer-events-none">OUT</div>
                     </div>
                   )}
+                  {/* Timeline markers — chevrons at top of ruler with labels */}
+                  {markers.map(m => (
+                    <div
+                      key={m.id}
+                      className="absolute top-0 z-[16] cursor-pointer"
+                      style={{ left: `${m.time * pixelsPerSecond}px` }}
+                      onMouseDown={e => {
+                        e.stopPropagation()
+                        // Compute screen position for the popover
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                        setMarkerPopoverPos({ x: rect.left, y: rect.bottom + 4 })
+                        setEditingMarkerId(m.id)
+                        setMarkerEditName(m.name)
+                        setMarkerEditColor(m.color)
+                      }}
+                    >
+                      {/* Chevron / down-pointing triangle */}
+                      <div
+                        className="absolute -translate-x-1/2 w-0 h-0 border-l-[5px] border-r-[5px] border-t-[7px] border-l-transparent border-r-transparent"
+                        style={{ borderTopColor: m.color }}
+                      />
+                      {/* Vertical line */}
+                      <div
+                        className="absolute top-[7px] h-[17px] w-px -translate-x-1/2"
+                        style={{ backgroundColor: m.color, opacity: 0.6 }}
+                      />
+                      {/* Label — always visible when marker has a name */}
+                      {m.name && (
+                        <div
+                          className="absolute top-[-1px] left-[6px] text-[9px] font-medium leading-none whitespace-nowrap pointer-events-none select-none"
+                          style={{ color: m.color }}
+                        >
+                          {m.name}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {/* Marker edit menu is rendered outside overflow-hidden via portal below */}
                   {/* Playhead (ruler) — position updated by rAF engine during playback */}
-                  <div 
+                  <div
                     ref={playheadRulerRef}
                     className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none"
                     style={{ left: `${currentTime * pixelsPerSecond}px` }}
@@ -2640,6 +2737,74 @@ export function VideoEditor() {
               </div>
             </div>
             
+            {/* Marker edit menu — rendered outside overflow-hidden ruler */}
+            {editingMarkerId && (() => {
+              const editMarker = markers.find(m => m.id === editingMarkerId)
+              if (!editMarker) return null
+              return (
+                <div
+                  ref={markerPopoverRef}
+                  className="fixed z-[100] bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl py-1 w-48"
+                  style={{ left: `${markerPopoverPos.x - 90}px`, top: `${markerPopoverPos.y}px` }}
+                  onMouseDown={e => e.stopPropagation()}
+                  onClick={e => e.stopPropagation()}
+                >
+                  {/* Description input */}
+                  <div className="px-2 py-1.5">
+                    <input
+                      type="text"
+                      className="w-full bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-xs text-zinc-200 outline-none focus:border-zinc-500"
+                      placeholder="Description..."
+                      value={markerEditName}
+                      onChange={e => setMarkerEditName(e.target.value)}
+                      autoFocus
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          setMarkers(prev => prev.map(m => m.id === editingMarkerId ? { ...m, name: markerEditName, color: markerEditColor } : m))
+                          setEditingMarkerId(null)
+                        } else if (e.key === 'Escape') {
+                          setEditingMarkerId(null)
+                        }
+                        e.stopPropagation()
+                      }}
+                    />
+                  </div>
+                  {/* Divider */}
+                  <div className="border-t border-zinc-700 my-1" />
+                  {/* Color swatches */}
+                  <div className="px-1">
+                    <div className="text-[10px] text-zinc-500 px-2 pb-1">Color</div>
+                    <div className="flex gap-1 px-2 pb-1">
+                      {MARKER_COLORS.map(c => (
+                        <button
+                          key={c.id}
+                          className={`w-5 h-5 rounded-full border-2 transition-all ${markerEditColor === c.color ? 'border-white scale-110' : 'border-transparent hover:border-zinc-500'}`}
+                          style={{ backgroundColor: c.color }}
+                          onClick={() => {
+                            setMarkerEditColor(c.color)
+                            setMarkers(prev => prev.map(m => m.id === editingMarkerId ? { ...m, color: c.color } : m))
+                          }}
+                          title={c.label}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  {/* Divider */}
+                  <div className="border-t border-zinc-700 my-1" />
+                  {/* Delete */}
+                  <button
+                    className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-zinc-700/60 transition-colors"
+                    onClick={() => {
+                      setMarkers(prev => prev.filter(m => m.id !== editingMarkerId))
+                      setEditingMarkerId(null)
+                    }}
+                  >
+                    Delete Marker
+                  </button>
+                </div>
+              )
+            })()}
+
             {/* Tracks body - vertically scrollable */}
             <div className="flex flex-1 min-h-0 flex-col">
               {/* Scrollable tracks area */}
@@ -3314,7 +3479,7 @@ export function VideoEditor() {
                           let hoverTime = clip.startTime + (ox / rect.width) * clip.duration
                           // Snap blade to clip edges on all tracks and playhead
                           if (snapEnabled) {
-                            const targets = [...getSnapTargets(clips, new Set([clip.id])), currentTime]
+                            const targets = [...getSnapTargets(clips, new Set([clip.id]), markers), currentTime]
                             hoverTime = snapToTargets(hoverTime, targets)
                           }
                           const snappedOx = (hoverTime - clip.startTime) * pixelsPerSecond
@@ -4015,7 +4180,7 @@ export function VideoEditor() {
                             const rightLinkedSet = new Set(rightLinkedIds)
                             // Snap targets: all clip edges except the two being edited
                             const editIds = new Set([cp.leftClip.id, cp.rightClip.id, ...leftLinkedIds, ...rightLinkedIds])
-                            const snapTargets = snapEnabled ? getSnapTargets(clips, editIds) : []
+                            const snapTargets = snapEnabled ? getSnapTargets(clips, editIds, markers) : []
                             let hasMoved = false
                             const onMove = (ev: MouseEvent) => {
                               if (!hasMoved) { hasMoved = true; pushUndo() }

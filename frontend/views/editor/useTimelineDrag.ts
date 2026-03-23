@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import type { Asset, TimelineClip, Track } from '../../types/project'
+import type { Asset, TimelineClip, Track, TimelineMarker } from '../../types/project'
 import { resolveOverlaps, migrateClip, type ToolType, clampRollDelta, applyRollEdit, SNAP_THRESHOLD, getSnapTargets, snapToTargets } from './video-editor-utils'
 
 export interface DraggingClipState {
@@ -86,6 +86,7 @@ interface UseTimelineDragParams {
   audioTrackHeight: number
   videoTrackHeight: number
   subtitleTrackHeight: number
+  markers: TimelineMarker[]
 }
 
 export function useTimelineDrag(params: UseTimelineDragParams) {
@@ -101,6 +102,7 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
     orderedTracks, trackDisplayRow, getTrackHeight, trackTopPx,
     splitClipAtPlayhead, setSelectedSubtitleId, setSelectedGap,
     audioTrackHeight, videoTrackHeight, subtitleTrackHeight,
+    markers,
   } = params
 
   const [draggingClip, setDraggingClip] = useState<DraggingClipState | null>(null)
@@ -121,11 +123,11 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
     let time = x / pixelsPerSecond
     // Snap playhead to clip edges when snapping is enabled
     if (snapEnabled) {
-      time = snapToTargets(time, getSnapTargets(clips))
+      time = snapToTargets(time, getSnapTargets(clips, undefined, markers))
     }
     setCurrentTime(Math.max(0, Math.min(time, totalDuration)))
-  }, [pixelsPerSecond, totalDuration, snapEnabled, clips])
-  
+  }, [pixelsPerSecond, totalDuration, snapEnabled, clips, markers])
+
   const handleRulerMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return // only left button
     e.preventDefault() // prevent text selection
@@ -188,7 +190,7 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
       let clickTime = clip.startTime + (clickX / rect.width) * clip.duration
       // Snap blade to clip edges and playhead
       if (snapEnabled) {
-        const targets = [...getSnapTargets(clips, new Set([clip.id])), currentTime]
+        const targets = [...getSnapTargets(clips, new Set([clip.id]), markers), currentTime]
         clickTime = snapToTargets(clickTime, targets)
       }
 
@@ -453,8 +455,14 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
       if (Math.abs(newStartTime + primaryClip.duration - currentTime) < snapThreshold) {
         newStartTime = currentTime - primaryClip.duration
       }
+      // Snap to markers
+      for (const m of markers) {
+        if (Math.abs(newStartTime - m.time) < snapThreshold) newStartTime = m.time
+        const clipEnd = newStartTime + primaryClip.duration
+        if (Math.abs(clipEnd - m.time) < snapThreshold) newStartTime = m.time - primaryClip.duration
+      }
     }
-    
+
     // Use average track height for drag delta computation
     const avgTrackH = orderedTracks.length > 0
       ? orderedTracks.reduce((s, e) => s + (e.track.type === 'subtitle' ? subtitleTrackHeight : e.track.kind === 'audio' ? audioTrackHeight : videoTrackHeight), 0) / orderedTracks.length
@@ -764,12 +772,19 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
             newDuration -= adjustment
           }
         }
+        for (const m of markers) {
+          if (Math.abs(newStartTime - m.time) < snapThreshold) {
+            const adjustment = m.time - newStartTime
+            newStartTime = m.time
+            newDuration -= adjustment
+          }
+        }
       }
-      
+
       const newTrimStart = resizingClip.originalTrimStart + (newStartTime - resizingClip.originalStartTime)
       const maxDur = getMaxClipDuration({ ...clip, trimStart: Math.max(0, newTrimStart) })
       newDuration = Math.min(newDuration, maxDur)
-      
+
       // Build set of linked clip IDs to also trim (skip if Ctrl-resizing independently)
       const linkedIds = resizingClip.independentResize ? new Set<string>() : new Set<string>(clip.linkedClipIds || [])
       const finalDuration = Math.max(0.5, newDuration)
@@ -816,8 +831,13 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
             newDuration = otherEnd - clip.startTime
           }
         }
+        for (const m of markers) {
+          if (Math.abs(newEndTime - m.time) < snapThreshold) {
+            newDuration = m.time - clip.startTime
+          }
+        }
       }
-      
+
       // For right-edge trim, allow extending into trimEnd (revealing hidden frames)
       const maxDur = clip.type === 'image' ? Infinity : getMaxClipDuration({ ...clip, trimEnd: 0 })
       newDuration = Math.min(newDuration, maxDur)

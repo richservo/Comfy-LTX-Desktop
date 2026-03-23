@@ -406,7 +406,33 @@ export interface InferenceStack {
   renderedClipId?: string              // video clip on timeline
   errorMessage?: string
   createdAt: number
+  // Resolved source file paths — stored at render time so re-renders always have the original inputs
+  sourcePaths?: {
+    firstImage?: string
+    middleImage?: string
+    lastImage?: string
+    audio?: string
+  }
 }
+
+// A marker on the timeline ruler (for timing spots)
+export interface TimelineMarker {
+  id: string
+  time: number          // position in seconds
+  color: string         // hex color, default '#F59E0B' (amber)
+  name: string          // user description (empty = unnamed)
+}
+
+export const MARKER_COLORS = [
+  { id: 'amber',   label: 'Amber',   color: '#F59E0B' },
+  { id: 'red',     label: 'Red',     color: '#EF4444' },
+  { id: 'green',   label: 'Green',   color: '#22C55E' },
+  { id: 'blue',    label: 'Blue',    color: '#3B82F6' },
+  { id: 'violet',  label: 'Violet',  color: '#8B5CF6' },
+  { id: 'pink',    label: 'Pink',    color: '#EC4899' },
+  { id: 'cyan',    label: 'Cyan',    color: '#06B6D4' },
+  { id: 'white',   label: 'White',   color: '#FFFFFF' },
+]
 
 export interface Timeline {
   id: string
@@ -416,6 +442,7 @@ export interface Timeline {
   clips: TimelineClip[]
   subtitles?: SubtitleClip[]  // Subtitle cues on subtitle tracks
   inferenceStacks?: InferenceStack[]
+  markers?: TimelineMarker[]  // Timeline markers for timing spots
 }
 
 export interface Project {

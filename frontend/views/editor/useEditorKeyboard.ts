@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { resolveAction, type ActionId } from '../../lib/keyboard-shortcuts'
-import type { TimelineClip, Track } from '../../types/project'
+import type { TimelineClip, Track, TimelineMarker } from '../../types/project'
 import { type ToolType, clampRollDelta, applyRollEdit } from './video-editor-utils'
 
 // Frame duration at 24fps
@@ -47,6 +47,8 @@ interface KeyboardRefs {
   overwriteEditRef: React.MutableRefObject<() => void>
   matchFrameRef: React.MutableRefObject<() => void>
   splitAtPlayheadRef: React.MutableRefObject<() => void>
+  markersRef: React.MutableRefObject<TimelineMarker[]>
+  addOrEditMarkerRef: React.MutableRefObject<() => void>
 }
 
 interface KeyboardSetters {
@@ -591,6 +593,38 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
         case 'view.fullscreen':
           refs.toggleFullscreenRef.current()
           break
+
+        // Markers
+        case 'marker.addOrEdit':
+          refs.addOrEditMarkerRef.current()
+          break
+        case 'nav.prevMarker': {
+          const sorted = [...refs.markersRef.current].sort((a, b) => a.time - b.time)
+          const ct3 = refs.playbackTimeRef.current
+          let prevM: number | null = null
+          for (const m of sorted) {
+            if (m.time < ct3 - 0.01) prevM = m.time
+            else break
+          }
+          if (prevM !== null) {
+            setters.setIsPlaying(false)
+            setters.setCurrentTime(prevM)
+          }
+          break
+        }
+        case 'nav.nextMarker': {
+          const sorted2 = [...refs.markersRef.current].sort((a, b) => a.time - b.time)
+          const ct4 = refs.playbackTimeRef.current
+          let nextM: number | null = null
+          for (const m of sorted2) {
+            if (m.time > ct4 + 0.01) { nextM = m.time; break }
+          }
+          if (nextM !== null) {
+            setters.setIsPlaying(false)
+            setters.setCurrentTime(nextM)
+          }
+          break
+        }
       }
     }
 
