@@ -296,7 +296,58 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
           }
           break
         case 'edit.delete':
-          if (sel.size > 0) {
+          if (selectedCutPoint) {
+            // Heal cut: if the two clips at the cut point are from the same source with continuous media, join them
+            const leftCl = refs.clipsRef.current.find(cl => cl.id === selectedCutPoint.leftClipId)
+            const rightCl = refs.clipsRef.current.find(cl => cl.id === selectedCutPoint.rightClipId)
+            if (leftCl && rightCl && leftCl.assetId === rightCl.assetId && leftCl.speed === rightCl.speed) {
+              // Check media continuity: left clip's media end matches right clip's media start
+              const leftMediaEnd = leftCl.trimStart + leftCl.duration * leftCl.speed
+              const rightMediaStart = rightCl.trimStart
+              if (Math.abs(leftMediaEnd - rightMediaStart) < 0.01) {
+                refs.pushUndoRef.current()
+                // Collect linked clip pairs that should also be joined
+                const joinPairs: [string, string][] = [[leftCl.id, rightCl.id]]
+                const leftLinked = leftCl.linkedClipIds || []
+                const rightLinked = rightCl.linkedClipIds || []
+                for (const llid of leftLinked) {
+                  for (const rlid of rightLinked) {
+                    const ll = refs.clipsRef.current.find(cl => cl.id === llid)
+                    const rl = refs.clipsRef.current.find(cl => cl.id === rlid)
+                    if (ll && rl && ll.assetId === rl.assetId && ll.speed === rl.speed) {
+                      const llEnd = ll.trimStart + ll.duration * ll.speed
+                      if (Math.abs(llEnd - rl.trimStart) < 0.01) {
+                        joinPairs.push([ll.id, rl.id])
+                      }
+                    }
+                  }
+                }
+                const removeIds = new Set(joinPairs.map(([, rid]) => rid))
+                const joinMap = new Map(joinPairs) // leftId → rightId
+                setters.setClips(prev => prev
+                  .filter(cl => !removeIds.has(cl.id))
+                  .map(cl => {
+                    const rightId = joinMap.get(cl.id)
+                    if (!rightId) {
+                      // Update linked IDs: replace right clip refs with left clip refs
+                      if (!cl.linkedClipIds) return cl
+                      const updated = cl.linkedClipIds.filter(lid => !removeIds.has(lid))
+                      return updated.length === cl.linkedClipIds.length ? cl : { ...cl, linkedClipIds: updated.length ? updated : undefined }
+                    }
+                    const rc = prev.find(c => c.id === rightId)
+                    if (!rc) return cl
+                    return {
+                      ...cl,
+                      duration: cl.duration + rc.duration,
+                      trimEnd: rc.trimEnd,
+                      linkedClipIds: cl.linkedClipIds?.filter(lid => !removeIds.has(lid)),
+                    }
+                  })
+                )
+                setters.setSelectedCutPoint(null)
+              }
+            }
+          } else if (sel.size > 0) {
             refs.pushUndoRef.current()
             const deleteIds = new Set<string>()
             for (const id of sel) {
