@@ -355,7 +355,7 @@ function SingleClipMenu({
 
       {/* ── 2. Edit ── */}
       <MenuItem icon={Copy} label="Duplicate" onClick={() => { duplicateClip(contextClip.id); close() }} />
-      <MenuItem icon={Scissors} label="Split at Playhead" shortcut="B" onClick={() => { splitClipAtPlayhead(contextClip.id); close() }} />
+      <MenuItem icon={Scissors} label="Split at Playhead" shortcut="Alt+B" onClick={() => { splitClipAtPlayhead(contextClip.id); close() }} />
 
       <Divider />
 

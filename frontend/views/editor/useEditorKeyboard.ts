@@ -46,6 +46,7 @@ interface KeyboardRefs {
   insertEditRef: React.MutableRefObject<() => void>
   overwriteEditRef: React.MutableRefObject<() => void>
   matchFrameRef: React.MutableRefObject<() => void>
+  splitAtPlayheadRef: React.MutableRefObject<() => void>
 }
 
 interface KeyboardSetters {
@@ -489,6 +490,7 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
           }
           break
         case 'edit.matchFrame':    refs.matchFrameRef.current(); break
+        case 'edit.splitAtPlayhead': refs.splitAtPlayheadRef.current(); break
 
         // Marking — panel-aware
         case 'mark.setIn':

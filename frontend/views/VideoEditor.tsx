@@ -1138,6 +1138,7 @@ export function VideoEditor() {
   const insertEditRef = useRef<() => void>(() => {})
   const overwriteEditRef = useRef<() => void>(() => {})
   const matchFrameRef = useRef<() => void>(() => {})
+  const splitAtPlayheadRef = useRef<() => void>(() => {})
   
 
   // Ref for renderStack — assigned after useInferenceStacks, used by useRegeneration
@@ -1216,6 +1217,7 @@ export function VideoEditor() {
       insertEditRef,
       overwriteEditRef,
       matchFrameRef,
+      splitAtPlayheadRef,
     },
     setters: {
       setActiveTool,
@@ -1361,6 +1363,21 @@ export function VideoEditor() {
     })
   }, [currentTime, clips, selectedClipIds, assets])
   matchFrameRef.current = handleMatchFrame
+
+  // --- Split at Playhead: cut all clips under the playhead ---
+  splitAtPlayheadRef.current = () => {
+    const ct = currentTime
+    const clipsToSplit = clips.filter(c =>
+      !c.hiddenByStack &&
+      ct > c.startTime + 0.1 &&
+      ct < c.startTime + c.duration - 0.1 &&
+      !tracks[c.trackIndex]?.locked
+    )
+    if (clipsToSplit.length > 0) {
+      pushUndo()
+      splitClipAtPlayhead(clipsToSplit[0].id, ct, clipsToSplit.map(c => c.id))
+    }
+  }
 
   // Get active subtitle at current playhead time
   const activeSubtitles = useMemo(() => {
@@ -3294,8 +3311,14 @@ export function VideoEditor() {
                         if (activeTool === 'blade') {
                           const rect = e.currentTarget.getBoundingClientRect()
                           const ox = e.clientX - rect.left
-                          const hoverTime = clip.startTime + (ox / rect.width) * clip.duration
-                          setBladeHoverInfo({ clipId: clip.id, offsetX: ox, time: hoverTime })
+                          let hoverTime = clip.startTime + (ox / rect.width) * clip.duration
+                          // Snap blade to clip edges on all tracks and playhead
+                          if (snapEnabled) {
+                            const targets = [...getSnapTargets(clips, new Set([clip.id])), currentTime]
+                            hoverTime = snapToTargets(hoverTime, targets)
+                          }
+                          const snappedOx = (hoverTime - clip.startTime) * pixelsPerSecond
+                          setBladeHoverInfo({ clipId: clip.id, offsetX: snappedOx, time: hoverTime })
                         }
                       }}
                       onMouseLeave={() => {
@@ -3343,7 +3366,7 @@ export function VideoEditor() {
                           </div>
                         ) : clip.type === 'audio' ? (
                           <>
-                            <ClipWaveform url={getClipUrl(clip) || clip.asset?.url || clip.importedUrl || ''} />
+                            <ClipWaveform url={getClipUrl(clip) || clip.asset?.url || clip.importedUrl || ''} trimStart={clip.trimStart} trimEnd={clip.trimEnd} mediaDuration={clip.asset?.duration} />
                             <div className="h-8 w-8 flex-shrink-0 rounded bg-emerald-800/50 flex items-center justify-center relative z-10">
                               <Music className="h-4 w-4 text-emerald-400" />
                             </div>

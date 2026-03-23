@@ -290,11 +290,17 @@ export function AudioWaveform({ audioClips, currentTime, isPlaying }: AudioWavef
 
 interface ClipWaveformProps {
   url: string
+  /** Seconds trimmed from the start of the source media */
+  trimStart?: number
+  /** Seconds trimmed from the end of the source media */
+  trimEnd?: number
+  /** Total duration of the source media (asset.duration). Needed to map trims to peaks. */
+  mediaDuration?: number
   className?: string
   color?: string
 }
 
-export function ClipWaveform({ url, className = '', color = 'rgba(52, 211, 153, 0.7)' }: ClipWaveformProps) {
+export function ClipWaveform({ url, trimStart = 0, trimEnd = 0, mediaDuration, className = '', color = 'rgba(52, 211, 153, 0.7)' }: ClipWaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [peaks, setPeaks] = useState<Float32Array | null>(null)
@@ -302,7 +308,7 @@ export function ClipWaveform({ url, className = '', color = 'rgba(52, 211, 153, 
   useEffect(() => {
     if (!url) return
     let cancelled = false
-    computeWaveform(url, 200).then(p => {
+    computeWaveform(url, 800).then(p => {
       if (!cancelled) setPeaks(p)
     }).catch(() => {})
     return () => { cancelled = true }
@@ -332,24 +338,32 @@ export function ClipWaveform({ url, className = '', color = 'rgba(52, 211, 153, 
     const centerY = h / 2
     const maxAmp = h * 0.45
 
+    // Calculate which portion of the peaks array to display based on trim
+    const totalMedia = mediaDuration || 1
+    const startFrac = trimStart / totalMedia
+    const endFrac = 1 - (trimEnd / totalMedia)
+    const peakStart = Math.floor(startFrac * peaks.length)
+    const peakEnd = Math.ceil(endFrac * peaks.length)
+    const visiblePeaks = peakEnd - peakStart
+
     ctx.fillStyle = color
     ctx.beginPath()
     for (let i = 0; i < w; i++) {
-      const peakIdx = Math.floor((i / w) * peaks.length)
-      const amp = peaks[Math.min(peakIdx, peaks.length - 1)]
+      const peakIdx = peakStart + Math.floor((i / w) * visiblePeaks)
+      const amp = peaks[Math.min(Math.max(0, peakIdx), peaks.length - 1)]
       const y = centerY - amp * maxAmp
       if (i === 0) ctx.moveTo(i, y)
       else ctx.lineTo(i, y)
     }
     for (let i = w - 1; i >= 0; i--) {
-      const peakIdx = Math.floor((i / w) * peaks.length)
-      const amp = peaks[Math.min(peakIdx, peaks.length - 1)]
+      const peakIdx = peakStart + Math.floor((i / w) * visiblePeaks)
+      const amp = peaks[Math.min(Math.max(0, peakIdx), peaks.length - 1)]
       const y = centerY + amp * maxAmp
       ctx.lineTo(i, y)
     }
     ctx.closePath()
     ctx.fill()
-  }, [peaks, color])
+  }, [peaks, color, trimStart, trimEnd, mediaDuration])
 
   useEffect(() => {
     draw()
