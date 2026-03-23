@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import type { Asset, TimelineClip, InferenceStack } from '../../types/project'
+import type { Asset, TimelineClip, InferenceStack, Track } from '../../types/project'
 import type { GenerationSettings } from '../../components/SettingsPanel'
+import type { GenerationInitiator } from '../../contexts/GenerationContext'
 import { copyToAssetFolder } from '../../lib/asset-copy'
 import { fileUrlToPath } from '../../lib/url-to-path'
 import { logger } from '../../lib/logger'
@@ -11,13 +12,15 @@ export interface UseInferenceStacksParams {
   setClips: React.Dispatch<React.SetStateAction<TimelineClip[]>>
   inferenceStacks: InferenceStack[]
   setInferenceStacks: React.Dispatch<React.SetStateAction<InferenceStack[]>>
+  tracks: Track[]
+  setTracks: React.Dispatch<React.SetStateAction<Track[]>>
   assets: Asset[]
   currentProjectId: string | null
   addAsset: (projectId: string, asset: Omit<Asset, 'id' | 'createdAt'>) => Asset
   addTakeToAsset: (projectId: string, assetId: string, take: { url: string; path: string; createdAt: number }) => void
   resolveClipSrc: (clip: TimelineClip | null) => string
   // Generation hook values
-  regenGenerate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string, preserveAspectRatio?: boolean) => Promise<void>
+  regenGenerate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string, preserveAspectRatio?: boolean, initiator?: GenerationInitiator) => Promise<void>
   regenVideoUrl: string | null
   regenVideoPath: string | null
   isRegenerating: boolean
@@ -33,6 +36,7 @@ export interface UseInferenceStacksParams {
 export function useInferenceStacks(params: UseInferenceStacksParams) {
   const {
     clips, setClips, inferenceStacks, setInferenceStacks,
+    tracks, setTracks,
     assets, currentProjectId,
     addAsset, addTakeToAsset, resolveClipSrc,
     regenGenerate, regenVideoUrl, regenVideoPath,
@@ -49,6 +53,9 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
   const [batchQueue, setBatchQueue] = useState<string[]>([])
   const batchQueueRef = useRef(batchQueue)
   batchQueueRef.current = batchQueue
+  // Ref for inferenceStacks to avoid stale closures in callbacks
+  const inferenceStacksRef = useRef(inferenceStacks)
+  inferenceStacksRef.current = inferenceStacks
 
   const createStack = useCallback((clipIds: string[]) => {
     const selectedClips = clipIds.map(id => clips.find(c => c.id === id)).filter((c): c is TimelineClip => c != null)
@@ -103,7 +110,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
   }, [setInferenceStacks])
 
   const deleteStack = useCallback((stackId: string) => {
-    const stack = inferenceStacks.find(s => s.id === stackId)
+    const stack = inferenceStacksRef.current.find(s => s.id === stackId)
     if (!stack) return
 
     // Remove rendered clip, unlink and untag source clips
@@ -127,7 +134,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     // Remove from batch queue if queued
     setBatchQueue(prev => prev.filter(id => id !== stackId))
     if (activeStackId === stackId) setActiveStackId(null)
-  }, [inferenceStacks, setClips, setInferenceStacks, activeStackId])
+  }, [setClips, setInferenceStacks, activeStackId])
 
   const removeClipFromStack = useCallback((clipId: string) => {
     const clip = clips.find(c => c.id === clipId)
@@ -161,11 +168,12 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
 
   // Auto-cleanup: remove stacks whose source clips have all been deleted
   useEffect(() => {
-    const clipIds = new Set(clips.map(c => c.id))
+    const clipIdSet = new Set(clips.map(c => c.id))
     const orphaned = inferenceStacks.filter(stack => {
-      // A stack is orphaned if none of its clipIds exist in the current clips
-      // (ignore the renderedClipId — that's the output, not a source)
-      return !stack.clipIds.some(id => clipIds.has(id))
+      // A stack is orphaned if no clips reference it at all (by original ID or by inferenceStackId tag)
+      const hasOriginalClip = stack.clipIds.some(id => clipIdSet.has(id))
+      const hasTaggedClip = clips.some(c => c.inferenceStackId === stack.id)
+      return !hasOriginalClip && !hasTaggedClip
     })
     if (orphaned.length > 0) {
       setInferenceStacks(prev => prev.filter(s => !orphaned.some(o => o.id === s.id)))
@@ -192,35 +200,39 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     const stack = inferenceStacks.find(s => s.id === stackId)
     if (!stack || !currentProjectId) return
 
-    const frameMapping = getStackFrameMapping(stack, clips)
-
-    // Extract image paths (null for audio-only stacks)
+    // Resolve source paths — try from clips first, fall back to stored sourcePaths
     let firstImagePath: string | null = null
     let middleImagePath: string | null = null
     let lastImagePath: string | null = null
+    let audioSourcePath: string | null = null
+    let hasAudioClip = false
+
+    const frameMapping = getStackFrameMapping(stack, clips)
 
     if (frameMapping) {
       const imageUrl = resolveClipSrc(frameMapping.first)
       const imagePath = fileUrlToPath(imageUrl)
-      if (!imagePath) {
-        logger.error(`Stack render: cannot extract path from ${imageUrl}`)
-        return
-      }
 
-      // Single image: respect singleFramePosition (first or last)
-      const isSingleAsLast = !frameMapping.last && !frameMapping.middle && stack.singleFramePosition === 'last'
-      firstImagePath = isSingleAsLast ? null : imagePath
+      if (imagePath) {
+        const isSingleAsLast = !frameMapping.last && !frameMapping.middle && stack.singleFramePosition === 'last'
+        firstImagePath = isSingleAsLast ? null : imagePath
+        lastImagePath = isSingleAsLast ? imagePath : null
 
-      if (frameMapping.middle) {
-        const url = resolveClipSrc(frameMapping.middle)
-        middleImagePath = fileUrlToPath(url)
+        if (frameMapping.middle) {
+          middleImagePath = fileUrlToPath(resolveClipSrc(frameMapping.middle))
+        }
+        if (frameMapping.last) {
+          lastImagePath = fileUrlToPath(resolveClipSrc(frameMapping.last))
+        }
       }
+    }
 
-      lastImagePath = isSingleAsLast ? imagePath : null
-      if (frameMapping.last) {
-        const url = resolveClipSrc(frameMapping.last)
-        lastImagePath = fileUrlToPath(url)
-      }
+    // Fall back to stored sourcePaths if clips couldn't be resolved
+    if (!firstImagePath && !lastImagePath && stack.sourcePaths) {
+      logger.info(`[renderStack] using stored sourcePaths (clips not resolvable)`)
+      firstImagePath = stack.sourcePaths.firstImage ?? null
+      middleImagePath = stack.sourcePaths.middleImage ?? null
+      lastImagePath = stack.sourcePaths.lastImage ?? null
     }
 
     // Extract audio if present
@@ -229,39 +241,62 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
 
     let audioPath: string | null = null
     if (audioClip) {
+      hasAudioClip = true
       const audioUrl = resolveClipSrc(audioClip)
-      const sourcePath = fileUrlToPath(audioUrl)
-      if (sourcePath) {
+      audioSourcePath = fileUrlToPath(audioUrl)
+      if (audioSourcePath) {
         try {
-          const tempPath = await window.electronAPI.extractAudioSegment({
-            sourcePath,
+          audioPath = await window.electronAPI.extractAudioSegment({
+            sourcePath: audioSourcePath,
             startTime: audioClip.trimStart,
             duration: audioClip.duration,
           })
-          audioPath = tempPath
         } catch (err) {
           logger.error(`Stack render: audio extraction failed: ${err}`)
         }
       }
     }
 
+    // Fall back to stored audio path
+    if (!audioPath && !hasAudioClip && stack.sourcePaths?.audio) {
+      audioSourcePath = stack.sourcePaths.audio
+      try {
+        audioPath = await window.electronAPI.extractAudioSegment({
+          sourcePath: audioSourcePath,
+          startTime: 0,
+          duration: getStackDuration(stack, clips),
+        })
+      } catch (err) {
+        logger.error(`Stack render: stored audio extraction failed: ${err}`)
+      }
+    }
+
+    // Store resolved source paths for future re-renders
+    const resolvedPaths: InferenceStack['sourcePaths'] = {
+      firstImage: firstImagePath ?? stack.sourcePaths?.firstImage,
+      middleImage: middleImagePath ?? stack.sourcePaths?.middleImage,
+      lastImage: lastImagePath ?? stack.sourcePaths?.lastImage,
+      audio: audioSourcePath ?? stack.sourcePaths?.audio,
+    }
+
     // Compute duration
     const duration = getStackDuration(stack, clips)
 
     // Build settings — force temporalUpscale off when middle frame is used
+    const hasMiddle = !!(middleImagePath || stack.sourcePaths?.middleImage)
     const settings: GenerationSettings = {
       ...stack.settings,
       duration: Math.min(Math.max(1, Math.round(duration)), stack.settings.model === 'pro' ? 10 : 20),
-      ...(frameMapping?.middle ? { temporalUpscale: false } : {}),
-      // If no audio clip, still generate audio from video
-      audio: audioClip ? true : stack.settings.audio,
+      ...(hasMiddle ? { temporalUpscale: false } : {}),
+      audio: hasAudioClip ? true : stack.settings.audio,
     }
 
-    // Mark as rendering
+    // Mark as rendering and store source paths
     setRenderingStackId(stackId)
-    updateStack(stackId, { renderState: 'rendering', errorMessage: undefined })
+    updateStack(stackId, { renderState: 'rendering', errorMessage: undefined, sourcePaths: resolvedPaths })
 
     try {
+      logger.info(`[renderStack] calling generate: firstImage=${firstImagePath} middleImage=${middleImagePath} lastImage=${lastImagePath} audio=${audioPath} prompt=${stack.prompt.substring(0, 50)}`)
       await regenGenerate(
         stack.prompt,
         firstImagePath,
@@ -272,6 +307,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
         stack.strengths,
         projectName,
         stack.preserveAspectRatio,
+        'editor',
       )
     } catch (err) {
       logger.error(`Stack render failed: ${err}`)
@@ -353,6 +389,29 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
           })
 
           const renderedClipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+          const audioClipId = `clip-${Date.now()}-a-${Math.random().toString(36).substr(2, 9)}`
+
+          // Check if we need to create a linked audio clip (audio was generated but no audio clip in stack)
+          const stackHasAudioClip = currentStackClips.some(c => c.type === 'audio')
+          const shouldCreateAudio = stack.settings.audio && !stackHasAudioClip && !isAudioOnly
+
+          // Find or create an audio track for the linked audio clip
+          let audioTrackIndex = -1
+          if (shouldCreateAudio) {
+            audioTrackIndex = tracks.findIndex(t => t.kind === 'audio' && !t.locked && t.sourcePatched !== false)
+            if (audioTrackIndex < 0) {
+              const audioTrackCount = tracks.filter(t => t.kind === 'audio').length
+              const newAudioTrack: Track = {
+                id: `track-${Date.now()}-audio`,
+                name: `A${audioTrackCount + 1}`,
+                muted: false,
+                locked: false,
+                kind: 'audio',
+              }
+              audioTrackIndex = tracks.length
+              setTracks(prev => [...prev, newAudioTrack])
+            }
+          }
 
           // Add rendered video clip and hide source clips
           setClips(prev => {
@@ -379,6 +438,36 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
               colorCorrection: { brightness: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, exposure: 0, highlights: 0, shadows: 0 },
               opacity: 100,
               inferenceStackId: stack.id,
+              ...(shouldCreateAudio && audioTrackIndex >= 0 ? { linkedClipIds: [audioClipId] } : {}),
+            }
+
+            const newClips: TimelineClip[] = [newClip]
+
+            // Create linked audio clip for generated audio
+            if (shouldCreateAudio && audioTrackIndex >= 0) {
+              newClips.push({
+                id: audioClipId,
+                assetId: asset.id,
+                type: 'audio',
+                startTime: firstClip.startTime,
+                duration,
+                trimStart: 0,
+                trimEnd: 0,
+                speed: 1,
+                reversed: false,
+                muted: false,
+                volume: 1,
+                trackIndex: audioTrackIndex,
+                asset,
+                flipH: false,
+                flipV: false,
+                transitionIn: { type: 'none', duration: 0 },
+                transitionOut: { type: 'none', duration: 0 },
+                colorCorrection: { brightness: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, exposure: 0, highlights: 0, shadows: 0 },
+                opacity: 100,
+                inferenceStackId: stack.id,
+                linkedClipIds: [renderedClipId],
+              })
             }
 
             return [
@@ -388,7 +477,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
                 if (c.type === 'audio' && !isAudioOnly) return c
                 return { ...c, hiddenByStack: true }
               }),
-              newClip,
+              ...newClips,
             ]
           })
 
@@ -454,35 +543,49 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     setBatchQueue([])
   }, [regenCancel, renderingStackId, updateStack])
 
-  // Revert a rendered stack: remove the rendered clip, un-hide source clips, reset render state
+  // Revert a rendered stack: remove the rendered clip + linked audio, un-hide source clips, reset render state
   const revertStack = useCallback((stackId: string) => {
-    const stack = inferenceStacks.find(s => s.id === stackId)
-    if (!stack) return
+    // Use ref to always get the latest stack data (avoids stale closures)
+    const stack = inferenceStacksRef.current.find(s => s.id === stackId)
+    if (!stack) {
+      logger.warn(`[revertStack] stack ${stackId} not found`)
+      return
+    }
 
     const renderedId = stack.renderedClipId
-    logger.info(`[revertStack] stackId=${stackId} renderedClipId=${renderedId}`)
+    const originalClipIds = new Set(stack.clipIds)
 
-    // Single setClips call: remove rendered clip AND un-hide source clips atomically
     setClips(prev => {
-      const sourceClips = prev.filter(c => c.inferenceStackId === stackId && c.id !== renderedId)
-      logger.info(`[revertStack] total clips=${prev.length}, source clips in stack=${sourceClips.length}, hidden=${sourceClips.filter(c => c.hiddenByStack).length}`)
+      // IDs to remove: rendered clip + any audio clips linked to it that belong to this stack
+      const removeIds = new Set<string>()
+      if (renderedId) removeIds.add(renderedId)
+      const renderedClip = prev.find(c => c.id === renderedId)
+      if (renderedClip?.linkedClipIds) {
+        for (const lid of renderedClip.linkedClipIds) {
+          const linked = prev.find(c => c.id === lid)
+          if (linked?.inferenceStackId === stackId) removeIds.add(lid)
+        }
+      }
 
+      // Un-hide ALL clips that belong to this stack (by tag or by original ID) and aren't being removed
       return prev
-        .filter(c => c.id !== renderedId)
-        .map(c =>
-          c.inferenceStackId === stackId
-            ? { ...c, hiddenByStack: false }
-            : c
-        )
+        .filter(c => !removeIds.has(c.id))
+        .map(c => {
+          if (removeIds.has(c.id)) return c
+          if (c.inferenceStackId === stackId || originalClipIds.has(c.id)) {
+            return { ...c, hiddenByStack: false }
+          }
+          return c
+        })
     })
 
-    // Reset stack state after clips are updated
+    // Reset stack state
     updateStack(stackId, {
       renderState: 'pending',
       renderedClipId: undefined,
       renderedAssetId: undefined,
     })
-  }, [inferenceStacks, setClips, updateStack])
+  }, [setClips, updateStack])
 
   return {
     // State

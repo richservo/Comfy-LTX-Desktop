@@ -5,6 +5,11 @@ import type { TimelineClip, InferenceStack } from '../../types/project'
 import { getStackFrameMapping, getStackDuration, getStackClips } from './video-editor-utils'
 import { fileUrlToPath } from '../../lib/url-to-path'
 
+function pathToFileUrl(p: string): string {
+  const normalized = p.replace(/\\/g, '/')
+  return normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
+}
+
 interface InferenceStackPanelProps {
   stack: InferenceStack
   clips: TimelineClip[]
@@ -36,7 +41,6 @@ export function InferenceStackPanel({
 }: InferenceStackPanelProps) {
   const frameMapping = getStackFrameMapping(stack, clips)
   const duration = getStackDuration(stack, clips)
-  const hasMiddleFrame = frameMapping?.middle != null
   const isReRender = stack.renderedAssetId != null
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [transcribeError, setTranscribeError] = useState<string | null>(null)
@@ -44,6 +48,35 @@ export function InferenceStackPanel({
   // Find audio clip in this stack
   const stackClips = getStackClips(stack, clips)
   const audioClip = stackClips.find(c => c.type === 'audio')
+
+  // Build frame URLs: prefer live clips, fall back to stored sourcePaths only when clips are gone
+  let firstImageUrl: string | undefined
+  let middleImageUrl: string | undefined
+  let lastImageUrl: string | undefined
+  let hasMiddleFrame = false
+
+  if (frameMapping) {
+    // Live clips available — use them directly (respects single-image vs multi-image)
+    firstImageUrl = resolveClipSrc(frameMapping.first)
+    if (frameMapping.middle) {
+      middleImageUrl = resolveClipSrc(frameMapping.middle)
+      hasMiddleFrame = true
+    }
+    if (frameMapping.last) {
+      lastImageUrl = resolveClipSrc(frameMapping.last)
+    }
+  } else if (stack.sourcePaths) {
+    // No live clips — fall back to stored paths
+    if (stack.sourcePaths.firstImage) firstImageUrl = pathToFileUrl(stack.sourcePaths.firstImage)
+    if (stack.sourcePaths.middleImage) { middleImageUrl = pathToFileUrl(stack.sourcePaths.middleImage); hasMiddleFrame = true }
+    if (stack.sourcePaths.lastImage) lastImageUrl = pathToFileUrl(stack.sourcePaths.lastImage)
+    // Single image stored as lastImage only → show as single with toggle
+    if (!firstImageUrl && lastImageUrl && !middleImageUrl) {
+      firstImageUrl = lastImageUrl
+      lastImageUrl = undefined
+    }
+  }
+  const hasFirstImage = !!(firstImageUrl || lastImageUrl)
 
   const handleTranscribe = async () => {
     if (!audioClip) return
@@ -106,19 +139,18 @@ export function InferenceStackPanel({
         {/* Body */}
         <div className="flex-1 overflow-auto p-5 space-y-4">
           {/* Frame previews (only when images present) */}
-          {frameMapping && (
+          {hasFirstImage && (
             <div>
               <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold mb-1.5 block">
                 Frame Guidance
               </label>
               <div className="flex gap-2">
                 {/* Single image: show with first/last toggle */}
-                {!frameMapping.last && !frameMapping.middle ? (
+                {!lastImageUrl && !middleImageUrl ? (
                   <div className="flex-1 min-w-0">
-                    <FramePreview
+                    <FramePreviewUrl
                       label={stack.singleFramePosition === 'last' ? 'Last' : 'First'}
-                      clip={frameMapping.first}
-                      resolveClipSrc={resolveClipSrc}
+                      src={firstImageUrl || ''}
                       strength={stack.strengths.first}
                       onStrengthChange={(v) => onUpdateStack(stack.id, {
                         strengths: { ...stack.strengths, first: v }
@@ -149,31 +181,28 @@ export function InferenceStackPanel({
                   </div>
                 ) : (
                   <>
-                    <FramePreview
+                    <FramePreviewUrl
                       label="First"
-                      clip={frameMapping.first}
-                      resolveClipSrc={resolveClipSrc}
+                      src={firstImageUrl || ''}
                       strength={stack.strengths.first}
                       onStrengthChange={(v) => onUpdateStack(stack.id, {
                         strengths: { ...stack.strengths, first: v }
                       })}
                     />
-                    {frameMapping.middle && (
-                      <FramePreview
+                    {middleImageUrl && (
+                      <FramePreviewUrl
                         label="Middle"
-                        clip={frameMapping.middle}
-                        resolveClipSrc={resolveClipSrc}
+                        src={middleImageUrl}
                         strength={stack.strengths.middle}
                         onStrengthChange={(v) => onUpdateStack(stack.id, {
                           strengths: { ...stack.strengths, middle: v }
                         })}
                       />
                     )}
-                    {frameMapping.last && (
-                      <FramePreview
+                    {lastImageUrl && (
+                      <FramePreviewUrl
                         label="Last"
-                        clip={frameMapping.last}
-                        resolveClipSrc={resolveClipSrc}
+                        src={lastImageUrl}
                         strength={stack.strengths.last}
                         onStrengthChange={(v) => onUpdateStack(stack.id, {
                           strengths: { ...stack.strengths, last: v }
@@ -187,7 +216,7 @@ export function InferenceStackPanel({
           )}
 
           {/* Preserve aspect ratio (only relevant when images present) */}
-          {frameMapping && (
+          {hasFirstImage && (
             <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -246,7 +275,7 @@ export function InferenceStackPanel({
                   settings: hasMiddleFrame ? { ...settings, temporalUpscale: false } : settings
                 })}
                 disabled={isRendering}
-                mode={frameMapping ? 'image-to-video' : 'text-to-video'}
+                mode={hasFirstImage ? 'image-to-video' : 'text-to-video'}
                 hideDuration
                 hideIterations
               />
@@ -343,21 +372,17 @@ export function InferenceStackPanel({
   )
 }
 
-function FramePreview({
+function FramePreviewUrl({
   label,
-  clip,
-  resolveClipSrc,
+  src,
   strength,
   onStrengthChange,
 }: {
   label: string
-  clip: TimelineClip
-  resolveClipSrc: (clip: TimelineClip) => string
+  src: string
   strength?: number
   onStrengthChange: (value: number) => void
 }) {
-  const src = resolveClipSrc(clip)
-
   return (
     <div className="flex-1 min-w-0">
       <div className="rounded-lg overflow-hidden border border-zinc-700 bg-zinc-800 mb-1">
