@@ -29,12 +29,13 @@ import type { TimelineClip, Track, SubtitleClip, Asset, InferenceStack } from '.
 import { DEFAULT_TRACKS } from '../types/project' // EFFECTS HIDDEN: removed EFFECT_DEFINITIONS
 import {
   type ToolType, PRIMARY_TOOLS, TRIM_TOOLS,
-  AUTOSAVE_DELAY, CUT_POINT_TOLERANCE, DEFAULT_DISSOLVE_DURATION,
+  AUTOSAVE_DELAY, CUT_POINT_TOLERANCE, DEFAULT_DISSOLVE_DURATION, SNAP_THRESHOLD,
   type EditorLayout, DEFAULT_LAYOUT, LAYOUT_LIMITS,
   getShortcutLabel, tooltipLabel, loadLayout, saveLayout, clampVal,
   migrateClip, migrateTracks, // EFFECTS HIDDEN: removed getClipEffectStyles
   formatTime, parseTime, getColorLabel,
   type LayoutPreset, loadLayoutPresets, saveLayoutPresets,
+  clampRollDelta, applyRollEdit, getSnapTargets, snapToTargets,
 } from './editor/video-editor-utils'
 import { LeftPanel } from './editor/LeftPanel'
 import { ClipContextMenu } from './editor/ClipContextMenu'
@@ -1102,6 +1103,12 @@ export function VideoEditor() {
     audioTrackHeight, videoTrackHeight, subtitleTrackHeight,
   })
   
+  // Compute set of clip IDs with highlighted trim edges (uses selectedClipIds which respects Ctrl for independent selection)
+  const trimEdgeHighlightIds = useMemo(() => {
+    if (!selectedTrimEdge) return new Set<string>()
+    return new Set<string>([selectedTrimEdge.clipId, ...selectedClipIds])
+  }, [selectedTrimEdge, selectedClipIds])
+
   // Keyboard shortcuts - uses refs to avoid ordering issues with useCallback
   const activePanelRef = useRef(activePanel)
   activePanelRef.current = activePanel
@@ -1109,7 +1116,7 @@ export function VideoEditor() {
     clips: clips,
     selectedClipIds: selectedClipIds,
     totalDuration: totalDuration,
-    selectedTrimEdge: selectedTrimEdge as { clipId: string; edge: 'left' | 'right' } | null,
+    selectedTrimEdge: selectedTrimEdge as { clipId: string; edge: 'left' | 'right'; independent?: boolean } | null,
     selectedCutPoint: selectedCutPoint as { leftClipId: string; rightClipId: string; time: number; trackIndex: number } | null,
     selectedAssetIds: selectedAssetIds,
     currentTime: currentTime,
@@ -1133,6 +1140,9 @@ export function VideoEditor() {
   const matchFrameRef = useRef<() => void>(() => {})
   
 
+  // Ref for renderStack — assigned after useInferenceStacks, used by useRegeneration
+  const renderStackRef = useRef<(stackId: string) => void>(() => {})
+
   // Regeneration / I2V hook (state + logic extracted)
   const {
     regeneratingAssetId,
@@ -1155,6 +1165,7 @@ export function VideoEditor() {
     isRegenerating, regenProgress, regenStatusMessage,
     regenCancel, regenReset, regenError,
     assetSavePath: currentProject?.assetSavePath,
+    renderStack: (...args: Parameters<typeof renderStackRef.current>) => renderStackRef.current(...args),
   })
 
   // Inference stacks hook
@@ -1166,6 +1177,7 @@ export function VideoEditor() {
     renderStack, renderAllStacks, cancelRender: cancelStackRender,
   } = useInferenceStacks({
     clips, setClips, inferenceStacks, setInferenceStacks,
+    tracks, setTracks,
     assets, currentProjectId,
     addAsset, addTakeToAsset, resolveClipSrc,
     regenGenerate, regenVideoUrl, regenVideoPath,
@@ -1174,6 +1186,7 @@ export function VideoEditor() {
     assetSavePath: currentProject?.assetSavePath,
     projectName: currentProject?.name,
   })
+  renderStackRef.current = renderStack
 
   useEditorKeyboard({
     refs: {
@@ -2929,7 +2942,7 @@ export function VideoEditor() {
 
                       // Snap to clip edges and playhead (same behavior as timeline clip dragging)
                       if (snapEnabled && !(e.ctrlKey || e.metaKey)) {
-                        const snapThreshold = 0.2
+                        const snapThreshold = SNAP_THRESHOLD
                         const totalDragDuration = binDragAssetsRef.current.reduce((sum, a) => sum + (a.duration || 5), 0)
                         let snapped = false
                         for (const c of clips) {
@@ -3519,7 +3532,7 @@ export function VideoEditor() {
                         className={`absolute left-0 top-0 bottom-0 w-3 ${activeTool === 'trackForward' || activeTool === 'blade' ? '' : 'cursor-ew-resize'} transition-colors flex items-center justify-center ${
                           resizingClip?.clipId === clip.id && resizingClip?.edge === 'left'
                             ? activeTool === 'roll' ? 'bg-yellow-500' : activeTool === 'ripple' ? 'bg-green-500' : 'bg-blue-500'
-                            : selectedTrimEdge?.clipId === clip.id && selectedTrimEdge?.edge === 'left'
+                            : trimEdgeHighlightIds.has(clip.id) && selectedTrimEdge?.edge === 'left'
                             ? 'bg-blue-500/70'
                             : activeTool === 'roll' ? 'hover:bg-yellow-500/50' : activeTool === 'ripple' ? 'hover:bg-green-500/50' : 'hover:bg-blue-500/50'
                         }`}
@@ -3534,7 +3547,7 @@ export function VideoEditor() {
                         className={`absolute right-0 top-0 bottom-0 w-3 ${activeTool === 'trackForward' || activeTool === 'blade' ? '' : 'cursor-ew-resize'} transition-colors flex items-center justify-center ${
                           resizingClip?.clipId === clip.id && resizingClip?.edge === 'right'
                             ? activeTool === 'roll' ? 'bg-yellow-500' : activeTool === 'ripple' ? 'bg-green-500' : 'bg-blue-500'
-                            : selectedTrimEdge?.clipId === clip.id && selectedTrimEdge?.edge === 'right'
+                            : trimEdgeHighlightIds.has(clip.id) && selectedTrimEdge?.edge === 'right'
                             ? 'bg-blue-500/70'
                             : activeTool === 'roll' ? 'hover:bg-yellow-500/50' : activeTool === 'ripple' ? 'hover:bg-green-500/50' : 'hover:bg-blue-500/50'
                         }`}
@@ -3955,28 +3968,56 @@ export function VideoEditor() {
                             setSelectedTrimEdge(null)
                             setSelectedClipIds(new Set())
                             // Start drag for rolling edit
+                            const independent = e.ctrlKey || e.metaKey
                             const startX = e.clientX
                             const origLeftDur = cp.leftClip.duration
                             const origRightStart = cp.rightClip.startTime
                             const origRightDur = cp.rightClip.duration
                             const origRightTrimStart = cp.rightClip.trimStart
-                            const rightSpeed = cp.rightClip.speed
-                            const leftMaxDur = (!cp.leftClip.asset?.duration || cp.leftClip.type === 'image') ? Infinity : Math.max(0.5, (cp.leftClip.asset.duration - cp.leftClip.trimStart - cp.leftClip.trimEnd) / cp.leftClip.speed)
+                            const origLeft = { duration: origLeftDur, trimEnd: cp.leftClip.trimEnd, speed: cp.leftClip.speed, type: cp.leftClip.type }
+                            const origRight = { startTime: origRightStart, duration: origRightDur, trimStart: origRightTrimStart, speed: cp.rightClip.speed, type: cp.rightClip.type }
+                            // Capture linked clips for synchronized rolling edit
+                            const leftLinkedIds = independent ? [] : (cp.leftClip.linkedClipIds || [])
+                            const rightLinkedIds = independent ? [] : (cp.rightClip.linkedClipIds || [])
+                            const linkedOriginals = new Map<string, { duration: number; startTime: number; trimStart: number; trimEnd: number; speed: number; type: string }>()
+                            for (const lid of leftLinkedIds) {
+                              const lc = clips.find(c => c.id === lid)
+                              if (lc) linkedOriginals.set(lid, { duration: lc.duration, startTime: lc.startTime, trimStart: lc.trimStart, trimEnd: lc.trimEnd, speed: lc.speed, type: lc.type })
+                            }
+                            for (const lid of rightLinkedIds) {
+                              const lc = clips.find(c => c.id === lid)
+                              if (lc) linkedOriginals.set(lid, { duration: lc.duration, startTime: lc.startTime, trimStart: lc.trimStart, trimEnd: lc.trimEnd, speed: lc.speed, type: lc.type })
+                            }
+                            const leftLinkedSet = new Set(leftLinkedIds)
+                            const rightLinkedSet = new Set(rightLinkedIds)
+                            // Snap targets: all clip edges except the two being edited
+                            const editIds = new Set([cp.leftClip.id, cp.rightClip.id, ...leftLinkedIds, ...rightLinkedIds])
+                            const snapTargets = snapEnabled ? getSnapTargets(clips, editIds) : []
                             let hasMoved = false
                             const onMove = (ev: MouseEvent) => {
                               if (!hasMoved) { hasMoved = true; pushUndo() }
                               const dx = ev.clientX - startX
                               let dt = dx / pixelsPerSecond
-                              // Clamp: left clip min 0.5s, right clip min 0.5s
-                              dt = Math.max(-(origLeftDur - 0.5), dt)
-                              dt = Math.min(origRightDur - 0.5, dt)
-                              // Clamp: can't extend left beyond its media
-                              if (origLeftDur + dt > leftMaxDur) dt = leftMaxDur - origLeftDur
-                              // Clamp: can't extend right beyond its media (trimStart can't go below 0)
-                              if (origRightTrimStart + dt * rightSpeed < 0) dt = -origRightTrimStart / rightSpeed
+                              dt = clampRollDelta(dt, origLeft, origRight)
+                              // Snap the edit point position
+                              if (snapTargets.length > 0) {
+                                const snapped = snapToTargets(cp.time + dt, snapTargets)
+                                if (snapped !== cp.time + dt) dt = snapped - cp.time
+                                dt = clampRollDelta(dt, origLeft, origRight)
+                              }
                               setClips(prev => prev.map(cl => {
-                                if (cl.id === cp.leftClip.id) return { ...cl, duration: origLeftDur + dt }
-                                if (cl.id === cp.rightClip.id) return { ...cl, startTime: origRightStart + dt, duration: origRightDur - dt, trimStart: Math.max(0, origRightTrimStart + dt * rightSpeed) }
+                                // Primary clips
+                                const rolled = applyRollEdit(cl, cp.leftClip.id, cp.rightClip.id, dt, origLeft, origRight)
+                                if (rolled !== cl) return rolled
+                                // Linked clips
+                                if (leftLinkedSet.has(cl.id)) {
+                                  const orig = linkedOriginals.get(cl.id)!
+                                  return applyRollEdit(cl, cl.id, '', dt, orig, origRight)
+                                }
+                                if (rightLinkedSet.has(cl.id)) {
+                                  const orig = linkedOriginals.get(cl.id)!
+                                  return applyRollEdit(cl, '', cl.id, dt, origLeft, orig)
+                                }
                                 return cl
                               }))
                               setSelectedCutPoint(prev => prev && { ...prev, time: cp.time + dt })

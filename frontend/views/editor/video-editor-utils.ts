@@ -76,6 +76,95 @@ export const CUT_POINT_TOLERANCE = 0.05
 /** Default cross-dissolve duration in seconds */
 export const DEFAULT_DISSOLVE_DURATION = 0.5
 
+/** Snap threshold in seconds */
+export const SNAP_THRESHOLD = 0.2
+
+// ── Snap helpers ────────────────────────────────────────────────────
+
+/** Collect all snap target times from clips (start and end of each visible clip) */
+export function getSnapTargets(clips: TimelineClip[], excludeIds?: Set<string>): number[] {
+  const targets: number[] = []
+  for (const c of clips) {
+    if (c.hiddenByStack) continue
+    if (excludeIds?.has(c.id)) continue
+    targets.push(c.startTime)
+    targets.push(c.startTime + c.duration)
+  }
+  return targets
+}
+
+/** Find the nearest snap target within threshold. Returns snapped time or original if no snap. */
+export function snapToTargets(time: number, targets: number[], threshold: number = SNAP_THRESHOLD): number {
+  let best = time
+  let bestDist = threshold
+  for (const t of targets) {
+    const d = Math.abs(time - t)
+    if (d < bestDist) { bestDist = d; best = t }
+  }
+  return best
+}
+
+// ── Rolling edit helpers ────────────────────────────────────────────
+
+/**
+ * Apply a rolling edit delta to clips. Adjusts the left clip's tail and right clip's head.
+ * Returns a new clip if it was modified, or the original clip unchanged.
+ *
+ * dt > 0: edit point moves right (extend left, shrink right)
+ * dt < 0: edit point moves left (shrink left, extend right)
+ */
+export function applyRollEdit(
+  clip: TimelineClip,
+  leftClipId: string,
+  rightClipId: string,
+  dt: number,
+  origLeft: { duration: number; trimEnd: number; speed: number },
+  origRight: { startTime: number; duration: number; trimStart: number; speed: number },
+): TimelineClip {
+  if (clip.id === leftClipId) {
+    return {
+      ...clip,
+      duration: origLeft.duration + dt,
+      trimEnd: Math.max(0, origLeft.trimEnd - dt * origLeft.speed),
+    }
+  }
+  if (clip.id === rightClipId) {
+    return {
+      ...clip,
+      startTime: origRight.startTime + dt,
+      duration: origRight.duration - dt,
+      trimStart: Math.max(0, origRight.trimStart + dt * origRight.speed),
+    }
+  }
+  return clip
+}
+
+/**
+ * Clamp a rolling edit delta so neither clip exceeds its media bounds or shrinks below minDur.
+ */
+export function clampRollDelta(
+  dt: number,
+  leftClip: { type: string; duration: number; trimEnd: number; speed: number },
+  rightClip: { type: string; duration: number; trimStart: number; speed: number },
+  minDur: number = 0.5,
+): number {
+  // Can't shrink left below minDur
+  dt = Math.max(-(leftClip.duration - minDur), dt)
+  // Can't shrink right below minDur
+  dt = Math.min(rightClip.duration - minDur, dt)
+  // Can't extend left beyond available trimEnd
+  if (leftClip.type !== 'image') {
+    const maxExtendRight = leftClip.trimEnd / leftClip.speed
+    if (dt > maxExtendRight) dt = maxExtendRight
+  }
+  // Can't extend right beyond available trimStart
+  if (rightClip.type !== 'image') {
+    const maxExtendLeft = rightClip.trimStart / rightClip.speed
+    if (-dt > maxExtendLeft) dt = -maxExtendLeft
+  }
+  return dt
+}
+
 // ── Resizable layout constants ───────────────────────────────────────
 
 export const LAYOUT_STORAGE_KEY = 'ltx-video-editor-layout'

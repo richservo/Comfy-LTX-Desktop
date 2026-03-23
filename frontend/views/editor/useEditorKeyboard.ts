@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { resolveAction, type ActionId } from '../../lib/keyboard-shortcuts'
 import type { TimelineClip, Track } from '../../types/project'
-import type { ToolType } from './video-editor-utils'
+import { type ToolType, clampRollDelta, applyRollEdit } from './video-editor-utils'
 
 // Frame duration at 24fps
 const FRAME_DURATION = 1 / 24
@@ -21,7 +21,7 @@ interface KeyboardRefs {
     currentTime: number
     inPoint: number | null
     outPoint: number | null
-    selectedTrimEdge: { clipId: string; edge: 'left' | 'right' } | null
+    selectedTrimEdge: { clipId: string; edge: 'left' | 'right'; independent?: boolean } | null
     selectedCutPoint: { leftClipId: string; rightClipId: string; time: number; trackIndex: number } | null
   }>
   clipsRef: React.MutableRefObject<TimelineClip[]>
@@ -71,7 +71,7 @@ interface KeyboardSetters {
   setGapGenerateMode: React.Dispatch<React.SetStateAction<'text-to-video' | 'image-to-video' | 'text-to-image' | null>>
   setSelectedGap: (v: any) => void
   setSelectedAssetIds: React.Dispatch<React.SetStateAction<Set<string>>>
-  setSelectedTrimEdge: React.Dispatch<React.SetStateAction<{ clipId: string; edge: 'left' | 'right' } | null>>
+  setSelectedTrimEdge: React.Dispatch<React.SetStateAction<{ clipId: string; edge: 'left' | 'right'; independent?: boolean } | null>>
   setSelectedCutPoint: React.Dispatch<React.SetStateAction<{ leftClipId: string; rightClipId: string; time: number; trackIndex: number } | null>>
 }
 
@@ -329,31 +329,34 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
             // Rolling edit: move cut point backward by 1 frame (shrink left clip, extend right clip earlier)
             refs.pushUndoRef.current()
             const dt = -FRAME_DURATION
+            const independent = e.ctrlKey || e.metaKey
             setters.setClips(prev => {
               const leftCl = prev.find(cl => cl.id === selectedCutPoint.leftClipId)
               const rightCl = prev.find(cl => cl.id === selectedCutPoint.rightClipId)
               if (!leftCl || !rightCl) return prev
-              // Can't shrink left clip below 0.5s
-              if (leftCl.duration + dt < 0.5) return prev
-              // Can't extend right clip earlier if no media before current trimStart
-              if (rightCl.type !== 'image' && rightCl.trimStart + dt * rightCl.speed < 0) return prev
+              const clamped = clampRollDelta(dt, leftCl, rightCl)
+              if (clamped === 0) return prev
+              const leftLinkedIds = independent ? new Set<string>() : new Set<string>(leftCl.linkedClipIds || [])
+              const rightLinkedIds = independent ? new Set<string>() : new Set<string>(rightCl.linkedClipIds || [])
+              const origLeft = { duration: leftCl.duration, trimEnd: leftCl.trimEnd, speed: leftCl.speed }
+              const origRight = { startTime: rightCl.startTime, duration: rightCl.duration, trimStart: rightCl.trimStart, speed: rightCl.speed }
               return prev.map(cl => {
-                if (cl.id === selectedCutPoint.leftClipId) {
-                  return { ...cl, duration: cl.duration + dt }
-                }
-                if (cl.id === selectedCutPoint.rightClipId) {
-                  return { ...cl, startTime: cl.startTime + dt, duration: cl.duration - dt, trimStart: Math.max(0, cl.trimStart + dt * cl.speed) }
-                }
+                const rolled = applyRollEdit(cl, selectedCutPoint.leftClipId, selectedCutPoint.rightClipId, clamped, origLeft, origRight)
+                if (rolled !== cl) return rolled
+                if (leftLinkedIds.has(cl.id)) return applyRollEdit(cl, cl.id, '', clamped, { duration: cl.duration, trimEnd: cl.trimEnd, speed: cl.speed }, origRight)
+                if (rightLinkedIds.has(cl.id)) return applyRollEdit(cl, '', cl.id, clamped, origLeft, { startTime: cl.startTime, duration: cl.duration, trimStart: cl.trimStart, speed: cl.speed })
                 return cl
               })
             })
             setters.setSelectedCutPoint(prev => prev && { ...prev, time: prev.time - FRAME_DURATION })
           } else if (selectedTrimEdge) {
-            // Nudge trim edge backward by 1 frame
+            // Nudge trim edge backward by 1 frame (include linked clips unless independently selected)
             refs.pushUndoRef.current()
             const { clipId: trimId, edge: trimEdge } = selectedTrimEdge
+            const trimClip = refs.clipsRef.current.find(cl => cl.id === trimId)
+            const linkedIds = (selectedTrimEdge.independent || !trimClip?.linkedClipIds) ? new Set<string>() : new Set<string>(trimClip.linkedClipIds)
             setters.setClips(prev => prev.map(cl => {
-              if (cl.id !== trimId) return cl
+              if (cl.id !== trimId && !linkedIds.has(cl.id)) return cl
               if (trimEdge === 'left') {
                 const newStart = Math.max(0, cl.startTime - FRAME_DURATION)
                 const delta = cl.startTime - newStart
@@ -382,34 +385,34 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
             // Rolling edit: move cut point forward by 1 frame (extend left clip tail, shrink right clip head)
             refs.pushUndoRef.current()
             const dt2 = FRAME_DURATION
+            const independent2 = e.ctrlKey || e.metaKey
             setters.setClips(prev => {
               const leftCl = prev.find(cl => cl.id === selectedCutPoint.leftClipId)
               const rightCl = prev.find(cl => cl.id === selectedCutPoint.rightClipId)
               if (!leftCl || !rightCl) return prev
-              // Can't shrink right clip below 0.5s
-              if (rightCl.duration - dt2 < 0.5) return prev
-              // Can't extend left clip beyond its media duration
-              if (leftCl.type !== 'image' && leftCl.asset?.duration) {
-                const leftAvailable = (leftCl.asset.duration - leftCl.trimStart - leftCl.trimEnd) / leftCl.speed
-                if (leftCl.duration + dt2 > leftAvailable) return prev
-              }
+              const clamped = clampRollDelta(dt2, leftCl, rightCl)
+              if (clamped === 0) return prev
+              const leftLinkedIds2 = independent2 ? new Set<string>() : new Set<string>(leftCl.linkedClipIds || [])
+              const rightLinkedIds2 = independent2 ? new Set<string>() : new Set<string>(rightCl.linkedClipIds || [])
+              const origLeft = { duration: leftCl.duration, trimEnd: leftCl.trimEnd, speed: leftCl.speed }
+              const origRight = { startTime: rightCl.startTime, duration: rightCl.duration, trimStart: rightCl.trimStart, speed: rightCl.speed }
               return prev.map(cl => {
-                if (cl.id === selectedCutPoint.leftClipId) {
-                  return { ...cl, duration: cl.duration + dt2 }
-                }
-                if (cl.id === selectedCutPoint.rightClipId) {
-                  return { ...cl, startTime: cl.startTime + dt2, duration: cl.duration - dt2, trimStart: Math.max(0, cl.trimStart + dt2 * cl.speed) }
-                }
+                const rolled = applyRollEdit(cl, selectedCutPoint.leftClipId, selectedCutPoint.rightClipId, clamped, origLeft, origRight)
+                if (rolled !== cl) return rolled
+                if (leftLinkedIds2.has(cl.id)) return applyRollEdit(cl, cl.id, '', clamped, { duration: cl.duration, trimEnd: cl.trimEnd, speed: cl.speed }, origRight)
+                if (rightLinkedIds2.has(cl.id)) return applyRollEdit(cl, '', cl.id, clamped, origLeft, { startTime: cl.startTime, duration: cl.duration, trimStart: cl.trimStart, speed: cl.speed })
                 return cl
               })
             })
             setters.setSelectedCutPoint(prev => prev && { ...prev, time: prev.time + FRAME_DURATION })
           } else if (selectedTrimEdge) {
-            // Nudge trim edge forward by 1 frame
+            // Nudge trim edge forward by 1 frame (include linked clips unless independently selected)
             refs.pushUndoRef.current()
             const { clipId: trimId2, edge: trimEdge2 } = selectedTrimEdge
+            const trimClip2 = refs.clipsRef.current.find(cl => cl.id === trimId2)
+            const linkedIds2 = (selectedTrimEdge.independent || !trimClip2?.linkedClipIds) ? new Set<string>() : new Set<string>(trimClip2.linkedClipIds)
             setters.setClips(prev => prev.map(cl => {
-              if (cl.id !== trimId2) return cl
+              if (cl.id !== trimId2 && !linkedIds2.has(cl.id)) return cl
               if (trimEdge2 === 'left') {
                 const newStart = cl.startTime + FRAME_DURATION
                 const newDur = cl.duration - FRAME_DURATION
