@@ -4777,6 +4777,8 @@ export function VideoEditor() {
         tracks={tracks}
         timeline={activeTimeline}
         projectName={currentProject?.name || 'Untitled'}
+        inPoint={inPoint}
+        outPoint={outPoint}
       />
       
       <ImportTimelineModal

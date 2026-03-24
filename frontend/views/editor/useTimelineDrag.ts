@@ -808,9 +808,15 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
         }
       }
 
-      const newTrimStart = resizingClip.originalTrimStart + (newStartTime - resizingClip.originalStartTime)
+      let newTrimStart = resizingClip.originalTrimStart + (newStartTime - resizingClip.originalStartTime)
       const maxDur = getMaxClipDuration({ ...clip, trimStart: Math.max(0, newTrimStart) })
-      newDuration = Math.min(newDuration, maxDur)
+      if (newDuration > maxDur) {
+        // Clamp: don't let the clip move when trim hits the media boundary
+        const excess = newDuration - maxDur
+        newDuration = maxDur
+        newStartTime += excess
+        newTrimStart = resizingClip.originalTrimStart + (newStartTime - resizingClip.originalStartTime)
+      }
 
       // Build set of linked clip IDs to also trim (skip if Ctrl-resizing independently)
       const linkedIds = resizingClip.independentResize ? new Set<string>() : new Set<string>(clip.linkedClipIds || [])

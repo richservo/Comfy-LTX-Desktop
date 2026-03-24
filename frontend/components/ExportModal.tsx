@@ -11,6 +11,8 @@ interface ExportModalProps {
   tracks: Track[]
   timeline: Timeline | null
   projectName: string
+  inPoint?: number | null
+  outPoint?: number | null
 }
 
 type ExportStatus = 'idle' | 'exporting' | 'done' | 'error'
@@ -142,7 +144,7 @@ function escapeXml(str: string): string {
     .replace(/'/g, '&apos;')
 }
 
-export function ExportModal({ open, onClose, clips, tracks, timeline, projectName }: ExportModalProps) {
+export function ExportModal({ open, onClose, clips, tracks, timeline, projectName, inPoint, outPoint }: ExportModalProps) {
   const [exportStatus, setExportStatus] = useState<ExportStatus>('idle')
   const [exportType, setExportType] = useState<'package' | 'video' | null>(null)
   const [exportProgress, setExportProgress] = useState(0)
@@ -266,32 +268,66 @@ export function ExportModal({ open, onClose, clips, tracks, timeline, projectNam
         return
       }
 
+      // Determine export range from in/out points
+      const rangeStart = (inPoint != null && outPoint != null) ? Math.min(inPoint, outPoint) : 0
+      const rangeEnd = (inPoint != null && outPoint != null) ? Math.max(inPoint, outPoint) : Infinity
+
       // Build clip data for ffmpeg native export (video/image + audio clips)
+      // When in/out points are set, trim clips to the export range
       const exportClips = clips
         .filter(c => c.type === 'video' || c.type === 'image' || c.type === 'audio')
         .filter(c => tracks[c.trackIndex]?.enabled !== false)
-        .map(c => ({
-          url: c.asset?.url || c.importedUrl || '',
-          type: c.type as string,
-          startTime: c.startTime,
-          duration: c.duration,
-          trimStart: c.trimStart,
-          speed: c.speed || 1,
-          reversed: c.reversed || false,
-          flipH: c.flipH || false,
-          flipV: c.flipV || false,
-          opacity: c.opacity ?? 100,
-          trackIndex: c.trackIndex,
-          muted: c.muted || false,
-          volume: c.volume ?? 1,
-        }))
+        .filter(c => {
+          // Filter out clips completely outside the export range
+          const clipEnd = c.startTime + c.duration
+          return clipEnd > rangeStart && c.startTime < rangeEnd
+        })
+        .map(c => {
+          // Trim clip to fit within the export range
+          let startTime = c.startTime
+          let duration = c.duration
+          let trimStart = c.trimStart
+          if (startTime < rangeStart) {
+            const trimAmount = rangeStart - startTime
+            trimStart += trimAmount * (c.speed || 1)
+            duration -= trimAmount
+            startTime = rangeStart
+          }
+          if (startTime + duration > rangeEnd) {
+            duration = rangeEnd - startTime
+          }
+          // Shift startTime so export begins at 0
+          startTime -= rangeStart
+          return {
+            url: c.asset?.url || c.importedUrl || '',
+            type: c.type as string,
+            startTime,
+            duration,
+            trimStart,
+            speed: c.speed || 1,
+            reversed: c.reversed || false,
+            flipH: c.flipH || false,
+            flipV: c.flipV || false,
+            opacity: c.opacity ?? 100,
+            trackIndex: c.trackIndex,
+            muted: c.muted || false,
+            volume: c.volume ?? 1,
+          }
+        })
 
-      // Compute subtitle data for burn-in
-      const subtitleData = (burnSubtitles && timeline.subtitles) ? timeline.subtitles.map(sub => {
-        const track = tracks[sub.trackIndex]
-        const style = { ...DEFAULT_SUBTITLE_STYLE, ...(track?.subtitleStyle || {}), ...sub.style }
-        return { text: sub.text, startTime: sub.startTime, endTime: sub.endTime, style }
-      }) : []
+      // Compute subtitle data for burn-in (shifted to export range)
+      const subtitleData = (burnSubtitles && timeline.subtitles) ? timeline.subtitles
+        .filter(sub => sub.endTime > rangeStart && sub.startTime < rangeEnd)
+        .map(sub => {
+          const track = tracks[sub.trackIndex]
+          const style = { ...DEFAULT_SUBTITLE_STYLE, ...(track?.subtitleStyle || {}), ...sub.style }
+          return {
+            text: sub.text,
+            startTime: Math.max(0, sub.startTime - rangeStart),
+            endTime: Math.min(rangeEnd - rangeStart, sub.endTime - rangeStart),
+            style,
+          }
+        }) : []
 
       setExportFrameInfo('Starting ffmpeg...')
 
@@ -472,6 +508,16 @@ export function ExportModal({ open, onClose, clips, tracks, timeline, projectNam
                   <Download className="h-4 w-4 text-zinc-500 group-hover:text-zinc-300 transition-colors ml-1" />
                 </div>
               </button>
+
+              {/* In/Out range indicator */}
+              {inPoint != null && outPoint != null && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/30">
+                  <span className="text-[10px] text-blue-400 font-semibold uppercase tracking-wider">Range</span>
+                  <span className="text-xs text-blue-300">
+                    {Math.min(inPoint, outPoint).toFixed(2)}s — {Math.max(inPoint, outPoint).toFixed(2)}s
+                  </span>
+                </div>
+              )}
 
               {/* Divider */}
               <div className="flex items-center gap-3">

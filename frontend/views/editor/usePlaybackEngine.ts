@@ -655,6 +655,14 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       setCurrentTime(playbackTimeRef.current)
       setPlaybackActiveClipId(null)
       rafActiveClipIdRef.current = null
+      // Pause ALL video elements in the pool so they don't keep playing natively
+      for (const [, video] of videoPoolRef.current) {
+        if (!video.paused) video.pause()
+      }
+      // Remove 'hidden' class that rAF may have added to the pool container
+      // (React will re-apply correct visibility on next render via className)
+      const poolEl = document.getElementById('video-pool-container')
+      if (poolEl) poolEl.classList.remove('hidden')
       // Kill the AudioContext entirely to guarantee silence
       killAudioCtx()
     }
@@ -838,10 +846,11 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         oldVid.style.zIndex = '0'
         oldVid.pause()
       }
-      video.style.opacity = '1'
-      video.style.zIndex = '1'
       activePoolSrcRef.current = clipSrc
     }
+    // Always ensure the active video is visible (may have been hidden after playback stop)
+    video.style.opacity = '1'
+    video.style.zIndex = '1'
 
     if (!crossDissolveState) {
       ;(previewVideoRef as React.MutableRefObject<HTMLVideoElement | null>).current = video
@@ -880,10 +889,8 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         }
       } else {
         video.playbackRate = syncClip.speed
-        if (!isNaN(targetTime) && (forceSeek || Math.abs(video.currentTime - targetTime) > 0.3)) {
-          if (forceSeek && Math.abs(video.currentTime - targetTime) < 0.001) {
-            video.currentTime = targetTime + 0.001
-          }
+        // During scrub (not playing), always seek to exact frame position
+        if (!isNaN(targetTime) && Math.abs(video.currentTime - targetTime) > 0.04) {
           video.currentTime = targetTime
         }
         if (!video.paused) video.pause()
