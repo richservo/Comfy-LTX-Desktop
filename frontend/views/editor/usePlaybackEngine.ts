@@ -392,7 +392,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
           const outVid = pool.get(outSrc)
           if (outVid) {
             const container = document.getElementById('video-pool-container')
-            if (container && !outVid.parentElement) container.appendChild(outVid)
+            if (container && outVid.parentElement !== container) container.appendChild(outVid)
             if (outSrc !== activePoolSrcRef.current) {
               const oldVid = pool.get(activePoolSrcRef.current)
               if (oldVid) { oldVid.style.opacity = '0'; oldVid.style.zIndex = '0'; oldVid.pause() }
@@ -472,7 +472,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
 
           if (video) {
             const container = document.getElementById('video-pool-container')
-            if (container && !video.parentElement) container.appendChild(video)
+            if (container && video.parentElement !== container) container.appendChild(video)
           }
 
           if (clipSrc !== activePoolSrcRef.current) {
@@ -723,6 +723,12 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         video.load()
         pool.set(src, video)
         if (container) container.appendChild(video)
+      } else if (container) {
+        // Re-parent video if its container changed (e.g. source monitor toggled)
+        const video = pool.get(src)!
+        if (video.parentElement !== container) {
+          container.appendChild(video)
+        }
       }
     }
 
@@ -834,7 +840,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     }
 
     const container = document.getElementById('video-pool-container')
-    if (container && !video.parentElement) {
+    if (container && video.parentElement !== container) {
       container.appendChild(video)
     }
 
@@ -904,7 +910,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       video.addEventListener('loadeddata', onLoaded, { once: true })
       if (container) {
         for (const [, v] of pool) {
-          if (!v.parentElement) container.appendChild(v)
+          if (v.parentElement !== container) container.appendChild(v)
         }
       }
       ;(video as any).__syncOnLoad = onLoaded
