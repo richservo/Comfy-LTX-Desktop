@@ -51,8 +51,11 @@ function generateFCPXML(
   tracks: Track[],
   projectName: string,
   timelineName: string,
-  fps: number = 24
+  fps: number = 24,
+  resolution?: { width: number; height: number },
 ): string {
+  const resWidth = resolution?.width ?? 1920
+  const resHeight = resolution?.height ?? 1080
   const frameDuration = `${Math.round(100 * fps)}/${100 * fps}s`
   const totalDuration = clips.reduce((max, c) => Math.max(max, c.startTime + c.duration), 0)
   const totalFrames = Math.ceil(totalDuration * fps)
@@ -113,7 +116,7 @@ function generateFCPXML(
 <!DOCTYPE fcpxml>
 <fcpxml version="1.10">
   <resources>
-    <format id="r1" name="FFVideoFormat${fps === 24 ? '1080p2398' : '1080p' + fps}" frameDuration="${frameDuration}" width="1920" height="1080" />
+    <format id="r1" name="FFVideoFormat${fps === 24 ? '1080p2398' : '1080p' + fps}" frameDuration="${frameDuration}" width="${resWidth}" height="${resHeight}" />
 ${assetEntries.join('\n')}
   </resources>
   <library>
@@ -148,12 +151,12 @@ export function ExportModal({ open, onClose, clips, tracks, timeline, projectNam
   const [exportFrameInfo, setExportFrameInfo] = useState('')
   const abortRef = useRef(false)
 
-  // Export settings
+  // Export settings — default to timeline resolution/fps if available
   const [settings, setSettings] = useState<ExportSettings>({
     codec: 'h264',
-    width: 1920,
-    height: 1080,
-    fps: 24,
+    width: timeline?.resolution?.width ?? 1920,
+    height: timeline?.resolution?.height ?? 1080,
+    fps: timeline?.fps ?? 24,
     quality: 18, // CRF 18 for h264
   })
   const [burnSubtitles, setBurnSubtitles] = useState(true)
@@ -181,8 +184,15 @@ export function ExportModal({ open, onClose, clips, tracks, timeline, projectNam
       setExportPath(null)
       setExportFrameInfo('')
       abortRef.current = false
+      // Reset resolution/fps to current timeline values
+      setSettings(prev => ({
+        ...prev,
+        width: timeline?.resolution?.width ?? 1920,
+        height: timeline?.resolution?.height ?? 1080,
+        fps: timeline?.fps ?? 24,
+      }))
     }
-  }, [open])
+  }, [open, timeline])
 
   // Update quality default when codec changes
   const handleCodecChange = useCallback((codec: ExportCodec) => {
@@ -215,7 +225,7 @@ export function ExportModal({ open, onClose, clips, tracks, timeline, projectNam
       }
 
       setExportProgress(50)
-      const xml = generateFCPXML(clips, tracks, projectName, timeline.name)
+      const xml = generateFCPXML(clips, tracks, projectName, timeline.name, timeline.fps ?? 24, timeline.resolution)
       const result = await window.electronAPI?.saveFile(filePath, xml)
       if (result?.success) {
         setExportProgress(100)

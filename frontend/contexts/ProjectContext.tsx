@@ -38,7 +38,7 @@ interface ProjectContextType {
   renameTimeline: (projectId: string, timelineId: string, name: string) => void
   duplicateTimeline: (projectId: string, timelineId: string) => Timeline | null
   setActiveTimeline: (projectId: string, timelineId: string) => void
-  updateTimeline: (projectId: string, timelineId: string, updates: Partial<Pick<Timeline, 'tracks' | 'clips' | 'subtitles' | 'inferenceStacks' | 'markers'>>) => void
+  updateTimeline: (projectId: string, timelineId: string, updates: Partial<Pick<Timeline, 'tracks' | 'clips' | 'subtitles' | 'inferenceStacks' | 'markers' | 'resolution' | 'fps'>>) => void
   getActiveTimeline: (projectId: string) => Timeline | null
   
   // Navigation helpers
@@ -385,8 +385,8 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
         const filename = va.path.replace(/\\/g, '/').split('/').pop() || ''
         const existing = existingByFilename.get(filename)
         if (existing) {
-          // Update path/url but keep id, createdAt, favorite
-          return { ...existing, path: va.path, url: va.url }
+          // Update path/url/prompt but keep id, createdAt, favorite
+          return { ...existing, path: va.path, url: va.url, prompt: va.prompt, generationParams: va.generationParams ?? existing.generationParams }
         }
         return {
           ...va,
@@ -495,7 +495,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     ))
   }, [])
   
-  const updateTimeline = useCallback((projectId: string, timelineId: string, updates: Partial<Pick<Timeline, 'tracks' | 'clips' | 'subtitles' | 'inferenceStacks' | 'markers'>>) => {
+  const updateTimeline = useCallback((projectId: string, timelineId: string, updates: Partial<Pick<Timeline, 'tracks' | 'clips' | 'subtitles' | 'inferenceStacks' | 'markers' | 'resolution' | 'fps'>>) => {
     setProjects(prev => prev.map(p => 
       p.id === projectId 
         ? {

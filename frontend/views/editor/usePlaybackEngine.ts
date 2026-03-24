@@ -332,7 +332,10 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       if (c.type === 'adjustment' || c.type === 'text' || c.type === 'image') continue
       if (currentTime < c.startTime || currentTime >= c.startTime + c.duration) continue
       if (trks[c.trackIndex]?.enabled === false) continue
+      // Skip video clips that have no audio (no linked audio clip = no embedded audio to play)
       if (c.type === 'video' && (!c.linkedClipIds || !c.linkedClipIds.some(lid => allClips.some(ac => ac.id === lid && ac.type === 'audio')))) continue
+      // Skip audio clips that are linked to a video clip — the video clip plays the audio
+      if (c.type === 'audio' && c.linkedClipIds?.some(lid => allClips.some(vc => vc.id === lid && vc.type === 'video'))) continue
       const mt = getMediaTime(c, currentTime)
       startAudioForClip(c, mt)
     }
@@ -452,7 +455,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
             v.preload = 'auto'
             v.playsInline = true
             v.muted = true
-            v.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;opacity:0;z-index:0;'
+            v.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;z-index:0;'
             v.src = inSrc
             v.load()
             pool.set(inSrc, v)
@@ -578,6 +581,8 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
           if (next < c.startTime || next >= c.startTime + c.duration) continue
           if (trks[c.trackIndex]?.enabled === false) continue
           if (c.type === 'video' && (!c.linkedClipIds || !c.linkedClipIds.some(lid => allClips.some(ac => ac.id === lid && ac.type === 'audio')))) continue
+          // Skip audio clips that are linked to a video clip — the video clip plays the audio
+          if (c.type === 'audio' && c.linkedClipIds?.some(lid => allClips.some(vc => vc.id === lid && vc.type === 'video'))) continue
           activeAudioIds.add(c.id)
         }
 
@@ -705,7 +710,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         video.preload = 'auto'
         video.playsInline = true
         video.muted = true
-        video.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;opacity:0;z-index:0;pointer-events:none;'
+        video.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;z-index:0;pointer-events:none;'
         video.src = src
         video.load()
         pool.set(src, video)
@@ -814,7 +819,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       video.preload = 'auto'
       video.playsInline = true
       video.muted = true
-      video.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;opacity:0;z-index:0;'
+      video.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;z-index:0;'
       video.src = clipSrc
       video.load()
       pool.set(clipSrc, video)
@@ -922,6 +927,8 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       if (currentTime < clip.startTime || currentTime >= clip.startTime + clip.duration) continue
       if (trks[clip.trackIndex]?.enabled === false) continue
       if (clip.type === 'video' && (!clip.linkedClipIds || !clip.linkedClipIds.some(lid => clips.some(ac => ac.id === lid && ac.type === 'audio')))) continue
+      // Skip audio clips that are linked to a video clip — the video clip plays the audio
+      if (clip.type === 'audio' && clip.linkedClipIds?.some(lid => clips.some(vc => vc.id === lid && vc.type === 'video'))) continue
 
       const trackObj = trks[clip.trackIndex]
       const isSoloMuted = anySoloed && !trackObj?.solo

@@ -31,6 +31,7 @@ export interface UseInferenceStacksParams {
   regenError: string | null
   assetSavePath: string | undefined | null
   projectName?: string
+  projectGenerationSettings?: GenerationSettings
 }
 
 export function useInferenceStacks(params: UseInferenceStacksParams) {
@@ -42,7 +43,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     regenGenerate, regenVideoUrl, regenVideoPath,
     isRegenerating, regenProgress, regenStatusMessage,
     regenCancel, regenReset, regenError,
-    assetSavePath, projectName,
+    assetSavePath, projectName, projectGenerationSettings,
   } = params
 
   // Which stack is currently being rendered
@@ -67,17 +68,19 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
       clipIds,
       prompt: '',
       settings: {
-        model: 'fast',
-        duration: 5,
-        videoResolution: '540p',
-        fps: 24,
-        audio: true,
-        cameraMotion: 'none',
-        imageResolution: '1080p',
-        imageAspectRatio: '16:9',
-        imageSteps: 30,
+        ...(projectGenerationSettings ?? {
+          model: 'fast',
+          duration: 5,
+          videoResolution: '540p',
+          fps: 24,
+          audio: true,
+          cameraMotion: 'none',
+          imageResolution: '1080p',
+          imageAspectRatio: '16:9',
+          imageSteps: 30,
+        }),
       },
-      strengths: { first: 1, middle: 1, last: 1 },
+      strengths: { first: 0.7, middle: 0.7, last: 0.7 },
       renderState: 'pending',
       createdAt: Date.now(),
     }
@@ -101,7 +104,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     setInferenceStacks(prev => [...prev, newStack])
     setActiveStackId(stackId)
     return newStack
-  }, [clips, setClips, setInferenceStacks])
+  }, [clips, setClips, setInferenceStacks, projectGenerationSettings])
 
   const updateStack = useCallback((stackId: string, updates: Partial<InferenceStack>) => {
     setInferenceStacks(prev => prev.map(s =>
@@ -204,7 +207,14 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     const stackClips = getStackClips(stack, clips)
     const imageClips = stackClips.filter(c => c.type === 'image').sort((a, b) => a.startTime - b.startTime)
     const imageCount = imageClips.length
-    const useGuideVideo = imageCount >= 3 || (imageCount === 2 && stack.guideMode === 'guide-video')
+    const useGuideVideo = imageCount >= 3
+
+    // Compute handle durations in seconds
+    const fps = stack.settings.fps
+    const headHandleFrames = stack.headHandles ?? 0
+    const tailHandleFrames = stack.tailHandles ?? 0
+    const headSeconds = headHandleFrames / fps
+    const tailSeconds = tailHandleFrames / fps
 
     // Resolve source paths — try from clips first, fall back to stored sourcePaths
     let firstImagePath: string | null = null
@@ -222,8 +232,8 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
       // --- Guide video mode ---
       const stackStart = imageClips[0].startTime
       const duration = getStackDuration(stack, clips)
-      const fps = stack.settings.fps
-      const totalFrames = Math.round(duration * fps) + 1
+      // Total frames includes handles
+      const totalFrames = Math.round((duration + headSeconds + tailSeconds) * fps) + 1
 
       // Resolve all image paths and compute frame indices
       const guideImages: { path: string; startFrame: number; endFrame: number }[] = []
@@ -235,9 +245,9 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
         const imgPath = fileUrlToPath(url)
         if (!imgPath) continue
 
-        const startFrame = Math.round((clip.startTime - stackStart) * fps)
+        const startFrame = headHandleFrames + Math.round((clip.startTime - stackStart) * fps)
         const endFrame = i < imageClips.length - 1
-          ? Math.round((imageClips[i + 1].startTime - stackStart) * fps)
+          ? headHandleFrames + Math.round((imageClips[i + 1].startTime - stackStart) * fps)
           : totalFrames
         guideImages.push({ path: imgPath, startFrame, endFrame })
         frameIndices.push(startFrame)
@@ -304,9 +314,10 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
       }
     }
 
-    // Extract audio if present — pad to full stack duration with silence
+    // Extract audio if present — include handles, pad with silence where needed
     const audioClip = stackClips.find(c => c.type === 'audio')
-    const fullStackDuration = getStackDuration(stack, clips)
+    const baseStackDuration = getStackDuration(stack, clips)
+    const fullDurationWithHandles = baseStackDuration + headSeconds + tailSeconds
 
     let audioPath: string | null = null
     if (audioClip) {
@@ -315,20 +326,25 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
       audioSourcePath = fileUrlToPath(audioUrl)
       if (audioSourcePath) {
         try {
-          // Extract the audio segment, then pad to full stack duration if needed
+          // Extract audio including handle regions from the source if available
+          const extractStart = Math.max(0, audioClip.trimStart - headSeconds)
+          const extractDuration = audioClip.duration + headSeconds + tailSeconds
           const rawAudioPath = await window.electronAPI.extractAudioSegment({
             sourcePath: audioSourcePath,
-            startTime: audioClip.trimStart,
-            duration: audioClip.duration,
+            startTime: extractStart,
+            duration: extractDuration,
           })
-          if (fullStackDuration > audioClip.duration + 0.1) {
-            // Pad with silence to match full stack span
+          // Pad to full duration with handles if extracted audio is shorter
+          if (fullDurationWithHandles > extractDuration + 0.1) {
             audioPath = await window.electronAPI.padAudioToLength({
               sourcePath: rawAudioPath,
-              targetDuration: fullStackDuration,
+              targetDuration: fullDurationWithHandles,
             })
           } else {
-            audioPath = rawAudioPath
+            audioPath = await window.electronAPI.padAudioToLength({
+              sourcePath: rawAudioPath,
+              targetDuration: fullDurationWithHandles,
+            })
           }
         } catch (err) {
           logger.error(`Stack render: audio extraction failed: ${err}`)
@@ -343,7 +359,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
         audioPath = await window.electronAPI.extractAudioSegment({
           sourcePath: audioSourcePath,
           startTime: 0,
-          duration: fullStackDuration,
+          duration: fullDurationWithHandles,
         })
       } catch (err) {
         logger.error(`Stack render: stored audio extraction failed: ${err}`)
@@ -359,8 +375,9 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
       guideVideo: guideVideoPath ?? stack.sourcePaths?.guideVideo,
     }
 
-    // Compute duration
-    const duration = getStackDuration(stack, clips)
+    // Compute duration (visible stack duration + handles for generation)
+    const visibleDuration = getStackDuration(stack, clips)
+    const duration = visibleDuration + headSeconds + tailSeconds
 
     // Build settings — force temporalUpscale off when middle frame is used
     const hasMiddle = !!(middleImagePath || stack.sourcePaths?.middleImage)
@@ -429,7 +446,13 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
           regenVideoPath || regenVideoUrl, regenVideoUrl, assetSavePath
         )
 
-        const duration = getStackDuration(stack, clips)
+        const visibleDuration = getStackDuration(stack, clips)
+
+        // Compute handle durations
+        const stackFps = stack.settings.fps
+        const headSec = (stack.headHandles ?? 0) / stackFps
+        const tailSec = (stack.tailHandles ?? 0) / stackFps
+        const fullDuration = visibleDuration + headSec + tailSec
 
         // Find stack clips by inferenceStackId (survives splits)
         const currentStackClips = getStackClips(stack, clips)
@@ -456,8 +479,10 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
               const liveAsset = assets.find(a => a.id === stack.renderedAssetId)
               return {
                 ...c,
-                duration,
-                asset: liveAsset ? { ...liveAsset, url: finalUrl, path: finalPath } : c.asset,
+                duration: visibleDuration,
+                trimStart: headSec,
+                trimEnd: tailSec,
+                asset: liveAsset ? { ...liveAsset, url: finalUrl, path: finalPath, duration: fullDuration } : c.asset,
               }
             }
             return c
@@ -472,7 +497,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
             url: finalUrl,
             prompt: stack.prompt,
             resolution: stack.settings.videoResolution,
-            duration,
+            duration: fullDuration,
             generationParams: {
               mode: 'image-to-video',
               prompt: stack.prompt,
@@ -521,9 +546,9 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
               assetId: asset.id,
               type: 'video',
               startTime: firstClip.startTime,
-              duration,
-              trimStart: 0,
-              trimEnd: 0,
+              duration: visibleDuration,
+              trimStart: headSec,
+              trimEnd: tailSec,
               speed: 1,
               reversed: false,
               muted: false,
@@ -549,9 +574,9 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
                 assetId: asset.id,
                 type: 'audio',
                 startTime: firstClip.startTime,
-                duration,
-                trimStart: 0,
-                trimEnd: 0,
+                duration: visibleDuration,
+                trimStart: headSec,
+                trimEnd: tailSec,
                 speed: 1,
                 reversed: false,
                 muted: false,
@@ -652,39 +677,74 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     }
 
     const renderedId = stack.renderedClipId
-    const originalClipIds = new Set(stack.clipIds)
 
     setClips(prev => {
-      // IDs to remove: rendered clip + any audio clips linked to it that belong to this stack
+      // Identify rendered clip and any audio clips linked to it that were created by this stack
       const removeIds = new Set<string>()
       if (renderedId) removeIds.add(renderedId)
       const renderedClip = prev.find(c => c.id === renderedId)
       if (renderedClip?.linkedClipIds) {
         for (const lid of renderedClip.linkedClipIds) {
           const linked = prev.find(c => c.id === lid)
-          if (linked?.inferenceStackId === stackId) removeIds.add(lid)
+          // Only remove linked clips that were created by this stack (have matching inferenceStackId)
+          // and are NOT original source clips (not in stack.clipIds)
+          if (linked?.inferenceStackId === stackId && !stack.clipIds.includes(lid)) {
+            removeIds.add(lid)
+          }
         }
       }
 
-      // Un-hide ALL clips that belong to this stack (by tag or by original ID) and aren't being removed
+      logger.info(`[revertStack] stack=${stackId} removing=${[...removeIds].join(',')} unhiding all tagged clips`)
+
+      // Remove rendered clips, un-hide ALL source clips belonging to this stack
       return prev
         .filter(c => !removeIds.has(c.id))
         .map(c => {
-          if (removeIds.has(c.id)) return c
-          if (c.inferenceStackId === stackId || originalClipIds.has(c.id)) {
+          // Un-hide any clip tagged with this stack (by inferenceStackId or original clipIds)
+          if (c.inferenceStackId === stackId || stack.clipIds.includes(c.id)) {
             return { ...c, hiddenByStack: false }
           }
           return c
         })
     })
 
-    // Reset stack state
+    // Reset stack state — keep clipIds and sourcePaths so it can be re-rendered
     updateStack(stackId, {
       renderState: 'pending',
       renderedClipId: undefined,
       renderedAssetId: undefined,
     })
   }, [setClips, updateStack])
+
+  // Break stack: untag all clips, remove rendered clip, remove the stack entirely
+  const breakStack = useCallback((stackId: string) => {
+    const stack = inferenceStacksRef.current.find(s => s.id === stackId)
+    if (!stack) return
+
+    // If rendered, revert first (removes rendered clip, un-hides sources)
+    if (stack.renderedClipId) {
+      revertStack(stackId)
+    }
+
+    // Untag all clips and remove inter-stack links
+    setClips(prev => {
+      const stackClipIds = new Set(prev.filter(c => c.inferenceStackId === stackId).map(c => c.id))
+      return prev.map(c => {
+        if (!stackClipIds.has(c.id)) return c
+        const remaining = (c.linkedClipIds || []).filter(lid => !stackClipIds.has(lid))
+        return {
+          ...c,
+          inferenceStackId: undefined,
+          hiddenByStack: undefined,
+          linkedClipIds: remaining.length ? remaining : undefined,
+        }
+      })
+    })
+
+    setInferenceStacks(prev => prev.filter(s => s.id !== stackId))
+    setBatchQueue(prev => prev.filter(id => id !== stackId))
+    if (activeStackId === stackId) setActiveStackId(null)
+  }, [setClips, setInferenceStacks, activeStackId, revertStack])
 
   return {
     // State
@@ -701,6 +761,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     updateStack,
     deleteStack,
     removeClipFromStack,
+    breakStack,
     revertStack,
     renderStack,
     renderAllStacks,

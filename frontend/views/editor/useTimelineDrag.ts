@@ -339,6 +339,9 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
           effectiveSelection = new Set([clip.id])
           setSelectedClipIds(effectiveSelection)
         }
+      } else if (selectedClipIds.has(clip.id)) {
+        // Click on already-selected clip: preserve multi-selection for dragging
+        effectiveSelection = selectedClipIds
       } else {
         // Normal click: select this clip + its linked clips
         effectiveSelection = expandWithLinkedClips(new Set([clip.id]))
@@ -430,37 +433,48 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
     let newStartTime = draggingClip.originalStartTime + deltaX / pixelsPerSecond
     newStartTime = Math.max(0, newStartTime)
     
-    // Snap the primary clip (skip other clips in the drag group for snapping)
+    // Snap all dragged clips against non-dragged clips, playhead, and markers.
+    // We compute the time delta, then check every dragged clip's edges for snaps.
     const origPositions = draggingClip.originalPositions
     if (snapEnabled) {
       const snapThreshold = SNAP_THRESHOLD
+      let timeDeltaSnap = newStartTime - draggingClip.originalStartTime
+      let bestSnapDist = Infinity
+
+      // Collect all dragged clips' original edges (start and end)
+      const draggedEdges: { origTime: number }[] = []
+      for (const [clipId, orig] of Object.entries(origPositions)) {
+        const c = clips.find(cc => cc.id === clipId)
+        if (!c) continue
+        draggedEdges.push({ origTime: orig.startTime })
+        draggedEdges.push({ origTime: orig.startTime + c.duration })
+      }
+
+      // Check each dragged edge against each snap target
+      const snapTargets: number[] = [currentTime]
       for (const otherClip of clips) {
-        if (origPositions[otherClip.id]) continue // skip clips in the drag group
-        
-        if (Math.abs(newStartTime - otherClip.startTime) < snapThreshold) {
-          newStartTime = otherClip.startTime
-        }
-        const otherEnd = otherClip.startTime + otherClip.duration
-        if (Math.abs(newStartTime - otherEnd) < snapThreshold) {
-          newStartTime = otherEnd
-        }
-        const clipEnd = newStartTime + primaryClip.duration
-        if (Math.abs(clipEnd - otherClip.startTime) < snapThreshold) {
-          newStartTime = otherClip.startTime - primaryClip.duration
-        }
+        if (origPositions[otherClip.id]) continue
+        snapTargets.push(otherClip.startTime)
+        snapTargets.push(otherClip.startTime + otherClip.duration)
       }
-      if (Math.abs(newStartTime - currentTime) < snapThreshold) {
-        newStartTime = currentTime
-      }
-      if (Math.abs(newStartTime + primaryClip.duration - currentTime) < snapThreshold) {
-        newStartTime = currentTime - primaryClip.duration
-      }
-      // Snap to markers
       for (const m of markers) {
-        if (Math.abs(newStartTime - m.time) < snapThreshold) newStartTime = m.time
-        const clipEnd = newStartTime + primaryClip.duration
-        if (Math.abs(clipEnd - m.time) < snapThreshold) newStartTime = m.time - primaryClip.duration
+        snapTargets.push(m.time)
       }
+
+      for (const edge of draggedEdges) {
+        const movedEdge = edge.origTime + timeDeltaSnap
+        for (const target of snapTargets) {
+          const dist = Math.abs(movedEdge - target)
+          if (dist < snapThreshold && dist < bestSnapDist) {
+            bestSnapDist = dist
+            // Adjust so this edge lands exactly on the target
+            timeDeltaSnap = target - edge.origTime
+          }
+        }
+      }
+
+      newStartTime = draggingClip.originalStartTime + timeDeltaSnap
+      newStartTime = Math.max(0, newStartTime)
     }
 
     // Use average track height for drag delta computation
@@ -596,6 +610,19 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
       lassoOriginRef.current = null
     }
     
+    // Click-without-drag on a clip in a multi-selection: deselect to just that clip
+    if (draggingClip && e instanceof MouseEvent) {
+      const dx = e.clientX - draggingClip.startX
+      const dy = e.clientY - draggingClip.startY
+      const didDrag = Math.abs(dx) > 3 || Math.abs(dy) > 3
+      if (!didDrag && !e.shiftKey && !e.altKey && selectedClipIds.size > 1 && selectedClipIds.has(draggingClip.clipId)) {
+        const clickedClip = clips.find(c => c.id === draggingClip.clipId)
+        if (clickedClip) {
+          setSelectedClipIds(expandWithLinkedClips(new Set([clickedClip.id])))
+        }
+      }
+    }
+
     // Resolve overlaps after drag or resize completes.
     // Skip if it was an Alt+click with no actual drag (altHeld still true = duplicates never created).
     if (draggingClip && !draggingClip.altHeld) {
@@ -608,7 +635,7 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
     
     setDraggingClip(null)
     setResizingClip(null)
-  }, [lassoRect, clips, pixelsPerSecond, draggingClip, resizingClip])
+  }, [lassoRect, clips, pixelsPerSecond, draggingClip, resizingClip, selectedClipIds, expandWithLinkedClips])
   
   const handleResizeMove = useCallback((e: MouseEvent) => {
     if (!resizingClip) return

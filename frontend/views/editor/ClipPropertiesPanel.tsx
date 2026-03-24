@@ -692,7 +692,14 @@ export function ClipPropertiesPanel(props: ClipPropertiesPanelProps) {
             max={1}
             step={0.1}
             value={selectedClip.muted ? 0 : selectedClip.volume}
-            onChange={(e) => updateClip(selectedClip.id, { volume: parseFloat(e.target.value), muted: false })}
+            onChange={(e) => {
+              const vol = parseFloat(e.target.value)
+              updateClip(selectedClip.id, { volume: vol, muted: false })
+              // Propagate volume to linked clips (so audio stays in sync when video plays the audio)
+              if (selectedClip.linkedClipIds) {
+                for (const lid of selectedClip.linkedClipIds) updateClip(lid, { volume: vol, muted: false })
+              }
+            }}
             className="w-full"
           />
           <div className="flex justify-between text-[10px] text-zinc-500 mt-1">
@@ -716,7 +723,13 @@ export function ClipPropertiesPanel(props: ClipPropertiesPanelProps) {
             <input
               type="checkbox"
               checked={selectedClip.muted}
-              onChange={(e) => updateClip(selectedClip.id, { muted: e.target.checked })}
+              onChange={(e) => {
+                const muted = e.target.checked
+                updateClip(selectedClip.id, { muted })
+                if (selectedClip.linkedClipIds) {
+                  for (const lid of selectedClip.linkedClipIds) updateClip(lid, { muted })
+                }
+              }}
               className="rounded bg-zinc-800 border-zinc-600"
             />
             <span className="text-sm text-zinc-300">Mute audio</span>

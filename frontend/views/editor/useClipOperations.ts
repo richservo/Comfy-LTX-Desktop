@@ -111,7 +111,8 @@ export function useClipOperations(params: UseClipOperationsParams) {
       )
     }
 
-    const clipDuration = asset.duration || (isAdjustment ? 10 : 5)
+    const clipDuration = (asset.duration && isFinite(asset.duration) && asset.duration > 0)
+      ? asset.duration : (isAdjustment ? 10 : 5)
     const videoClipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
     const audioClipId = `clip-${Date.now()}-a-${Math.random().toString(36).substr(2, 9)}`
 
@@ -316,9 +317,14 @@ export function useClipOperations(params: UseClipOperationsParams) {
   const getMediaDuration = (url: string, isAudio = false): Promise<number> => {
     return new Promise((resolve) => {
       const media = document.createElement(isAudio ? 'audio' : 'video')
+      const timeout = setTimeout(() => { media.src = ''; resolve(5) }, 10000)
       media.src = url
-      media.onloadedmetadata = () => resolve(media.duration)
-      media.onerror = () => resolve(5)
+      media.onloadedmetadata = () => {
+        clearTimeout(timeout)
+        const d = media.duration
+        resolve(d && isFinite(d) && d > 0 ? d : 5)
+      }
+      media.onerror = () => { clearTimeout(timeout); resolve(5) }
     })
   }
 
@@ -785,9 +791,9 @@ export function useClipOperations(params: UseClipOperationsParams) {
     
     const xmlContent = exportFcp7Xml({
       name: activeTimeline.name,
-      fps: 24,
-      width: 1920,
-      height: 1080,
+      fps: activeTimeline.fps ?? 24,
+      width: activeTimeline.resolution?.width ?? 1920,
+      height: activeTimeline.resolution?.height ?? 1080,
       clips: exportClips,
     })
     

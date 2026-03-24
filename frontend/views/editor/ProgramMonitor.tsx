@@ -250,7 +250,7 @@ export function ProgramMonitor({
                           key={`comp-${lowerClip.id}`}
                           src={lowerSrc}
                           alt=""
-                          className="absolute inset-0 w-full h-full object-contain pointer-events-none z-[1]"
+                          className="absolute inset-0 w-full h-full object-cover pointer-events-none z-[1]"
                           style={lowerStyles}
                         />
                       )
@@ -262,7 +262,7 @@ export function ProgramMonitor({
                         key={`comp-${lowerClip.id}`}
                         id={`comp-video-${lowerClip.id}`}
                         src={lowerSrc}
-                        className="absolute inset-0 w-full h-full object-contain pointer-events-none z-[1]"
+                        className="absolute inset-0 w-full h-full object-cover pointer-events-none z-[1]"
                         style={lowerStyles}
                         muted
                         playsInline
@@ -320,7 +320,7 @@ export function ProgramMonitor({
                       ref={previewImageRef as React.RefObject<HTMLImageElement>}
                       src={getClipUrl(activeClip) || activeClip.asset.url}
                       alt=""
-                      className="absolute inset-0 w-full h-full object-contain z-[2]"
+                      className="absolute inset-0 w-full h-full object-cover z-[2]"
                       style={{
                         ...getClipEffectStyles(activeClip, clipPlaybackOffset),
                         ...(dissolveOutOpacity !== undefined ? { opacity: dissolveOutOpacity } : {}),
@@ -341,7 +341,7 @@ export function ProgramMonitor({
                           ref={previewVideoRef as React.RefObject<HTMLVideoElement>}
                           key={`dissolve-in-${incoming.id}`}
                           src={inSrc}
-                          className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+                          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
                           style={inStyle}
                           playsInline
                           muted
@@ -355,7 +355,7 @@ export function ProgramMonitor({
                           key={`dissolve-in-${incoming.id}`}
                           src={inSrc}
                           alt=""
-                          className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+                          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
                           style={inStyle}
                         />
                       )

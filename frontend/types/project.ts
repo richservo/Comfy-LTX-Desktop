@@ -404,6 +404,8 @@ export interface InferenceStack {
   guideMode?: 'first-last' | 'guide-video' // For 2-image stacks: choose between first/last frame or guide video mode
   guideStrength?: number                   // Guide video strength (0–1, default 0.7)
   guideEndMode?: 'cut' | 'end'            // 'cut' = last image index at its timeline position; 'end' = last image index at final frame of clip
+  headHandles?: number                     // Extra frames to generate before the stack start (for editing room)
+  tailHandles?: number                     // Extra frames to generate after the stack end (for editing room)
   renderState: 'pending' | 'rendering' | 'complete' | 'error'
   renderedAssetId?: string             // generated video asset
   renderedClipId?: string              // video clip on timeline
@@ -447,6 +449,8 @@ export interface Timeline {
   subtitles?: SubtitleClip[]  // Subtitle cues on subtitle tracks
   inferenceStacks?: InferenceStack[]
   markers?: TimelineMarker[]  // Timeline markers for timing spots
+  resolution?: { width: number; height: number }
+  fps?: number
 }
 
 export interface Project {
@@ -475,12 +479,18 @@ export const DEFAULT_TRACKS: Track[] = [
 ]
 
 // Helper to create a new timeline with default tracks
-export function createDefaultTimeline(name: string = 'Timeline 1'): Timeline {
+export function createDefaultTimeline(
+  name: string = 'Timeline 1',
+  resolution?: { width: number; height: number },
+  fps?: number,
+): Timeline {
   return {
     id: `timeline-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     name,
     createdAt: Date.now(),
     tracks: DEFAULT_TRACKS.map(t => ({ ...t })),
     clips: [],
+    resolution: resolution ?? { width: 1920, height: 1080 },
+    fps: fps ?? 24,
   }
 }

@@ -1187,7 +1187,7 @@ export function VideoEditor() {
     activeStackId, setActiveStackId,
     renderingStackId, isRendering: isStackRendering,
     renderProgress: stackRenderProgress, renderStatusMessage: stackRenderStatusMessage,
-    createStack, updateStack, deleteStack, removeClipFromStack, revertStack,
+    createStack, updateStack, deleteStack, breakStack, removeClipFromStack, revertStack,
     renderStack, renderAllStacks, cancelRender: cancelStackRender,
   } = useInferenceStacks({
     clips, setClips, inferenceStacks, setInferenceStacks,
@@ -1199,6 +1199,7 @@ export function VideoEditor() {
     regenCancel, regenReset, regenError,
     assetSavePath: currentProject?.assetSavePath,
     projectName: currentProject?.name,
+    projectGenerationSettings: currentProject?.generationSettings,
   })
   renderStackRef.current = renderStack
 
@@ -1636,6 +1637,7 @@ export function VideoEditor() {
     previewContainerRef, setIsFullscreen, setVideoFrameSize,
     timelineAddMenuOpen, setTimelineAddMenuOpen,
     creatingBin, newBinInputRef,
+    timelineResolution: activeTimeline?.resolution,
   })
 
   // Clip context menu handler
@@ -4800,6 +4802,60 @@ export function VideoEditor() {
                   <label className="text-xs text-zinc-500 uppercase tracking-wider font-semibold mb-1.5 block">Project Name</label>
                   <p className="text-sm text-white">{currentProject.name}</p>
                 </div>
+                {/* Timeline Resolution & FPS */}
+                {activeTimeline && (() => {
+                  const res = activeTimeline.resolution ?? { width: 1920, height: 1080 }
+                  const fps = activeTimeline.fps ?? 24
+                  const PRESETS = [
+                    { label: '4K (3840x2160)', w: 3840, h: 2160 },
+                    { label: '1080p (1920x1080)', w: 1920, h: 1080 },
+                    { label: '720p (1280x720)', w: 1280, h: 720 },
+                    { label: '540p (960x540)', w: 960, h: 540 },
+                    { label: '9:16 1080p (1080x1920)', w: 1080, h: 1920 },
+                    { label: '1:1 (1080x1080)', w: 1080, h: 1080 },
+                    { label: '4:3 (1440x1080)', w: 1440, h: 1080 },
+                  ]
+                  const matchedPreset = PRESETS.find(p => p.w === res.width && p.h === res.height)
+                  return (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs text-zinc-500 uppercase tracking-wider font-semibold mb-1.5 block">Timeline Resolution</label>
+                        <select
+                          value={matchedPreset ? `${matchedPreset.w}x${matchedPreset.h}` : 'custom'}
+                          onChange={e => {
+                            if (e.target.value === 'custom') return
+                            const [w, h] = e.target.value.split('x').map(Number)
+                            if (currentProjectId && activeTimeline) {
+                              updateTimeline(currentProjectId, activeTimeline.id, { resolution: { width: w, height: h } })
+                            }
+                          }}
+                          className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 text-sm focus:outline-none focus:border-blue-500"
+                        >
+                          {PRESETS.map(p => (
+                            <option key={`${p.w}x${p.h}`} value={`${p.w}x${p.h}`}>{p.label}</option>
+                          ))}
+                          {!matchedPreset && <option value="custom">Custom ({res.width}x{res.height})</option>}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-zinc-500 uppercase tracking-wider font-semibold mb-1.5 block">Frame Rate</label>
+                        <select
+                          value={fps}
+                          onChange={e => {
+                            if (currentProjectId && activeTimeline) {
+                              updateTimeline(currentProjectId, activeTimeline.id, { fps: Number(e.target.value) })
+                            }
+                          }}
+                          className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 text-sm focus:outline-none focus:border-blue-500"
+                        >
+                          {[24, 25, 30, 50, 60].map(f => (
+                            <option key={f} value={f}>{f} fps</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )
+                })()}
                 <div>
                   <label className="text-xs text-zinc-500 uppercase tracking-wider font-semibold mb-1.5 block">Asset Save Folder</label>
                   <div className="flex gap-2">
@@ -4923,6 +4979,7 @@ export function VideoEditor() {
             onUpdateStack={updateStack}
             onRenderStack={renderStack}
             onDeleteStack={deleteStack}
+            onBreakStack={breakStack}
             onRevertStack={revertStack}
             onCancelRender={cancelStackRender}
             onClose={() => setActiveStackId(null)}

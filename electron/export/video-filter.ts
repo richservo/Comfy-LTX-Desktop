@@ -33,7 +33,7 @@ export function buildVideoFilterGraph(
     } else if (seg.type === 'image') {
       // Image: loop for exact duration, use target fps for frame generation
       inputs.push('-loop', '1', '-framerate', String(fps), '-t', seg.duration.toFixed(6), '-i', seg.filePath)
-      let chain = `[${idx}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:-1:-1:color=black,setsar=1`
+      let chain = `[${idx}:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1`
       if (seg.flipH) chain += ',hflip'
       if (seg.flipV) chain += ',vflip'
       chain += `[v${i}]`
@@ -47,7 +47,7 @@ export function buildVideoFilterGraph(
       let chain = `[${idx}:v]trim=start=${seg.trimStart.toFixed(6)}:end=${trimEnd.toFixed(6)},setpts=PTS-STARTPTS`
       if (seg.speed !== 1) chain += `,setpts=PTS/${seg.speed.toFixed(6)}`
       if (seg.reversed) chain += ',reverse'
-      chain += `,scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:-1:-1:color=black,setsar=1`
+      chain += `,scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1`
       if (seg.flipH) chain += ',hflip'
       if (seg.flipV) chain += ',vflip'
       chain += `[v${i}]`
