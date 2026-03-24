@@ -71,6 +71,14 @@ export interface WorkflowParams {
   imageSteps?: number
   /** Image aspect ratio (for Z-Image standalone) */
   imageAspectRatio?: string
+  /** GCP Project ID for Gemini image generation */
+  geminiProjectId?: string
+  /** GCP Region for Gemini image generation */
+  geminiRegion?: string
+  /** Gemini image output size (e.g. '2K', '1080p') */
+  geminiImageSize?: string
+  /** Reference images uploaded to ComfyUI (for Gemini image generation) */
+  referenceImages?: ComfyUIUploadResult[]
   /** Enable RTX Video Super Resolution (4K output) */
   rtxSuperRes?: boolean
   /** Whether the GPU supports RTX (for frame upscale fallback) */
@@ -83,6 +91,12 @@ export interface WorkflowParams {
   sourceImageDims?: { width: number; height: number }
   /** Project name for organizing output into subfolders */
   projectName?: string
+  /** Uploaded guide video for multi-frame guidance */
+  guideVideo?: ComfyUIUploadResult | null
+  /** Comma-separated frame indices for guide video (e.g. "0,52,112,175") */
+  guideIndexList?: string
+  /** Guide video strength (0–1, default 0.7) */
+  guideStrength?: number
 }
 
 type WorkflowNode = { class_type: string; inputs: Record<string, unknown>; _meta?: { title: string } }
@@ -268,6 +282,66 @@ function buildZImageWorkflow(workflow: Workflow, params: WorkflowParams): Record
   return workflow as unknown as Record<string, unknown>
 }
 
+/**
+ * Build a standalone Gemini 3 Pro Image workflow.
+ * Uses the Gemini3ProImage node from the Banana node pack.
+ */
+function buildGeminiWorkflow(params: WorkflowParams): Record<string, unknown> {
+  const workflow: Workflow = {}
+
+  // Gemini3ProImage node
+  workflow['1'] = {
+    class_type: 'Gemini3ProImage',
+    inputs: {
+      model: 'GEMINI_3_PRO_IMAGE',
+      prompt: params.prompt,
+      aspect_ratio: params.imageAspectRatio || '16:9',
+      image_size: params.geminiImageSize || '2K',
+      output_mime_type: 'PNG',
+      temperature: 0.7,
+      top_p: 1,
+      top_k: 32,
+      harassment_threshold: 'BLOCK_NONE',
+      hate_speech_threshold: 'BLOCK_NONE',
+      sexually_explicit_threshold: 'BLOCK_NONE',
+      dangerous_content_threshold: 'BLOCK_NONE',
+      system_instruction: '',
+      gcp_project_id: params.geminiProjectId || '',
+      gcp_region: params.geminiRegion || 'global',
+    },
+    _meta: { title: 'Gemini 3 Pro Image' },
+  }
+
+  // Wire reference images via LoadImage nodes
+  if (params.referenceImages && params.referenceImages.length > 0) {
+    for (let i = 0; i < params.referenceImages.length; i++) {
+      const nodeId = `${10 + i}` // LoadImage nodes at 10, 11, 12, ...
+      workflow[nodeId] = {
+        class_type: 'LoadImage',
+        inputs: { image: params.referenceImages[i].name },
+        _meta: { title: `Reference Image ${i + 1}` },
+      }
+      workflow['1'].inputs[`image${i + 1}`] = [nodeId, 0]
+    }
+  }
+
+  // SaveImage node
+  const filenamePrefix = params.projectName
+    ? `${params.projectName.replace(/[<>:"/\\|?*]/g, '_')}/image/${params.projectName.replace(/[<>:"/\\|?*]/g, '_')}`
+    : 'gemini/image'
+  workflow['2'] = {
+    class_type: 'SaveImage',
+    inputs: {
+      images: ['1', 0],
+      filename_prefix: filenamePrefix,
+    },
+    _meta: { title: 'Save Image' },
+  }
+
+  return workflow as unknown as Record<string, unknown>
+}
+
+
 const DEFAULT_NEGATIVE_PROMPT = 'worst quality, low quality, blurry, jittery, distorted, cropped, watermark, watermarked, extra fingers, missing fingers, fused fingers, mutated hands, deformed hands, extra limbs, missing limbs, deformed limbs, extra arms, extra legs, malformed limbs, disfigured, bad anatomy, bad proportions, ugly, duplicate, morbid, mutilated, poorly drawn face, poorly drawn hands, inconsistent motion'
 
 export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
@@ -276,9 +350,10 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
 
   const useZImage = params.imageGenerator === 'z-image'
 
-  // --- Z-Image standalone image generation (no LTXV pipeline) ---
-  if (useZImage && params.imageMode) {
-    return buildZImageWorkflow(workflow, params)
+  // --- Standalone image generation modes (no LTXV pipeline) ---
+  if (params.imageMode) {
+    if (useZImage) return buildZImageWorkflow(workflow, params)
+    if (params.imageGenerator === 'gemini') return buildGeminiWorkflow(params)
   }
 
   // --- Strip optional nodes not needed for this generation ---
@@ -493,6 +568,36 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     genNode.inputs['last_strength'] = params.lastStrength ?? 1
   }
 
+  // --- Guide video mode: mutually exclusive with first/middle/last frame ---
+  if (params.guideVideo) {
+    // Add VHS_LoadVideo node at ID '85' for guide video
+    workflow['85'] = {
+      class_type: 'VHS_LoadVideo',
+      inputs: {
+        video: params.guideVideo.name,
+        force_rate: 0,
+        custom_width: 0,
+        custom_height: 0,
+        frame_load_cap: 0,
+        skip_first_frames: 0,
+        select_every_nth: 1,
+        format: 'AnimateDiff',
+      },
+      _meta: { title: 'Load Guide Video' },
+    }
+    genNode.inputs['guide_video'] = ['85', 0]
+    genNode.inputs['guide_index_list'] = params.guideIndexList ?? ''
+    genNode.inputs['guide_strength'] = params.guideStrength ?? 0.7
+
+    // Remove first/middle/last image connections — mutually exclusive
+    delete genNode.inputs['first_image']
+    delete genNode.inputs['middle_image']
+    delete genNode.inputs['last_image']
+    delete genNode.inputs['first_strength']
+    delete genNode.inputs['middle_strength']
+    delete genNode.inputs['last_strength']
+  }
+
   // --- Patch prompt / prompt formatter chain ---
   // When promptEnhance is on:  user prompt [+ images] → Prompt Enhancer (83/84) → CLIP Positive (7)
   // When promptEnhance is off: user prompt → CLIP Positive (7) directly
@@ -581,6 +686,45 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     genNode.inputs['first_strength'] = params.firstStrength ?? 1
   }
 
+  // --- Gemini + T2V: wire Gemini output as first frame for LTXV ---
+  if (params.imageGenerator === 'gemini' && !hasAnyGuidanceFrame) {
+    workflow['90'] = {
+      class_type: 'Gemini3ProImage',
+      inputs: {
+        model: 'GEMINI_3_PRO_IMAGE',
+        prompt: params.prompt,
+        aspect_ratio: params.imageAspectRatio || '16:9',
+        image_size: params.geminiImageSize || '2K',
+        output_mime_type: 'PNG',
+        temperature: 0.7,
+        top_p: 1,
+        top_k: 32,
+        harassment_threshold: 'BLOCK_NONE',
+        hate_speech_threshold: 'BLOCK_NONE',
+        sexually_explicit_threshold: 'BLOCK_NONE',
+        dangerous_content_threshold: 'BLOCK_NONE',
+        system_instruction: '',
+        gcp_project_id: params.geminiProjectId || '',
+        gcp_region: params.geminiRegion || 'global',
+      },
+      _meta: { title: 'Gemini 3 Pro Image' },
+    }
+    // Wire reference images to Gemini node
+    if (params.referenceImages && params.referenceImages.length > 0) {
+      for (let i = 0; i < params.referenceImages.length; i++) {
+        const nodeId = `${92 + i}`
+        workflow[nodeId] = {
+          class_type: 'LoadImage',
+          inputs: { image: params.referenceImages[i].name },
+          _meta: { title: `Reference Image ${i + 1}` },
+        }
+        workflow['90'].inputs[`image${i + 1}`] = [nodeId, 0]
+      }
+    }
+    genNode.inputs['first_image'] = ['90', 0]
+    genNode.inputs['first_strength'] = params.firstStrength ?? 1
+  }
+
   // --- Post-processing chain: RSLTXVGenerate → [RTX Super Res] → [Film Grain] → CreateVideo ---
   // Build the chain: each stage feeds images to the next
   let lastImageSource: [string, number] = ['6', 2] // RSLTXVGenerate images output
@@ -614,6 +758,15 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     workflow['25'].inputs['filename_prefix'] = `${safeProjectName}/video/${safeProjectName}`
     if (workflow[OPTIONAL_NODE_IDS.zImageSaveImage]) {
       workflow[OPTIONAL_NODE_IDS.zImageSaveImage].inputs['filename_prefix'] = `${safeProjectName}/image/${safeProjectName}`
+    }
+
+    // Point all prompt formatter cache files to the project's .prompts folder
+    // so cached prompts don't leak between projects
+    const promptsDir = `${safeProjectName}/.prompts`
+    for (const node of Object.values(workflow)) {
+      if (node.inputs && 'cache_file' in node.inputs && 'output_dir' in node.inputs) {
+        node.inputs['output_dir'] = promptsDir
+      }
     }
   }
 

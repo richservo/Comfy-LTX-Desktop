@@ -49,6 +49,11 @@ export function InferenceStackPanel({
   const stackClips = getStackClips(stack, clips)
   const audioClip = stackClips.find(c => c.type === 'audio')
 
+  // Collect all image clips for this stack
+  const allImageClips = stackClips.filter(c => c.type === 'image').sort((a, b) => a.startTime - b.startTime)
+  const imageCount = allImageClips.length
+  const useGuideVideo = imageCount >= 3 || (imageCount === 2 && stack.guideMode === 'guide-video')
+
   // Build frame URLs: prefer live clips, fall back to stored sourcePaths only when clips are gone
   let firstImageUrl: string | undefined
   let middleImageUrl: string | undefined
@@ -144,74 +149,164 @@ export function InferenceStackPanel({
               <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold mb-1.5 block">
                 Frame Guidance
               </label>
-              <div className="flex gap-2">
-                {/* Single image: show with first/last toggle */}
-                {!lastImageUrl && !middleImageUrl ? (
-                  <div className="flex-1 min-w-0">
-                    <FramePreviewUrl
-                      label={stack.singleFramePosition === 'last' ? 'Last' : 'First'}
-                      src={firstImageUrl || ''}
-                      strength={stack.strengths.first}
-                      onStrengthChange={(v) => onUpdateStack(stack.id, {
-                        strengths: { ...stack.strengths, first: v }
-                      })}
-                    />
-                    <div className="flex items-center mt-1.5 bg-zinc-800 rounded-lg border border-zinc-700 p-0.5">
-                      <button
-                        onClick={() => onUpdateStack(stack.id, { singleFramePosition: 'first' })}
-                        className={`flex-1 text-[9px] font-medium py-1 rounded-md transition-colors ${
-                          stack.singleFramePosition !== 'last'
-                            ? 'bg-violet-600 text-white'
-                            : 'text-zinc-400 hover:text-zinc-300'
-                        }`}
-                      >
-                        First Frame
-                      </button>
-                      <button
-                        onClick={() => onUpdateStack(stack.id, { singleFramePosition: 'last' })}
-                        className={`flex-1 text-[9px] font-medium py-1 rounded-md transition-colors ${
-                          stack.singleFramePosition === 'last'
-                            ? 'bg-violet-600 text-white'
-                            : 'text-zinc-400 hover:text-zinc-300'
-                        }`}
-                      >
-                        Last Frame
-                      </button>
-                    </div>
+
+              {/* Guide video mode: 3+ images (always) or 2 images with guide mode selected */}
+              {useGuideVideo ? (
+                <div>
+                  {/* Scrollable image thumbnails */}
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {allImageClips.map((clip, i) => {
+                      const src = resolveClipSrc(clip)
+                      const stackStart = allImageClips[0].startTime
+                      const frameIdx = Math.round((clip.startTime - stackStart) * stack.settings.fps)
+                      return (
+                        <div key={clip.id} className="flex-shrink-0 w-24">
+                          <div className="rounded-lg overflow-hidden border border-zinc-700 bg-zinc-800 mb-1">
+                            <img src={src} alt={`Frame ${i + 1}`} className="w-full aspect-video object-cover" />
+                          </div>
+                          <span className="text-[9px] text-zinc-500 font-semibold">
+                            Frame {frameIdx}
+                          </span>
+                        </div>
+                      )
+                    })}
                   </div>
-                ) : (
-                  <>
-                    <FramePreviewUrl
-                      label="First"
-                      src={firstImageUrl || ''}
-                      strength={stack.strengths.first}
-                      onStrengthChange={(v) => onUpdateStack(stack.id, {
-                        strengths: { ...stack.strengths, first: v }
-                      })}
+                  {/* Last frame mode toggle */}
+                  <div className="flex items-center mt-2 bg-zinc-800 rounded-lg border border-zinc-700 p-0.5">
+                    <button
+                      onClick={() => onUpdateStack(stack.id, { guideEndMode: 'cut' })}
+                      className={`flex-1 text-[9px] font-medium py-1 rounded-md transition-colors ${
+                        stack.guideEndMode !== 'end'
+                          ? 'bg-violet-600 text-white'
+                          : 'text-zinc-400 hover:text-zinc-300'
+                      }`}
+                    >
+                      Last at Cut
+                    </button>
+                    <button
+                      onClick={() => onUpdateStack(stack.id, { guideEndMode: 'end' })}
+                      className={`flex-1 text-[9px] font-medium py-1 rounded-md transition-colors ${
+                        stack.guideEndMode === 'end'
+                          ? 'bg-violet-600 text-white'
+                          : 'text-zinc-400 hover:text-zinc-300'
+                      }`}
+                    >
+                      Last at End
+                    </button>
+                  </div>
+                  {/* Guide strength slider */}
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-[9px] text-zinc-500 font-semibold uppercase">Guide Strength</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={stack.guideStrength ?? 0.7}
+                      onChange={(e) => onUpdateStack(stack.id, { guideStrength: parseFloat(e.target.value) })}
+                      className="flex-1 h-1 accent-violet-500"
                     />
-                    {middleImageUrl && (
+                    <span className="text-[9px] text-zinc-400 w-8 text-right">
+                      {((stack.guideStrength ?? 0.7) * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  {/* Single image: show with first/last toggle */}
+                  {!lastImageUrl && !middleImageUrl ? (
+                    <div className="flex-1 min-w-0">
                       <FramePreviewUrl
-                        label="Middle"
-                        src={middleImageUrl}
-                        strength={stack.strengths.middle}
+                        label={stack.singleFramePosition === 'last' ? 'Last' : 'First'}
+                        src={firstImageUrl || ''}
+                        strength={stack.strengths.first}
                         onStrengthChange={(v) => onUpdateStack(stack.id, {
-                          strengths: { ...stack.strengths, middle: v }
+                          strengths: { ...stack.strengths, first: v }
                         })}
                       />
-                    )}
-                    {lastImageUrl && (
+                      <div className="flex items-center mt-1.5 bg-zinc-800 rounded-lg border border-zinc-700 p-0.5">
+                        <button
+                          onClick={() => onUpdateStack(stack.id, { singleFramePosition: 'first' })}
+                          className={`flex-1 text-[9px] font-medium py-1 rounded-md transition-colors ${
+                            stack.singleFramePosition !== 'last'
+                              ? 'bg-violet-600 text-white'
+                              : 'text-zinc-400 hover:text-zinc-300'
+                          }`}
+                        >
+                          First Frame
+                        </button>
+                        <button
+                          onClick={() => onUpdateStack(stack.id, { singleFramePosition: 'last' })}
+                          className={`flex-1 text-[9px] font-medium py-1 rounded-md transition-colors ${
+                            stack.singleFramePosition === 'last'
+                              ? 'bg-violet-600 text-white'
+                              : 'text-zinc-400 hover:text-zinc-300'
+                          }`}
+                        >
+                          Last Frame
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
                       <FramePreviewUrl
-                        label="Last"
-                        src={lastImageUrl}
-                        strength={stack.strengths.last}
+                        label="First"
+                        src={firstImageUrl || ''}
+                        strength={stack.strengths.first}
                         onStrengthChange={(v) => onUpdateStack(stack.id, {
-                          strengths: { ...stack.strengths, last: v }
+                          strengths: { ...stack.strengths, first: v }
                         })}
                       />
-                    )}
-                  </>
-                )}
-              </div>
+                      {middleImageUrl && (
+                        <FramePreviewUrl
+                          label="Middle"
+                          src={middleImageUrl}
+                          strength={stack.strengths.middle}
+                          onStrengthChange={(v) => onUpdateStack(stack.id, {
+                            strengths: { ...stack.strengths, middle: v }
+                          })}
+                        />
+                      )}
+                      {lastImageUrl && (
+                        <FramePreviewUrl
+                          label="Last"
+                          src={lastImageUrl}
+                          strength={stack.strengths.last}
+                          onStrengthChange={(v) => onUpdateStack(stack.id, {
+                            strengths: { ...stack.strengths, last: v }
+                          })}
+                        />
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* 2-image mode toggle: First/Last vs Guide Video */}
+              {imageCount === 2 && (
+                <div className="flex items-center mt-2 bg-zinc-800 rounded-lg border border-zinc-700 p-0.5">
+                  <button
+                    onClick={() => onUpdateStack(stack.id, { guideMode: 'first-last' })}
+                    className={`flex-1 text-[9px] font-medium py-1 rounded-md transition-colors ${
+                      stack.guideMode !== 'guide-video'
+                        ? 'bg-violet-600 text-white'
+                        : 'text-zinc-400 hover:text-zinc-300'
+                    }`}
+                  >
+                    First / Last
+                  </button>
+                  <button
+                    onClick={() => onUpdateStack(stack.id, { guideMode: 'guide-video' })}
+                    className={`flex-1 text-[9px] font-medium py-1 rounded-md transition-colors ${
+                      stack.guideMode === 'guide-video'
+                        ? 'bg-violet-600 text-white'
+                        : 'text-zinc-400 hover:text-zinc-300'
+                    }`}
+                  >
+                    Guide Video
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -263,16 +358,16 @@ export function InferenceStackPanel({
           {/* Settings */}
           <div>
             <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold mb-1.5 block">Settings</label>
-            {hasMiddleFrame && (
+            {hasMiddleFrame && !useGuideVideo && (
               <p className="text-[10px] text-amber-400/80 mb-1.5">
                 Temporal upscale is disabled when using a middle frame.
               </p>
             )}
             <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
               <SettingsPanel
-                settings={hasMiddleFrame ? { ...stack.settings, temporalUpscale: false } : stack.settings}
+                settings={hasMiddleFrame && !useGuideVideo ? { ...stack.settings, temporalUpscale: false } : stack.settings}
                 onSettingsChange={(settings) => onUpdateStack(stack.id, {
-                  settings: hasMiddleFrame ? { ...settings, temporalUpscale: false } : settings
+                  settings: hasMiddleFrame && !useGuideVideo ? { ...settings, temporalUpscale: false } : settings
                 })}
                 disabled={isRendering}
                 mode={hasFirstImage ? 'image-to-video' : 'text-to-video'}

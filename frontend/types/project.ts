@@ -401,6 +401,9 @@ export interface InferenceStack {
   strengths: { first?: number; middle?: number; last?: number }
   preserveAspectRatio?: boolean            // Scale by longest edge instead of stretching
   singleFramePosition?: 'first' | 'last'  // When stack has 1 image: use as first or last frame
+  guideMode?: 'first-last' | 'guide-video' // For 2-image stacks: choose between first/last frame or guide video mode
+  guideStrength?: number                   // Guide video strength (0–1, default 0.7)
+  guideEndMode?: 'cut' | 'end'            // 'cut' = last image index at its timeline position; 'end' = last image index at final frame of clip
   renderState: 'pending' | 'rendering' | 'complete' | 'error'
   renderedAssetId?: string             // generated video asset
   renderedClipId?: string              // video clip on timeline
@@ -412,6 +415,7 @@ export interface InferenceStack {
     middleImage?: string
     lastImage?: string
     audio?: string
+    guideVideo?: string   // Rendered guide video temp path for re-renders
   }
 }
 

@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react'
 import type { GenerationSettings } from '../components/SettingsPanel'
 
+export type GenerationInitiator = 'genspace' | 'editor' | null
+
 interface GenerationState {
   isGenerating: boolean
   progress: number
@@ -13,6 +15,7 @@ interface GenerationState {
   error: string | null
   iterationCurrent: number
   iterationTotal: number
+  initiator: GenerationInitiator
 }
 
 interface GenerationProgress {
@@ -24,8 +27,8 @@ interface GenerationProgress {
 }
 
 export interface GenerationContextType extends GenerationState {
-  generate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string, preserveAspectRatio?: boolean) => Promise<void>
-  generateImage: (prompt: string, settings: GenerationSettings, imagePath?: string | null, strength?: number, projectName?: string) => Promise<void>
+  generate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string, preserveAspectRatio?: boolean, initiator?: GenerationInitiator, guideVideoPath?: string, guideIndexList?: string, guideStrength?: number) => Promise<void>
+  generateImage: (prompt: string, settings: GenerationSettings, imagePath?: string | null, strength?: number, projectName?: string, referenceImagePaths?: string[], initiator?: GenerationInitiator) => Promise<void>
   cancel: () => void
   reset: () => void
 }
@@ -57,6 +60,7 @@ const INITIAL_STATE: GenerationState = {
   error: null,
   iterationCurrent: 0,
   iterationTotal: 0,
+  initiator: null,
 }
 
 export function GenerationProvider({ children }: { children: React.ReactNode }) {
@@ -73,6 +77,10 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
     strengths?: { first?: number; middle?: number; last?: number },
     projectName?: string,
     preserveAspectRatio?: boolean,
+    initiator?: GenerationInitiator,
+    guideVideoPath?: string,
+    guideIndexList?: string,
+    guideStrength?: number,
   ) => {
     const iterations = settings.iterations || 1
 
@@ -88,6 +96,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
       error: null,
       iterationCurrent: 1,
       iterationTotal: iterations,
+      initiator: initiator ?? null,
     })
 
     cancelledRef.current = false
@@ -136,6 +145,9 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
         rtxSuperRes: is4K,
         preserveAspectRatio,
         projectName,
+        guideVideoPath,
+        guideIndexList,
+        guideStrength,
       }
 
       for (let i = 1; i <= iterations; i++) {
@@ -164,19 +176,20 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
           const fileUrl = videoPathNormalized.startsWith('/') ? `file://${videoPathNormalized}` : `file:///${videoPathNormalized}`
 
           const isLast = i === iterations
-          setState({
+          setState(prev => ({
+            ...prev,
             isGenerating: !isLast,
             progress: 100,
             statusMessage: isLast ? 'Complete!' : iterPrefix(i) + 'Complete!',
             videoUrl: fileUrl,
-            videoPath: result.video_path,
+            videoPath: result.video_path ?? null,
             enhancedPrompt: result.enhanced_prompt ?? null,
             imageUrl: null,
             imageUrls: [],
             error: null,
             iterationCurrent: i,
             iterationTotal: iterations,
-          })
+          }))
 
           // Brief pause between iterations to let archive effects process
           if (!isLast) {
@@ -237,6 +250,8 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
     imagePath?: string | null,
     strength?: number,
     projectName?: string,
+    referenceImagePaths?: string[],
+    initiator?: GenerationInitiator,
   ) => {
     setState({
       isGenerating: true,
@@ -250,6 +265,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
       error: null,
       iterationCurrent: 0,
       iterationTotal: 0,
+      initiator: initiator ?? null,
     })
 
     cancelledRef.current = false
@@ -283,7 +299,9 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
         firstStrength: strength,
         imageMode: true,
         imageSteps: settings.imageSteps,
+        imageGenerator: settings.imageGenerator,
         projectName,
+        referenceImagePaths,
       })
 
       if (cancelledRef.current) return
@@ -292,7 +310,8 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
         const normalized = result.image_path.replace(/\\/g, '/')
         const fileUrl = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
 
-        setState({
+        setState(prev => ({
+          ...prev,
           isGenerating: false,
           progress: 100,
           statusMessage: 'Complete!',
@@ -304,7 +323,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
           error: null,
           iterationCurrent: 0,
           iterationTotal: 0,
-        })
+        }))
       } else if (result.status === 'cancelled') {
         setState(prev => ({
           ...prev,

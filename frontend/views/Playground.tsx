@@ -45,11 +45,13 @@ export function Playground() {
   const [middleStrength, setMiddleStrength] = useState(1)
   const [lastStrength, setLastStrength] = useState(1)
   const [preserveAspectRatio, setPreserveAspectRatio] = useState(false)
+  const [referenceImages, setReferenceImages] = useState<(string | null)[]>([null])
   const [settings, setSettings] = useState<GenerationSettings>(() => ({
     ...DEFAULT_SETTINGS,
     filmGrain: appSettings.filmGrain,
     filmGrainIntensity: appSettings.filmGrainIntensity,
     filmGrainSize: appSettings.filmGrainSize,
+    imageGenerator: appSettings.imageGenerator,
   }))
 
   const { status } = useBackend()
@@ -131,7 +133,11 @@ export function Playground() {
 
     if (mode === 'text-to-image') {
       if (!prompt.trim()) return
-      generateImage(prompt, settings)
+      const refPaths = referenceImages
+        .filter((img): img is string => img != null)
+        .map(img => fileUrlToPath(img))
+        .filter((p): p is string => p != null)
+      generateImage(prompt, settings, null, undefined, undefined, refPaths.length > 0 ? refPaths : undefined)
     } else {
       // Auto-detect: if image is loaded → I2V, otherwise → T2V
       if (!prompt.trim()) return
@@ -172,6 +178,7 @@ export function Playground() {
     setMiddleStrength(1)
     setLastStrength(1)
     setSettings({ ...DEFAULT_SETTINGS })
+    setReferenceImages([null])
     if (mode !== 'text-to-image') setMode('text-to-video')
     setRetakeInput({
       videoUrl: null,
@@ -313,6 +320,46 @@ export function Playground() {
                   </label>
                 )}
               </>
+            )}
+
+            {/* Reference Images - shown in text-to-image mode when Gemini is the image generator */}
+            {mode === 'text-to-image' && (settings.imageGenerator ?? appSettings.imageGenerator) === 'gemini' && (
+              <div className="space-y-2">
+                <label className="block text-[12px] font-semibold text-zinc-500 uppercase leading-4">
+                  Reference Images
+                </label>
+                <p className="text-xs text-zinc-500">Add up to 6 reference images to guide Gemini generation</p>
+                {referenceImages.map((img, idx) => (
+                  <ImageUploader
+                    key={idx}
+                    label={`Reference ${idx + 1}`}
+                    selectedImage={img}
+                    onImageSelect={(path) => {
+                      setReferenceImages(prev => {
+                        const next = [...prev]
+                        next[idx] = path
+                        // If an image was added and this was the last slot, add a new empty slot (max 6)
+                        if (path && idx === prev.length - 1 && prev.length < 6) {
+                          next.push(null)
+                        }
+                        // If an image was removed, remove trailing empty slots (keep at least 1)
+                        if (!path) {
+                          while (next.length > 1 && next[next.length - 1] === null && idx !== next.length - 1) {
+                            next.pop()
+                          }
+                          // If all slots after this are null, trim to this + 1
+                          if (next.every((v, i) => i <= idx || v === null)) {
+                            let lastFilled = -1
+                            for (let j = next.length - 1; j >= 0; j--) { if (next[j] !== null) { lastFilled = j; break } }
+                            next.length = Math.min(6, Math.max(1, lastFilled + 2))
+                          }
+                        }
+                        return next.length === 0 ? [null] : next
+                      })
+                    }}
+                  />
+                ))}
+              </div>
             )}
 
             {isRetakeMode && (

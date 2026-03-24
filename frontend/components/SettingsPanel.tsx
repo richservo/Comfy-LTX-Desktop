@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Select } from './ui/select'
 import type { GenerationMode } from './ModeTabs'
+import { useAppSettings } from '../contexts/AppSettingsContext'
 
 export interface GenerationSettings {
   model: 'fast' | 'pro'
@@ -23,6 +24,7 @@ export interface GenerationSettings {
   imageResolution: string
   imageAspectRatio: string
   imageSteps: number
+  imageGenerator?: string
   variations?: number  // Number of image variations to generate
 }
 
@@ -45,11 +47,18 @@ export function SettingsPanel({
   hideDuration = false,
   hideIterations = false,
 }: SettingsPanelProps) {
+  const { settings: appSettings, updateSettings: updateAppSettings } = useAppSettings()
   const [hasRtxSuperRes, setHasRtxSuperRes] = useState(false)
+  const [hasZImage, setHasZImage] = useState(false)
+  const [hasGemini, setHasGemini] = useState(false)
+  const [geminiImageSizes, setGeminiImageSizes] = useState<string[]>([])
   useEffect(() => {
     window.electronAPI?.getModelLists?.()
-      .then((lists: { hasRtxSuperRes?: boolean }) => {
+      .then((lists: { hasRtxSuperRes?: boolean; hasZImage?: boolean; hasGemini?: boolean; geminiImageSizes?: string[] }) => {
         if (lists.hasRtxSuperRes) setHasRtxSuperRes(true)
+        if (lists.hasZImage) setHasZImage(true)
+        if (lists.hasGemini) setHasGemini(true)
+        if (lists.geminiImageSizes) setGeminiImageSizes(lists.geminiImageSizes)
       })
       .catch(() => {})
   }, [])
@@ -65,11 +74,24 @@ export function SettingsPanel({
   const resolutionOptions = hasRtxSuperRes ? ['4K', '1080p', '720p', '540p'] : ['1080p', '720p', '540p']
   const fpsOptions = [24, 25, 30, 50, 60]
 
+  const effectiveImageGenerator = settings.imageGenerator ?? appSettings.imageGenerator ?? 'none'
+
   // Image mode settings
   if (isImageMode) {
     return (
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
+          <Select
+            label="Image Model"
+            value={effectiveImageGenerator}
+            onChange={(e) => handleChange('imageGenerator', e.target.value)}
+            disabled={disabled}
+          >
+            <option value="none">LTX (Default)</option>
+            {hasZImage && <option value="z-image">Z-Image</option>}
+            {hasGemini && <option value="gemini">Gemini</option>}
+          </Select>
+
           <Select
             label="Aspect Ratio"
             value={settings.imageAspectRatio || '16:9'}
@@ -83,18 +105,64 @@ export function SettingsPanel({
             <option value="3:4">3:4 (Portrait Standard)</option>
             <option value="21:9">21:9 (Cinematic)</option>
           </Select>
-
-          <Select
-            label="Quality"
-            value={settings.imageSteps || 4}
-            onChange={(e) => handleChange('imageSteps', parseInt(e.target.value))}
-            disabled={disabled}
-          >
-            <option value={10}>Fast (10 steps)</option>
-            <option value={20}>Balanced (20 steps)</option>
-            <option value={40}>High (40 steps)</option>
-          </Select>
         </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          {effectiveImageGenerator === 'gemini' ? (
+            <Select
+              label="Image Size"
+              value={appSettings.geminiImageSize || '2K'}
+              onChange={(e) => updateAppSettings({ geminiImageSize: e.target.value })}
+              disabled={disabled}
+            >
+              {geminiImageSizes.length > 0
+                ? geminiImageSizes.map(s => <option key={s} value={s}>{s}</option>)
+                : <>
+                    <option value="1K">1K</option>
+                    <option value="2K">2K</option>
+                    <option value="4K">4K</option>
+                  </>
+              }
+            </Select>
+          ) : (
+            <Select
+              label="Quality"
+              value={settings.imageSteps || 4}
+              onChange={(e) => handleChange('imageSteps', parseInt(e.target.value))}
+              disabled={disabled}
+            >
+              <option value={10}>Fast (10 steps)</option>
+              <option value={20}>Balanced (20 steps)</option>
+              <option value={40}>High (40 steps)</option>
+            </Select>
+          )}
+        </div>
+
+        {/* Prompt Enhance */}
+        <label className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors ${
+          settings.promptEnhance !== false ? 'border-violet-500/50 bg-violet-500/10' : 'border-zinc-700 hover:border-zinc-600'
+        } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
+          <input
+            type="checkbox"
+            checked={settings.promptEnhance !== false}
+            onChange={(e) => handleChange('promptEnhance', e.target.checked)}
+            disabled={disabled}
+            className="absolute opacity-0 w-0 h-0 pointer-events-none"
+          />
+          <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+            settings.promptEnhance !== false ? 'bg-violet-500 border-violet-500' : 'border-zinc-600'
+          }`}>
+            {settings.promptEnhance !== false && (
+              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            )}
+          </div>
+          <div>
+            <div className="text-sm text-zinc-200 font-medium">Prompt Enhance</div>
+            <div className="text-[10px] text-zinc-500">Expand prompt with detail</div>
+          </div>
+        </label>
       </div>
     )
   }

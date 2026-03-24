@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import type { Asset, TimelineClip } from '../../types/project'
 import type { GenerationSettings } from '../../components/SettingsPanel'
+import type { GenerationInitiator } from '../../contexts/GenerationContext'
 import { copyToAssetFolder } from '../../lib/asset-copy'
 import { fileUrlToPath } from '../../lib/url-to-path'
 import { logger } from '../../lib/logger'
@@ -16,8 +17,8 @@ export interface UseRegenerationParams {
   deleteTakeFromAsset: (projectId: string, assetId: string, takeIndex: number) => void
   resolveClipSrc: (clip: TimelineClip | null) => string
   // Generation hook values
-  regenGenerate: (prompt: string, imagePath: string | null, settings: GenerationSettings) => Promise<void>
-  regenGenerateImage: (prompt: string, settings: GenerationSettings) => Promise<void>
+  regenGenerate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string, preserveAspectRatio?: boolean, initiator?: GenerationInitiator) => Promise<void>
+  regenGenerateImage: (prompt: string, settings: GenerationSettings, imagePath?: string | null, strength?: number, projectName?: string, referenceImagePaths?: string[], initiator?: GenerationInitiator) => Promise<void>
   regenVideoUrl: string | null
   regenVideoPath: string | null
   regenImageUrl: string | null
@@ -28,6 +29,7 @@ export interface UseRegenerationParams {
   regenReset: () => void
   regenError: string | null
   assetSavePath: string | undefined | null
+  renderStack?: (stackId: string) => void
 }
 
 export function useRegeneration(params: UseRegenerationParams) {
@@ -41,6 +43,7 @@ export function useRegeneration(params: UseRegenerationParams) {
     regenCancel, regenReset,
     regenError,
     assetSavePath,
+    renderStack,
   } = params
 
   // Track which asset/clip is being regenerated
@@ -93,7 +96,7 @@ export function useRegeneration(params: UseRegenerationParams) {
     const settings = rawSettings
 
     try {
-      await regenGenerate(i2vPrompt, imagePath, settings)
+      await regenGenerate(i2vPrompt, imagePath, settings, undefined, undefined, undefined, undefined, undefined, undefined, 'editor')
     } catch (err) {
       logger.error(`I2V generation failed: ${err}`)
     }
@@ -165,6 +168,16 @@ export function useRegeneration(params: UseRegenerationParams) {
 
   const handleRegenerate = useCallback(async (assetId: string, clipId?: string) => {
     if (!currentProjectId || isRegenerating) return
+
+    // If the clip belongs to an inference stack, delegate to renderStack
+    if (clipId && renderStack) {
+      const clip = clips.find(c => c.id === clipId)
+      if (clip?.inferenceStackId) {
+        renderStack(clip.inferenceStackId)
+        return
+      }
+    }
+
     const asset = assets.find(a => a.id === assetId)
     if (!asset) return
 
@@ -229,7 +242,7 @@ export function useRegeneration(params: UseRegenerationParams) {
         imageAspectRatio: params.imageAspectRatio || '16:9',
         imageSteps: params.imageSteps || 4,
         variations: 1,
-      })
+      }, undefined, undefined, undefined, undefined, 'editor')
     } else {
       // For video generation (T2V or I2V)
       // Extract filesystem path from the input image URL if present
@@ -250,9 +263,9 @@ export function useRegeneration(params: UseRegenerationParams) {
       }
       const videoSettings = rawVideoSettings
 
-      regenGenerate(params.prompt, imagePath, videoSettings)
+      regenGenerate(params.prompt, imagePath, videoSettings, undefined, undefined, undefined, undefined, undefined, undefined, 'editor')
     }
-  }, [currentProjectId, isRegenerating, assets, clips, regenGenerate, regenGenerateImage, resolveClipSrc, updateAsset])
+  }, [currentProjectId, isRegenerating, assets, clips, regenGenerate, regenGenerateImage, resolveClipSrc, updateAsset, renderStack])
 
   const handleCancelRegeneration = useCallback(() => {
     regenCancel()

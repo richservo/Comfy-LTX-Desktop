@@ -20,7 +20,7 @@ export interface UseInferenceStacksParams {
   addTakeToAsset: (projectId: string, assetId: string, take: { url: string; path: string; createdAt: number }) => void
   resolveClipSrc: (clip: TimelineClip | null) => string
   // Generation hook values
-  regenGenerate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string, preserveAspectRatio?: boolean, initiator?: GenerationInitiator) => Promise<void>
+  regenGenerate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string, preserveAspectRatio?: boolean, initiator?: GenerationInitiator, guideVideoPath?: string, guideIndexList?: string, guideStrength?: number) => Promise<void>
   regenVideoUrl: string | null
   regenVideoPath: string | null
   isRegenerating: boolean
@@ -200,6 +200,12 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     const stack = inferenceStacks.find(s => s.id === stackId)
     if (!stack || !currentProjectId) return
 
+    // Collect all image clips sorted by startTime
+    const stackClips = getStackClips(stack, clips)
+    const imageClips = stackClips.filter(c => c.type === 'image').sort((a, b) => a.startTime - b.startTime)
+    const imageCount = imageClips.length
+    const useGuideVideo = imageCount >= 3 || (imageCount === 2 && stack.guideMode === 'guide-video')
+
     // Resolve source paths — try from clips first, fall back to stored sourcePaths
     let firstImagePath: string | null = null
     let middleImagePath: string | null = null
@@ -207,37 +213,100 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     let audioSourcePath: string | null = null
     let hasAudioClip = false
 
-    const frameMapping = getStackFrameMapping(stack, clips)
+    // Guide video state
+    let guideVideoPath: string | undefined
+    let guideIndexList: string | undefined
+    let guideStrength: number | undefined
 
-    if (frameMapping) {
-      const imageUrl = resolveClipSrc(frameMapping.first)
-      const imagePath = fileUrlToPath(imageUrl)
+    if (useGuideVideo && imageCount >= 2) {
+      // --- Guide video mode ---
+      const stackStart = imageClips[0].startTime
+      const duration = getStackDuration(stack, clips)
+      const fps = stack.settings.fps
+      const totalFrames = Math.round(duration * fps) + 1
 
-      if (imagePath) {
-        const isSingleAsLast = !frameMapping.last && !frameMapping.middle && stack.singleFramePosition === 'last'
-        firstImagePath = isSingleAsLast ? null : imagePath
-        lastImagePath = isSingleAsLast ? imagePath : null
+      // Resolve all image paths and compute frame indices
+      const guideImages: { path: string; startFrame: number; endFrame: number }[] = []
+      const frameIndices: number[] = []
 
-        if (frameMapping.middle) {
-          middleImagePath = fileUrlToPath(resolveClipSrc(frameMapping.middle))
+      for (let i = 0; i < imageClips.length; i++) {
+        const clip = imageClips[i]
+        const url = resolveClipSrc(clip)
+        const imgPath = fileUrlToPath(url)
+        if (!imgPath) continue
+
+        const startFrame = Math.round((clip.startTime - stackStart) * fps)
+        const endFrame = i < imageClips.length - 1
+          ? Math.round((imageClips[i + 1].startTime - stackStart) * fps)
+          : totalFrames
+        guideImages.push({ path: imgPath, startFrame, endFrame })
+        frameIndices.push(startFrame)
+      }
+
+      if (guideImages.length >= 2) {
+        // 'end' mode: move the last image's index to the final frame of the clip
+        if (stack.guideEndMode === 'end') {
+          const endFrameIdx = totalFrames - 1
+          frameIndices[frameIndices.length - 1] = endFrameIdx
+          guideImages[guideImages.length - 1].startFrame = endFrameIdx
         }
-        if (frameMapping.last) {
-          lastImagePath = fileUrlToPath(resolveClipSrc(frameMapping.last))
+        guideIndexList = frameIndices.join(',')
+        guideStrength = stack.guideStrength ?? 0.7
+
+        // Render the guide video via ffmpeg or use stored path
+        try {
+          guideVideoPath = await window.electronAPI.renderGuideVideo({
+            images: guideImages,
+            fps,
+            totalFrames,
+            resolution: stack.settings.videoResolution,
+            aspectRatio: stack.settings.aspectRatio || '16:9',
+          })
+        } catch (err) {
+          logger.error(`Stack render: guide video creation failed: ${err}`)
         }
+      }
+
+      // Set first/middle/last image paths for formatter nodes + source dims
+      firstImagePath = guideImages[0]?.path ?? null
+      if (guideImages.length >= 3) {
+        middleImagePath = guideImages[Math.floor(guideImages.length / 2)]?.path ?? null
+      }
+      lastImagePath = guideImages[guideImages.length - 1]?.path ?? null
+    } else if (!useGuideVideo) {
+      // --- Standard first/last/middle frame mode ---
+      const frameMapping = getStackFrameMapping(stack, clips)
+
+      if (frameMapping) {
+        const imageUrl = resolveClipSrc(frameMapping.first)
+        const imagePath = fileUrlToPath(imageUrl)
+
+        if (imagePath) {
+          const isSingleAsLast = !frameMapping.last && !frameMapping.middle && stack.singleFramePosition === 'last'
+          firstImagePath = isSingleAsLast ? null : imagePath
+          lastImagePath = isSingleAsLast ? imagePath : null
+
+          if (frameMapping.middle) {
+            middleImagePath = fileUrlToPath(resolveClipSrc(frameMapping.middle))
+          }
+          if (frameMapping.last) {
+            lastImagePath = fileUrlToPath(resolveClipSrc(frameMapping.last))
+          }
+        }
+      }
+
+      // Fall back to stored sourcePaths if clips couldn't be resolved
+      if (!firstImagePath && !lastImagePath && stack.sourcePaths) {
+        logger.info(`[renderStack] using stored sourcePaths (clips not resolvable)`)
+        firstImagePath = stack.sourcePaths.firstImage ?? null
+        middleImagePath = stack.sourcePaths.middleImage ?? null
+        lastImagePath = stack.sourcePaths.lastImage ?? null
       }
     }
 
-    // Fall back to stored sourcePaths if clips couldn't be resolved
-    if (!firstImagePath && !lastImagePath && stack.sourcePaths) {
-      logger.info(`[renderStack] using stored sourcePaths (clips not resolvable)`)
-      firstImagePath = stack.sourcePaths.firstImage ?? null
-      middleImagePath = stack.sourcePaths.middleImage ?? null
-      lastImagePath = stack.sourcePaths.lastImage ?? null
-    }
-
-    // Extract audio if present
-    const stackClips = getStackClips(stack, clips)
+    // Extract audio if present — pad to full stack duration with silence
     const audioClip = stackClips.find(c => c.type === 'audio')
+    const fullStackDuration = getStackDuration(stack, clips)
 
     let audioPath: string | null = null
     if (audioClip) {
@@ -246,11 +315,21 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
       audioSourcePath = fileUrlToPath(audioUrl)
       if (audioSourcePath) {
         try {
-          audioPath = await window.electronAPI.extractAudioSegment({
+          // Extract the audio segment, then pad to full stack duration if needed
+          const rawAudioPath = await window.electronAPI.extractAudioSegment({
             sourcePath: audioSourcePath,
             startTime: audioClip.trimStart,
             duration: audioClip.duration,
           })
+          if (fullStackDuration > audioClip.duration + 0.1) {
+            // Pad with silence to match full stack span
+            audioPath = await window.electronAPI.padAudioToLength({
+              sourcePath: rawAudioPath,
+              targetDuration: fullStackDuration,
+            })
+          } else {
+            audioPath = rawAudioPath
+          }
         } catch (err) {
           logger.error(`Stack render: audio extraction failed: ${err}`)
         }
@@ -264,7 +343,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
         audioPath = await window.electronAPI.extractAudioSegment({
           sourcePath: audioSourcePath,
           startTime: 0,
-          duration: getStackDuration(stack, clips),
+          duration: fullStackDuration,
         })
       } catch (err) {
         logger.error(`Stack render: stored audio extraction failed: ${err}`)
@@ -277,6 +356,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
       middleImage: middleImagePath ?? stack.sourcePaths?.middleImage,
       lastImage: lastImagePath ?? stack.sourcePaths?.lastImage,
       audio: audioSourcePath ?? stack.sourcePaths?.audio,
+      guideVideo: guideVideoPath ?? stack.sourcePaths?.guideVideo,
     }
 
     // Compute duration
@@ -287,7 +367,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     const settings: GenerationSettings = {
       ...stack.settings,
       duration: Math.min(Math.max(1, Math.round(duration)), stack.settings.model === 'pro' ? 10 : 20),
-      ...(hasMiddle ? { temporalUpscale: false } : {}),
+      ...(hasMiddle && !useGuideVideo ? { temporalUpscale: false } : {}),
       audio: hasAudioClip ? true : stack.settings.audio,
     }
 
@@ -296,19 +376,38 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     updateStack(stackId, { renderState: 'rendering', errorMessage: undefined, sourcePaths: resolvedPaths })
 
     try {
-      logger.info(`[renderStack] calling generate: firstImage=${firstImagePath} middleImage=${middleImagePath} lastImage=${lastImagePath} audio=${audioPath} prompt=${stack.prompt.substring(0, 50)}`)
-      await regenGenerate(
-        stack.prompt,
-        firstImagePath,
-        settings,
-        audioPath,
-        middleImagePath,
-        lastImagePath,
-        stack.strengths,
-        projectName,
-        stack.preserveAspectRatio,
-        'editor',
-      )
+      if (useGuideVideo && guideVideoPath) {
+        logger.info(`[renderStack] calling generate (guide video): guideVideo=${guideVideoPath} guideIndexList=${guideIndexList} guideStrength=${guideStrength} prompt=${stack.prompt.substring(0, 50)}`)
+        await regenGenerate(
+          stack.prompt,
+          firstImagePath,
+          settings,
+          audioPath,
+          middleImagePath,
+          lastImagePath,
+          stack.strengths,
+          projectName,
+          stack.preserveAspectRatio,
+          'editor',
+          guideVideoPath,
+          guideIndexList,
+          guideStrength,
+        )
+      } else {
+        logger.info(`[renderStack] calling generate: firstImage=${firstImagePath} middleImage=${middleImagePath} lastImage=${lastImagePath} audio=${audioPath} prompt=${stack.prompt.substring(0, 50)}`)
+        await regenGenerate(
+          stack.prompt,
+          firstImagePath,
+          settings,
+          audioPath,
+          middleImagePath,
+          lastImagePath,
+          stack.strengths,
+          projectName,
+          stack.preserveAspectRatio,
+          'editor',
+        )
+      }
     } catch (err) {
       logger.error(`Stack render failed: ${err}`)
       updateStack(stackId, { renderState: 'error', errorMessage: String(err) })

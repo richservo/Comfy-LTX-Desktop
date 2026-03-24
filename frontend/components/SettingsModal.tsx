@@ -22,7 +22,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const [modelLicenseText, setModelLicenseText] = useState<string | null>(null)
   const [modelLicenseLoading, setModelLicenseLoading] = useState(false)
   const [showModelLicense, setShowModelLicense] = useState(false)
-  const [modelLists, setModelLists] = useState<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[]; hasZImage?: boolean } | null>(null)
+  const [modelLists, setModelLists] = useState<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[]; hasZImage?: boolean; hasGemini?: boolean; geminiModels?: string[]; geminiAspectRatios?: string[]; geminiImageSizes?: string[] } | null>(null)
   const [modelListsLoading, setModelListsLoading] = useState(false)
   const [modelListsError, setModelListsError] = useState<string | null>(null)
   const [comfyUrlInput, setComfyUrlInput] = useState(settings.comfyuiUrl)
@@ -425,10 +425,46 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                   >
                     <option value="none">None (LTXV pipeline)</option>
                     {modelLists?.hasZImage && <option value="z-image">Z-Image (RS Z-Image Generate)</option>}
+                    {modelLists?.hasGemini && <option value="gemini">Gemini 3 Pro Image</option>}
                   </select>
                   <p className="text-xs text-zinc-500 mt-2">
-                    When Z-Image is selected, image generation uses RS Z-Image Generate. For text-to-video, Z-Image auto-generates the first frame from your prompt.
+                    Select an image generator for text-to-image and first frame generation. Options only appear if the required ComfyUI nodes are installed.
                   </p>
+
+                  {/* Gemini settings */}
+                  {settings.imageGenerator === 'gemini' && (
+                    <div className="mt-3 space-y-2">
+                      <label className="block text-xs text-zinc-400">GCP Project ID</label>
+                      <input
+                        type="text"
+                        value={settings.geminiProjectId || ''}
+                        onChange={(e) => updateSettings({ geminiProjectId: e.target.value })}
+                        placeholder="my-gcp-project-id"
+                        className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-zinc-600"
+                      />
+                      <label className="block text-xs text-zinc-400">GCP Region</label>
+                      <input
+                        type="text"
+                        value={settings.geminiRegion || 'global'}
+                        onChange={(e) => updateSettings({ geminiRegion: e.target.value })}
+                        placeholder="global"
+                        className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-zinc-600"
+                      />
+                      {modelLists?.geminiImageSizes && modelLists.geminiImageSizes.length > 0 && (
+                        <>
+                          <label className="block text-xs text-zinc-400">Image Size</label>
+                          <select
+                            value={settings.geminiImageSize || '2K'}
+                            onChange={(e) => updateSettings({ geminiImageSize: e.target.value })}
+                            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            {modelLists.geminiImageSizes.map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        </>
+                      )}
+                    </div>
+                  )}
+
                 </div>
               </div>
 

@@ -1,8 +1,13 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, Image as ImageIcon, RefreshCw, Trash2 } from 'lucide-react'
+import { Upload, Image as ImageIcon, RefreshCw, Trash2, Grid } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { fileToFileUrl, resolveImageDrop } from '@/lib/url-to-path'
+
+interface ProjectImage {
+  url: string
+  path: string
+}
 
 interface ImageUploaderProps {
   onImageSelect: (path: string | null) => void
@@ -10,9 +15,13 @@ interface ImageUploaderProps {
   label?: string
   strength?: number
   onStrengthChange?: (value: number) => void
+  /** Available project images for "select from project" picker */
+  projectImages?: ProjectImage[]
 }
 
-export function ImageUploader({ onImageSelect, selectedImage, label = 'Image', strength, onStrengthChange }: ImageUploaderProps) {
+export function ImageUploader({ onImageSelect, selectedImage, label = 'Image', strength, onStrengthChange, projectImages }: ImageUploaderProps) {
+  const [showPicker, setShowPicker] = useState(false)
+
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0]
     if (file) {
@@ -141,6 +150,18 @@ export function ImageUploader({ onImageSelect, selectedImage, label = 'Image', s
               </p>
               <p className="text-sm text-zinc-500">
                 Or <span className="text-blue-400 underline">upload a file</span>
+                {projectImages && projectImages.length > 0 && (
+                  <>
+                    {' or '}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setShowPicker(true) }}
+                      className="text-blue-400 underline hover:text-blue-300"
+                    >
+                      select from project
+                    </button>
+                  </>
+                )}
               </p>
             </div>
           </div>
@@ -164,6 +185,38 @@ export function ImageUploader({ onImageSelect, selectedImage, label = 'Image', s
             onChange={(e) => onStrengthChange(parseFloat(e.target.value))}
             className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-violet-500"
           />
+        </div>
+      )}
+
+      {/* Project image picker overlay */}
+      {showPicker && projectImages && projectImages.length > 0 && (
+        <div className="mt-2 border border-zinc-700 rounded-lg bg-zinc-900 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-zinc-400 flex items-center gap-1.5">
+              <Grid className="h-3 w-3" />
+              Project Images
+            </span>
+            <button
+              onClick={() => setShowPicker(false)}
+              className="text-xs text-zinc-500 hover:text-zinc-300"
+            >
+              Close
+            </button>
+          </div>
+          <div className="grid grid-cols-4 gap-1.5 max-h-40 overflow-y-auto">
+            {projectImages.map((img, i) => (
+              <button
+                key={i}
+                onClick={() => {
+                  onImageSelect(img.url)
+                  setShowPicker(false)
+                }}
+                className="aspect-square rounded-md overflow-hidden bg-zinc-800 hover:ring-2 hover:ring-blue-500 transition-all"
+              >
+                <img src={img.url} alt="" className="w-full h-full object-cover" />
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>

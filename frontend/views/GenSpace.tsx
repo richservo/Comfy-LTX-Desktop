@@ -4,7 +4,7 @@ import {
   Heart, Film, Volume2, VolumeX, Sparkles,
   Clock, Monitor, ChevronUp, Scissors, RefreshCw,
   ChevronLeft, ChevronRight, Copy, Check,
-  Menu, Square, ArrowUpDown
+  Menu, Square, ArrowUpDown, Pencil, RotateCcw
 } from 'lucide-react'
 import { useProjects } from '../contexts/ProjectContext'
 import type { GenSpaceRetakeSource } from '../contexts/ProjectContext'
@@ -31,6 +31,7 @@ function AssetCard({
   onDragStart,
   onCreateVideo,
   onRerender,
+  onEdit,
   onToggleFavorite
 }: {
   asset: Asset
@@ -39,6 +40,7 @@ function AssetCard({
   onDragStart: (e: React.DragEvent, asset: Asset) => void
   onCreateVideo?: (asset: Asset) => void
   onRerender?: (asset: Asset) => void
+  onEdit?: (asset: Asset) => void
   onToggleFavorite?: () => void
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -143,41 +145,65 @@ function AssetCard({
               <RefreshCw className="h-3 w-3" />
               Re-render
             </button>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={handleDownload}
-              className="p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors"
-            >
-              <Download className="h-3.5 w-3.5" />
-            </button>
+            {asset.type === 'image' && onEdit && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onEdit(asset) }}
+                className="px-2.5 py-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors flex items-center gap-1.5 text-xs font-medium whitespace-nowrap"
+              >
+                <Pencil className="h-3 w-3" />
+                Edit
+              </button>
+            )}
           </div>
         </div>
 
         {/* Bottom controls for video */}
         {asset.type === 'video' && (
           <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
-            <div className="px-2 py-1 rounded-lg bg-black/50 backdrop-blur-md text-white text-xs font-mono">
-              {formatTime(currentTime)}
+            <div className="flex items-center gap-1.5">
+              <div className="px-2 py-1 rounded-lg bg-black/50 backdrop-blur-md text-white text-xs font-mono">
+                {formatTime(currentTime)}
+              </div>
+              <button
+                onClick={handleDownload}
+                className="p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors"
+              >
+                <Download className="h-3.5 w-3.5" />
+              </button>
             </div>
-            <button
-              onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted) }}
-              className="p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors"
-            >
-              {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete() }}
+                className="p-1.5 rounded-lg bg-red-600/70 backdrop-blur-md text-white hover:bg-red-500 transition-colors"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted) }}
+                className="p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors"
+              >
+                {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Delete button (subtle, bottom right for images) */}
+        {/* Bottom controls for images */}
         {asset.type === 'image' && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete() }}
-            className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-red-600/70 backdrop-blur-md text-white hover:bg-red-500 transition-colors opacity-0 group-hover:opacity-100"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
+            <button
+              onClick={handleDownload}
+              className="p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors"
+            >
+              <Download className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete() }}
+              className="p-1.5 rounded-lg bg-red-600/70 backdrop-blur-md text-white hover:bg-red-500 transition-colors"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
         )}
       </div>
 
@@ -628,7 +654,12 @@ export function GenSpace() {
   const [middleStrength, setMiddleStrength] = useState(1)
   const [lastStrength, setLastStrength] = useState(1)
   const [preserveAspectRatio, setPreserveAspectRatio] = useState(false)
+  const [referenceImages, setReferenceImages] = useState<(string | null)[]>([null])
   const [localError, setLocalError] = useState<string | null>(null)
+  const [showTrash, setShowTrash] = useState(false)
+  const [trashedAssets, setTrashedAssets] = useState<{ path: string; filename: string; type: string; url: string; prompt?: string; timestamp?: string }[]>([])
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null) // path of asset pending permanent delete
+  const [selectedTrashItem, setSelectedTrashItem] = useState<{ path: string; filename: string; type: string; url: string; prompt?: string } | null>(null)
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
   const [copiedPrompt, setCopiedPrompt] = useState(false)
   const [showFavorites, setShowFavorites] = useState(false)
@@ -678,6 +709,7 @@ export function GenSpace() {
     error,
     cancel,
     reset,
+    initiator,
   } = useGeneration()
 
   const {
@@ -778,11 +810,13 @@ export function GenSpace() {
 
   // Sync project assets against renders.json (source of truth, reconciled against disk by backend)
   // Runs every time the project is opened — removes stale assets, adds new ones, fixes paths
+  const [syncCounter, setSyncCounter] = useState(0)
   const syncedProjectRef = useRef<string | null>(null)
   useEffect(() => {
     if (!currentProject || !currentProjectId) return
-    if (syncedProjectRef.current === currentProjectId) return
-    syncedProjectRef.current = currentProjectId
+    const syncKey = `${currentProjectId}:${syncCounter}`
+    if (syncedProjectRef.current === syncKey) return
+    syncedProjectRef.current = syncKey
 
     window.electronAPI.getProjectRenders(currentProject.name).then(renders => {
       const validAssets = (renders || []).map(r => {
@@ -813,13 +847,14 @@ export function GenSpace() {
     }).catch(err => {
       logger.error(`Failed to sync project renders: ${err}`)
     })
-  }, [currentProjectId, currentProject?.name, syncGeneratedAssets])
+  }, [currentProjectId, currentProject?.name, syncGeneratedAssets, syncCounter])
 
   const assetSavePath = currentProject?.assetSavePath
 
   // When video generation completes (or an iteration completes), add to project assets
+  // Only when GenSpace initiated the generation (not editor inference stacks)
   useEffect(() => {
-    if (!videoUrl || !videoPath || !currentProjectId) return
+    if (!videoUrl || !videoPath || !currentProjectId || initiator !== 'genspace') return
 
     const generationKey = `${videoUrl}|${videoPath}`
     if (persistedVideoKeyRef.current === generationKey) return
@@ -865,12 +900,13 @@ export function GenSpace() {
         logger.error(`Failed to persist generated video asset: ${err}`)
       }
     })()
-  }, [videoUrl, videoPath, currentProjectId, isGenerating, settings, inputImage, selectedAudio, assetSavePath, lastPrompt, enhancedPrompt, addAsset, reset])
+  }, [videoUrl, videoPath, currentProjectId, isGenerating, settings, inputImage, selectedAudio, assetSavePath, lastPrompt, enhancedPrompt, addAsset, reset, initiator])
 
   // When image generation completes, add to project assets
+  // Only when GenSpace initiated the generation (not editor)
   const persistedImageKeyRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!imageUrl || !currentProjectId || isGenerating) return
+    if (!imageUrl || !currentProjectId || isGenerating || initiator !== 'genspace') return
 
     if (persistedImageKeyRef.current === imageUrl) return
     persistedImageKeyRef.current = imageUrl
@@ -896,7 +932,7 @@ export function GenSpace() {
       },
     })
     reset()
-  }, [imageUrl, currentProjectId, isGenerating, settings, lastPrompt, enhancedPrompt, addAsset, reset])
+  }, [imageUrl, currentProjectId, isGenerating, settings, lastPrompt, enhancedPrompt, addAsset, reset, initiator])
 
   // When retake completes, add as take or new asset
   useEffect(() => {
@@ -988,7 +1024,11 @@ export function GenSpace() {
     setLastPrompt(prompt)
 
     if (genMode === 'text-to-image') {
-      generateImage(prompt, settings, null, undefined, currentProject?.name)
+      const refPaths = referenceImages
+        .filter((img): img is string => img != null)
+        .map(img => fileUrlToPath(img))
+        .filter((p): p is string => p != null)
+      generateImage(prompt, settings, null, undefined, currentProject?.name, refPaths.length > 0 ? refPaths : undefined, 'genspace')
       return
     }
 
@@ -1014,19 +1054,61 @@ export function GenSpace() {
       },
       currentProject?.name,
       preserveAspectRatio,
+      'genspace',
     )
   }
 
-  const handleDelete = (assetId: string) => {
-    if (currentProjectId) {
-      deleteAsset(currentProjectId, assetId)
+  const handleDelete = async (asset: Asset) => {
+    if (!currentProjectId) return
+    // Move file to _old folder — await to ensure renders.json is updated before any sync
+    if (asset.path) {
+      await window.electronAPI.archiveAsset(asset.path)
     }
+    deleteAsset(currentProjectId, asset.id)
   }
+
+  const loadTrash = useCallback(async () => {
+    if (!currentProject?.name || !appSettings.comfyuiOutputDir) return
+    const safePN = currentProject.name.replace(/[<>:"/\\|?*]/g, '_')
+    const projectDir = `${appSettings.comfyuiOutputDir.replace(/\\/g, '/')}/${safePN}`
+    const items = await window.electronAPI.listTrashedAssets(projectDir)
+    setTrashedAssets(items)
+  }, [currentProject?.name, appSettings.comfyuiOutputDir])
+
+  const handleToggleTrash = useCallback(() => {
+    if (!showTrash) loadTrash()
+    setShowTrash(prev => !prev)
+    setShowFavorites(false)
+  }, [showTrash, loadTrash])
+
+  const handleRestore = useCallback(async (filePath: string) => {
+    await window.electronAPI.restoreAsset(filePath)
+    setTrashedAssets(prev => prev.filter(a => a.path !== filePath))
+    setSelectedTrashItem(null)
+    // Force re-sync so restored file appears in the gallery
+    setSyncCounter(c => c + 1)
+  }, [])
+
+  const handlePermanentDelete = useCallback(async (filePath: string) => {
+    await window.electronAPI.deleteAssetPermanently(filePath)
+    setTrashedAssets(prev => prev.filter(a => a.path !== filePath))
+    setConfirmDelete(null)
+    setSelectedTrashItem(null)
+  }, [])
 
   const handleDragStart = (e: React.DragEvent, asset: Asset) => {
     e.dataTransfer.setData('asset', JSON.stringify(asset))
     e.dataTransfer.setData('assetId', asset.id)
     e.dataTransfer.effectAllowed = 'copy'
+  }
+
+  const handleEdit = (imageAsset: Asset) => {
+    setGenMode('text-to-image')
+    setMode('video')
+    // Load the image as the first reference image
+    setReferenceImages([imageAsset.url, null])
+    if (imageAsset.prompt) setPrompt(imageAsset.prompt)
+    setIsPanelOpen(true)
   }
 
   const handleCreateVideo = (imageAsset: Asset) => {
@@ -1046,7 +1128,8 @@ export function GenSpace() {
     const p = entry || asset.generationParams
     if (!p) return
 
-    const rerenderPrompt = (entry?.enhancedPrompt ?? entry?.prompt) || asset.prompt
+    // Use the original (un-enhanced) prompt so promptEnhance can re-run with the same settings
+    const rerenderPrompt = entry?.prompt || asset.prompt
 
     // Build effective settings from the render entry
     const effectiveResolution = entry?.rtxSuperRes ? '4K' : (entry?.resolution || settings.videoResolution)
@@ -1103,6 +1186,19 @@ export function GenSpace() {
     // Close the preview modal
     setSelectedAsset(null)
 
+    // Image assets: re-render as image generation
+    // Use the stored prompt (already enhanced if it was) and disable promptEnhance to avoid double-enhancement
+    if (asset.type === 'image') {
+      const imagePrompt = asset.prompt || rerenderPrompt
+      const imageSettings = { ...rerenderSettings, promptEnhance: false }
+      setGenMode('text-to-image')
+      setMode('video')
+      setPrompt(imagePrompt)
+      handleSettingsChange(imageSettings)
+      generateImage(imagePrompt, imageSettings, null, undefined, currentProject.name, undefined, 'genspace')
+      return
+    }
+
     // Force model to pro if audio is present
     const finalSettings = audioFile ? { ...rerenderSettings, model: 'pro' as const } : rerenderSettings
 
@@ -1117,6 +1213,7 @@ export function GenSpace() {
       { first: fStrength, middle: mStrength, last: lStrength },
       currentProject.name,
       preserveAR,
+      'genspace',
     )
   }
 
@@ -1239,6 +1336,7 @@ export function GenSpace() {
                   onImageSelect={setInputImage}
                   strength={firstStrength}
                   onStrengthChange={setFirstStrength}
+                  projectImages={assets.filter(a => a.type === 'image').map(a => ({ url: a.url, path: a.path }))}
                 />
 
                 <ImageUploader
@@ -1247,6 +1345,7 @@ export function GenSpace() {
                   onImageSelect={setSelectedMiddleImage}
                   strength={middleStrength}
                   onStrengthChange={setMiddleStrength}
+                  projectImages={assets.filter(a => a.type === 'image').map(a => ({ url: a.url, path: a.path }))}
                 />
 
                 <ImageUploader
@@ -1255,6 +1354,7 @@ export function GenSpace() {
                   onImageSelect={setSelectedLastImage}
                   strength={lastStrength}
                   onStrengthChange={setLastStrength}
+                  projectImages={assets.filter(a => a.type === 'image').map(a => ({ url: a.url, path: a.path }))}
                 />
 
                 <AudioUploader
@@ -1274,6 +1374,44 @@ export function GenSpace() {
                   </label>
                 )}
               </>
+            )}
+
+            {/* Reference Images - shown in text-to-image mode when Gemini is the image generator */}
+            {genMode === 'text-to-image' && (settings.imageGenerator ?? appSettings.imageGenerator) === 'gemini' && (
+              <div className="space-y-2">
+                <label className="block text-[12px] font-semibold text-zinc-500 uppercase leading-4">
+                  Reference Images
+                </label>
+                <p className="text-xs text-zinc-500">Add up to 6 reference images to guide Gemini generation</p>
+                {referenceImages.map((img, idx) => (
+                  <ImageUploader
+                    key={idx}
+                    label={`Reference ${idx + 1}`}
+                    selectedImage={img}
+                    projectImages={assets.filter(a => a.type === 'image').map(a => ({ url: a.url, path: a.path }))}
+                    onImageSelect={(path) => {
+                      setReferenceImages(prev => {
+                        const next = [...prev]
+                        next[idx] = path
+                        if (path && idx === prev.length - 1 && prev.length < 6) {
+                          next.push(null)
+                        }
+                        if (!path) {
+                          while (next.length > 1 && next[next.length - 1] === null && idx !== next.length - 1) {
+                            next.pop()
+                          }
+                          if (next.every((v, i) => i <= idx || v === null)) {
+                            let lastFilled = -1
+                            for (let j = next.length - 1; j >= 0; j--) { if (next[j] !== null) { lastFilled = j; break } }
+                            next.length = Math.min(6, Math.max(1, lastFilled + 2))
+                          }
+                        }
+                        return next.length === 0 ? [null] : next
+                      })
+                    }}
+                  />
+                ))}
+              </div>
             )}
 
             {/* Prompt */}
@@ -1357,7 +1495,18 @@ export function GenSpace() {
           {/* Top bar */}
           <div className="flex items-center justify-end pb-2 gap-2">
             <button
-              onClick={() => setShowFavorites(!showFavorites)}
+              onClick={handleToggleTrash}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                showTrash
+                  ? 'bg-zinc-600/30 text-zinc-300 border border-zinc-500/30'
+                  : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+              }`}
+            >
+              <Trash2 className="h-4 w-4" />
+              Trash
+            </button>
+            <button
+              onClick={() => { setShowFavorites(!showFavorites); if (showTrash) setShowTrash(false) }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                 showFavorites
                   ? 'bg-red-500/20 text-red-400 border border-red-500/30'
@@ -1426,42 +1575,120 @@ export function GenSpace() {
             </div>
           </div>
 
-          {/* Assets grid */}
+          {/* Assets grid / Trash view */}
           <div className="overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] flex-1">
-            <div className={`grid ${gallerySizeClasses[gallerySize]} gap-4`}>
-              {isGenerating && (
-                <div className="relative rounded-xl overflow-hidden bg-zinc-800 aspect-video">
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <div className="relative w-16 h-16 mb-3">
-                      <div className="absolute inset-0 rounded-full border-2 border-violet-500/30" />
-                      <div className="absolute inset-0 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
-                      <div className="absolute inset-2 rounded-full bg-zinc-800 flex items-center justify-center">
-                        <Sparkles className="h-6 w-6 text-violet-400" />
+            {showTrash ? (
+              trashedAssets.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-center">
+                  <Trash2 className="h-12 w-12 text-zinc-700 mb-4" />
+                  <h3 className="text-lg font-semibold text-white mb-2">Trash is empty</h3>
+                  <p className="text-zinc-500 text-sm">Deleted assets will appear here.</p>
+                </div>
+              ) : (
+                <div className={`grid ${gallerySizeClasses[gallerySize]} gap-4`}>
+                  {trashedAssets.map((item) => (
+                    <div
+                      key={item.path}
+                      className="relative group rounded-xl overflow-hidden bg-zinc-900 cursor-pointer"
+                      onClick={() => setSelectedTrashItem(item)}
+                    >
+                      {item.type === 'video' ? (
+                        <video src={item.url} className="w-full aspect-video object-contain" muted />
+                      ) : (
+                        <img src={item.url} alt="" className="w-full aspect-video object-contain" />
+                      )}
+                      {/* Dimmed overlay to indicate trashed state */}
+                      <div className="absolute inset-0 bg-black/30 group-hover:bg-black/50 transition-colors" />
+                      {/* Filename + prompt */}
+                      <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
+                        <p className="text-xs text-zinc-300 truncate">{item.filename}</p>
+                        {item.prompt && <p className="text-xs text-zinc-500 truncate">{item.prompt}</p>}
+                      </div>
+                      {/* Hover action buttons */}
+                      <div className="absolute top-2 left-2 right-2 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleRestore(item.path) }}
+                          className="px-2.5 py-1.5 rounded-lg bg-green-600/70 backdrop-blur-md text-white hover:bg-green-500 transition-colors flex items-center gap-1.5 text-xs font-medium"
+                          title="Restore"
+                        >
+                          <RotateCcw className="h-3 w-3" />
+                          Restore
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setConfirmDelete(item.path) }}
+                          className="p-1.5 rounded-lg bg-red-600/70 backdrop-blur-md text-white hover:bg-red-500 transition-colors"
+                          title="Delete permanently"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                     </div>
-                    <p className="text-sm text-zinc-400">{statusMessage || 'Generating...'}</p>
-                    {progress > 0 && (
-                      <div className="w-32 h-1 bg-zinc-800 rounded-full mt-2 overflow-hidden">
-                        <div className="h-full bg-violet-500 transition-all" style={{ width: `${progress}%` }} />
-                      </div>
-                    )}
-                  </div>
+                  ))}
                 </div>
-              )}
-              {filteredAssets.map(asset => (
-                <AssetCard
-                  key={asset.id}
-                  asset={asset}
-                  onDelete={() => handleDelete(asset.id)}
-                  onPlay={() => setSelectedAsset(asset)}
-                  onDragStart={handleDragStart}
-                  onCreateVideo={handleCreateVideo}
-                  onRerender={handleRerender}
-                  onToggleFavorite={() => currentProjectId && toggleFavorite(currentProjectId, asset.id)}
-                />
-              ))}
-            </div>
+              )
+            ) : (
+              <div className={`grid ${gallerySizeClasses[gallerySize]} gap-4`}>
+                {isGenerating && (
+                  <div className="relative rounded-xl overflow-hidden bg-zinc-800 aspect-video">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <div className="relative w-16 h-16 mb-3">
+                        <div className="absolute inset-0 rounded-full border-2 border-violet-500/30" />
+                        <div className="absolute inset-0 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
+                        <div className="absolute inset-2 rounded-full bg-zinc-800 flex items-center justify-center">
+                          <Sparkles className="h-6 w-6 text-violet-400" />
+                        </div>
+                      </div>
+                      <p className="text-sm text-zinc-400">{statusMessage || 'Generating...'}</p>
+                      {progress > 0 && (
+                        <div className="w-32 h-1 bg-zinc-800 rounded-full mt-2 overflow-hidden">
+                          <div className="h-full bg-violet-500 transition-all" style={{ width: `${progress}%` }} />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {filteredAssets.map(asset => (
+                  <AssetCard
+                    key={asset.id}
+                    asset={asset}
+                    onDelete={() => handleDelete(asset)}
+                    onPlay={() => setSelectedAsset(asset)}
+                    onDragStart={handleDragStart}
+                    onCreateVideo={handleCreateVideo}
+                    onRerender={handleRerender}
+                    onEdit={handleEdit}
+                    onToggleFavorite={() => currentProjectId && toggleFavorite(currentProjectId, asset.id)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
+
+          {/* Permanent delete confirmation dialog */}
+          {confirmDelete && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setConfirmDelete(null)}>
+              <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 max-w-sm mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-semibold text-white mb-2">Delete permanently?</h3>
+                <p className="text-sm text-zinc-400 mb-4">
+                  This file will be permanently deleted and cannot be recovered.
+                </p>
+                <div className="flex gap-3 justify-end">
+                  <button
+                    onClick={() => setConfirmDelete(null)}
+                    className="px-4 py-2 rounded-lg text-sm font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handlePermanentDelete(confirmDelete)}
+                    className="px-4 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-500 transition-colors"
+                  >
+                    Delete forever
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1587,6 +1814,107 @@ export function GenSpace() {
               <p className="text-zinc-500 text-sm mt-1">
                 {selectedAsset.resolution} {selectedAsset.duration ? `${selectedAsset.duration}s` : ''}
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Trash item preview modal */}
+      {selectedTrashItem && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
+          onClick={() => setSelectedTrashItem(null)}
+        >
+          {/* Navigation through trash items */}
+          {(() => {
+            const trashIdx = trashedAssets.findIndex(t => t.path === selectedTrashItem.path)
+            const canPrevTrash = trashIdx > 0
+            const canNextTrash = trashIdx < trashedAssets.length - 1
+            return (
+              <>
+                <button
+                  onClick={(e) => { e.stopPropagation(); if (canPrevTrash) setSelectedTrashItem(trashedAssets[trashIdx - 1]) }}
+                  disabled={!canPrevTrash}
+                  className={`absolute left-4 top-1/2 -translate-y-1/2 z-10 p-3 rounded-full backdrop-blur-md transition-all ${
+                    canPrevTrash ? 'bg-white/10 text-white hover:bg-white/20 cursor-pointer' : 'bg-white/5 text-zinc-600 cursor-default'
+                  }`}
+                >
+                  <ChevronLeft className="h-6 w-6" />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); if (canNextTrash) setSelectedTrashItem(trashedAssets[trashIdx + 1]) }}
+                  disabled={!canNextTrash}
+                  className={`absolute right-4 top-1/2 -translate-y-1/2 z-10 p-3 rounded-full backdrop-blur-md transition-all ${
+                    canNextTrash ? 'bg-white/10 text-white hover:bg-white/20 cursor-pointer' : 'bg-white/5 text-zinc-600 cursor-default'
+                  }`}
+                >
+                  <ChevronRight className="h-6 w-6" />
+                </button>
+              </>
+            )
+          })()}
+
+          <div className="relative max-w-5xl w-full max-h-full px-20 py-8" onClick={e => e.stopPropagation()}>
+            {/* Top bar */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => handleRestore(selectedTrashItem.path)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600/80 text-white hover:bg-green-500 transition-colors text-sm font-medium"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Restore
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(selectedTrashItem.path)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600/80 text-white hover:bg-red-500 transition-colors text-sm font-medium"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete forever
+                </button>
+              </div>
+              <button
+                onClick={() => setSelectedTrashItem(null)}
+                className="p-2 rounded-md text-zinc-400 hover:text-white transition-colors"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            {selectedTrashItem.type === 'video' ? (
+              <video
+                key={selectedTrashItem.path}
+                src={selectedTrashItem.url}
+                controls
+                autoPlay
+                className="w-full rounded-xl object-contain max-h-[75vh]"
+              />
+            ) : (
+              <img
+                key={selectedTrashItem.path}
+                src={selectedTrashItem.url}
+                alt=""
+                className="w-full rounded-xl object-contain max-h-[75vh]"
+              />
+            )}
+            <div className="mt-4 text-center">
+              {selectedTrashItem.prompt && (
+                <div className="inline-flex items-start gap-2 max-w-full">
+                  <p className="text-zinc-300">{selectedTrashItem.prompt}</p>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(selectedTrashItem.prompt!)
+                      setCopiedPrompt(true)
+                      setTimeout(() => setCopiedPrompt(false), 2000)
+                    }}
+                    className="shrink-0 p-1 rounded hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors"
+                    title="Copy prompt"
+                  >
+                    {copiedPrompt ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                </div>
+              )}
+              <p className="text-zinc-500 text-sm mt-1">{selectedTrashItem.filename}</p>
             </div>
           </div>
         </div>

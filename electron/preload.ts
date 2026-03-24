@@ -70,6 +70,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDownloadsPath: (): Promise<string> => ipcRenderer.invoke('get-downloads-path'),
   ensureDirectory: (dirPath: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('ensure-directory', dirPath),
+  archiveAsset: (filePath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('archive-asset', filePath),
+  listTrashedAssets: (projectDir: string): Promise<{ path: string; filename: string; type: string; url: string; prompt?: string; timestamp?: string }[]> =>
+    ipcRenderer.invoke('list-trashed-assets', projectDir),
+  restoreAsset: (filePath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('restore-asset', filePath),
+  deleteAssetPermanently: (filePath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('delete-asset-permanently', filePath),
 
   // File save/export
   showSaveDialog: (options: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }): Promise<string | null> =>
@@ -127,12 +135,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cancelGeneration: (): Promise<void> => ipcRenderer.invoke('comfyui:cancel'),
   checkComfyUIHealth: (): Promise<{ connected: boolean }> =>
     ipcRenderer.invoke('comfyui:health'),
-  getModelLists: (): Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[] }> =>
+  getModelLists: (): Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[]; hasZImage?: boolean; hasGemini?: boolean; geminiModels?: string[]; geminiAspectRatios?: string[]; geminiImageSizes?: string[] }> =>
     ipcRenderer.invoke('comfyui:model-lists'),
   readVideoMetadata: (filePath: string): Promise<Record<string, unknown> | null> =>
     ipcRenderer.invoke('comfyui:read-video-metadata', filePath),
   extractAudioSegment: (params: { sourcePath: string; startTime: number; duration: number }): Promise<string> =>
     ipcRenderer.invoke('comfyui:extract-audio-segment', params),
+  renderGuideVideo: (params: { images: { path: string; startFrame: number; endFrame: number }[]; fps: number; totalFrames: number; resolution: string; aspectRatio: string }): Promise<string> =>
+    ipcRenderer.invoke('comfyui:render-guide-video', params),
+  padAudioToLength: (params: { sourcePath: string; targetDuration: number }): Promise<string> =>
+    ipcRenderer.invoke('comfyui:pad-audio-to-length', params),
   getProjectRenders: (projectName: string): Promise<Array<{
     filename: string; filePath: string; type: string; prompt: string;
     enhancedPrompt: string | null; seed: number; resolution: string;
@@ -225,6 +237,10 @@ declare global {
       getResourcePath: () => Promise<string | null>
       getDownloadsPath: () => Promise<string>
       ensureDirectory: (dirPath: string) => Promise<{ success: boolean; error?: string }>
+      archiveAsset: (filePath: string) => Promise<{ success: boolean; error?: string }>
+      listTrashedAssets: (projectDir: string) => Promise<{ path: string; filename: string; type: string; url: string; prompt?: string; timestamp?: string }[]>
+      restoreAsset: (filePath: string) => Promise<{ success: boolean; error?: string }>
+      deleteAssetPermanently: (filePath: string) => Promise<{ success: boolean; error?: string }>
       showSaveDialog: (options: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>
       saveFile: (filePath: string, data: string, encoding?: string) => Promise<{ success: boolean; path?: string; error?: string }>
       saveBinaryFile: (filePath: string, data: ArrayBuffer) => Promise<{ success: boolean; path?: string; error?: string }>
@@ -262,6 +278,8 @@ declare global {
       checkComfyUIHealth: () => Promise<{ connected: boolean }>
       getModelLists: () => Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[] }>
       readVideoMetadata: (filePath: string) => Promise<Record<string, unknown> | null>
+      renderGuideVideo: (params: { images: { path: string; startFrame: number; endFrame: number }[]; fps: number; totalFrames: number; resolution: string; aspectRatio: string }) => Promise<string>
+      padAudioToLength: (params: { sourcePath: string; targetDuration: number }) => Promise<string>
       getProjectRenders: (projectName: string) => Promise<Array<{
         filename: string; filePath: string; type: string; prompt: string;
         enhancedPrompt: string | null; seed: number; resolution: string;

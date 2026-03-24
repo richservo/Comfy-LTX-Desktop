@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import { spawnSync } from 'child_process'
-import { comfyClient } from '../comfyui/client'
+import { comfyClient, type ComfyUIUploadResult } from '../comfyui/client'
 import { progressTracker } from '../comfyui/progress'
 import {
   buildWorkflow,
@@ -108,9 +108,14 @@ interface GenerateParams {
   lastStrength?: number
   imageMode?: boolean
   imageSteps?: number
+  imageGenerator?: string
   rtxSuperRes?: boolean
   preserveAspectRatio?: boolean
   projectName?: string
+  referenceImagePaths?: string[]
+  guideVideoPath?: string
+  guideIndexList?: string
+  guideStrength?: number
 }
 
 let activePromptId: string | null = null
@@ -164,7 +169,28 @@ export function registerComfyUIHandlers(): void {
         )
       }
 
-      // 2e. Read source image dimensions for aspect-ratio-aware scaling
+      // 2e. Upload reference images for Gemini
+      const uploadedReferenceImages: ComfyUIUploadResult[] = []
+      if (params.referenceImagePaths) {
+        for (const refPath of params.referenceImagePaths) {
+          if (refPath && fs.existsSync(refPath)) {
+            logger.info(`Uploading reference image to ComfyUI: ${refPath}`)
+            const uploaded = await comfyClient.uploadImage(refPath)
+            uploadedReferenceImages.push(uploaded)
+            logger.info(`Reference image uploaded: ${uploaded.name}`)
+          }
+        }
+      }
+
+      // 2f. Upload guide video if provided
+      let uploadedGuideVideo = null
+      if (params.guideVideoPath && fs.existsSync(params.guideVideoPath)) {
+        logger.info(`Uploading guide video to ComfyUI: ${params.guideVideoPath}`)
+        uploadedGuideVideo = await comfyClient.uploadImage(params.guideVideoPath)
+        logger.info(`Guide video uploaded: ${uploadedGuideVideo.name}`)
+      }
+
+      // 2g. Read source image dimensions for aspect-ratio-aware scaling
       const firstImagePath = params.imagePath || params.middleImagePath || params.lastImagePath
       const sourceImageDims = firstImagePath ? getImageDimensions(firstImagePath) : null
       if (sourceImageDims) {
@@ -187,7 +213,7 @@ export function registerComfyUIHandlers(): void {
         : Math.floor(Math.random() * 2147483647)
 
       // 5. Build workflow — fall back to 'none' if z-image models aren't available
-      const imageGenerator = settings.imageGenerator ?? 'none'
+      const imageGenerator = params.imageGenerator ?? settings.imageGenerator ?? 'none'
       const useZImage = imageGenerator === 'z-image'
       const workflow = buildWorkflow({
         prompt: promptText,
@@ -224,6 +250,10 @@ export function registerComfyUIHandlers(): void {
         sampler: params.imageMode ? 'res_2s' : settings.sampler,
         promptFormatterTextEncoder: settings.promptFormatterTextEncoder,
         imageGenerator,
+        geminiProjectId: settings.geminiProjectId,
+        geminiRegion: settings.geminiRegion,
+        geminiImageSize: settings.geminiImageSize,
+        referenceImages: uploadedReferenceImages.length > 0 ? uploadedReferenceImages : undefined,
         imageMode: params.imageMode,
         imageSteps: params.imageSteps,
         imageAspectRatio: params.aspectRatio,
@@ -233,6 +263,9 @@ export function registerComfyUIHandlers(): void {
         preserveAspectRatio: params.preserveAspectRatio ?? false,
         sourceImageDims: sourceImageDims ?? undefined,
         projectName: params.projectName,
+        guideVideo: uploadedGuideVideo,
+        guideIndexList: params.guideIndexList,
+        guideStrength: params.guideStrength,
       })
 
       // Debug: log key workflow params
@@ -279,7 +312,8 @@ export function registerComfyUIHandlers(): void {
       if (params.projectName) {
         try {
           const safePN = params.projectName.replace(/[<>:"/\\|?*]/g, '_')
-          const videoDir = path.join(outputDir, safePN, 'video')
+          const subDir = params.imageMode ? 'image' : 'video'
+          const videoDir = path.join(outputDir, safePN, subDir)
           const rendersPath = path.join(videoDir, '.renders.json')
           const renders = readRendersJson(rendersPath)
           renders.push({
@@ -308,6 +342,14 @@ export function registerComfyUIHandlers(): void {
             middleStrength: params.middleStrength,
             lastStrength: params.lastStrength,
             preserveAspectRatio: params.preserveAspectRatio || false,
+            // Image-specific fields
+            ...(params.imageMode ? {
+              imageGenerator: settings.imageGenerator || 'none',
+              imageAspectRatio: params.aspectRatio,
+              imageSteps: params.imageSteps,
+              geminiImageSize: settings.geminiImageSize,
+              referenceImagePaths: params.referenceImagePaths || [],
+            } : {}),
             timestamp: new Date().toISOString(),
           })
           writeRendersJson(rendersPath, renders)
@@ -343,9 +385,15 @@ export function registerComfyUIHandlers(): void {
 
       // Read enhanced prompt from formatter cache file if prompt enhance was used
       let enhancedPrompt: string | undefined
-      if (params.promptEnhance !== false) {
+      const imgGen = params.imageGenerator ?? settings.imageGenerator ?? 'none'
+      const didPromptEnhance = params.promptEnhance !== false && !(params.imageMode && imgGen === 'gemini')
+      if (didPromptEnhance) {
         try {
-          const cachePath = path.join(outputDir, 'formatted_prompt_pos.json')
+          // Read from the project's .prompts folder (where the workflow writes them)
+          const promptsCacheDir = params.projectName
+            ? path.join(outputDir, params.projectName.replace(/[<>:"/\\|?*]/g, '_'), '.prompts')
+            : outputDir
+          const cachePath = path.join(promptsCacheDir, 'formatted_prompt_pos.json')
           if (fs.existsSync(cachePath)) {
             const cacheContent = JSON.parse(fs.readFileSync(cachePath, 'utf-8'))
             if (typeof cacheContent === 'string') {
@@ -386,7 +434,8 @@ export function registerComfyUIHandlers(): void {
       if (params.projectName) {
         try {
           const safeProjectName = params.projectName.replace(/[<>:"/\\|?*]/g, '_')
-          const videoDir = path.join(outputDir, safeProjectName, 'video')
+          const subDir = params.imageMode ? 'image' : 'video'
+          const videoDir = path.join(outputDir, safeProjectName, subDir)
           const rendersPath = path.join(videoDir, '.renders.json')
           const renders = readRendersJson(rendersPath)
           const entry = renders.find(r => r.promptId === result.prompt_id)
@@ -511,8 +560,13 @@ export function registerComfyUIHandlers(): void {
         samplers: extractOptions('KSamplerSelect', 'sampler_name'),
         hasRtxSuperRes: ('RSRTXSuperResolution' in info) && getGpuInfo().supportsRtx,
         hasZImage: 'RSZImageGenerate' in info,
+        hasGemini: 'Gemini3ProImage' in info,
+        // Gemini node options (pulled from node definition)
+        geminiModels: extractOptions('Gemini3ProImage', 'model'),
+        geminiAspectRatios: extractOptions('Gemini3ProImage', 'aspect_ratio'),
+        geminiImageSizes: extractOptions('Gemini3ProImage', 'image_size'),
       }
-      logger.info(`comfyui:model-lists counts: checkpoints=${result.checkpoints.length}, textEncoders=${result.textEncoders.length}, upscaleModels=${result.upscaleModels.length}, loras=${result.loras.length}, samplers=${result.samplers.length}, rtxSuperRes=${result.hasRtxSuperRes}, zImage=${result.hasZImage}`)
+      logger.info(`comfyui:model-lists counts: checkpoints=${result.checkpoints.length}, textEncoders=${result.textEncoders.length}, upscaleModels=${result.upscaleModels.length}, loras=${result.loras.length}, samplers=${result.samplers.length}, rtxSuperRes=${result.hasRtxSuperRes}, zImage=${result.hasZImage}, gemini=${result.hasGemini}`)
       return result
     } catch (error) {
       logger.error(`Failed to fetch model lists: ${error}`)
@@ -527,7 +581,6 @@ export function registerComfyUIHandlers(): void {
       const safeProjectName = projectName.replace(/[<>:"/\\|?*]/g, '_')
       const projectDir = path.join(outputDir, safeProjectName)
       const videoDir = path.join(projectDir, 'video')
-      const rendersPath = path.join(videoDir, '.renders.json')
 
       const VIDEO_EXTS = new Set(['.mp4', '.webm', '.avi', '.mov'])
       const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
@@ -551,17 +604,31 @@ export function registerComfyUIHandlers(): void {
         }
       }
 
-      // Load existing .renders.json (may not exist yet)
-      let renders = readRendersJson(rendersPath)
+      // Load existing .renders.json from both video and image dirs
+      const videoRendersPath = path.join(videoDir, '.renders.json')
+      const imageRendersPath = path.join(projectDir, 'image', '.renders.json')
+      let renders = [
+        ...readRendersJson(videoRendersPath),
+        ...readRendersJson(imageRendersPath),
+      ]
       let storedChecksum = -1
-      if (fs.existsSync(rendersPath)) {
+      if (fs.existsSync(videoRendersPath)) {
         try {
-          const parsed = JSON.parse(fs.readFileSync(rendersPath, 'utf-8'))
+          const parsed = JSON.parse(fs.readFileSync(videoRendersPath, 'utf-8'))
           if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
             storedChecksum = parsed._diskTotalBytes ?? -1
           }
         } catch { /* ignore */ }
       }
+
+      // Deduplicate by filename (can happen after restore writes entry back while it already existed)
+      const seen = new Set<string>()
+      renders = renders.filter(r => {
+        const fn = r.filename as string
+        if (seen.has(fn)) return false
+        seen.add(fn)
+        return true
+      })
 
       // Fast path: if total bytes match, disk hasn't changed — skip reconciliation
       if (storedChecksum === diskTotalBytes && renders.length > 0) {
@@ -573,14 +640,14 @@ export function registerComfyUIHandlers(): void {
       }
 
       // Full reconciliation: remove entries with no files, add files not in JSON
+      // Also deduplicate by filename (keep the entry with more data, i.e. has a prompt)
       const trackedFilenames = new Set<string>()
       renders = renders.filter(r => {
         const filename = r.filename as string
-        if (diskFiles.has(filename)) {
-          trackedFilenames.add(filename)
-          return true
-        }
-        return false
+        if (!diskFiles.has(filename)) return false
+        if (trackedFilenames.has(filename)) return false // skip duplicate
+        trackedFilenames.add(filename)
+        return true
       })
 
       for (const [filename, info] of diskFiles) {
@@ -600,8 +667,20 @@ export function registerComfyUIHandlers(): void {
         })
       }
 
-      // Write reconciled JSON with checksum
-      writeRendersJson(rendersPath, renders, diskTotalBytes)
+      // Final dedup pass before writing (belt and suspenders)
+      const finalSeen = new Set<string>()
+      renders = renders.filter(r => {
+        const fn = r.filename as string
+        if (finalSeen.has(fn)) return false
+        finalSeen.add(fn)
+        return true
+      })
+
+      // Write reconciled JSON back to separate files by type
+      const videoRenders = renders.filter(r => r.type !== 'image')
+      const imageRenders = renders.filter(r => r.type === 'image')
+      writeRendersJson(videoRendersPath, videoRenders, diskTotalBytes)
+      writeRendersJson(imageRendersPath, imageRenders, diskTotalBytes)
 
       // Return with full file paths
       return renders.map(r => {
@@ -644,6 +723,95 @@ export function registerComfyUIHandlers(): void {
     }
 
     logger.info(`Extracted audio segment: ${outPath} (start=${startTime}s, dur=${duration}s)`)
+    return outPath
+  })
+
+  ipcMain.handle('comfyui:render-guide-video', async (_event, params: {
+    images: { path: string; startFrame: number; endFrame: number }[]
+    fps: number
+    totalFrames: number
+    resolution: string
+    aspectRatio: string
+  }) => {
+    const ffmpegPath = findFfmpegPath()
+    if (!ffmpegPath) {
+      throw new Error('ffmpeg not found — cannot render guide video')
+    }
+
+    const { width, height } = getResolutionDimensions(params.resolution, params.aspectRatio || '16:9')
+
+    const tempDir = path.join(app.getPath('temp'), 'ltx-guide-videos')
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true })
+
+    // Write concat demuxer file
+    const concatListPath = path.join(tempDir, `concat-${randomUUID()}.txt`)
+    let concatContent = ''
+    for (const img of params.images) {
+      const dur = (img.endFrame - img.startFrame) / params.fps
+      const escapedPath = img.path.replace(/'/g, "'\\''")
+      concatContent += `file '${escapedPath}'\nduration ${dur}\n`
+    }
+    // ffmpeg concat demuxer needs the last file repeated without duration
+    if (params.images.length > 0) {
+      const lastPath = params.images[params.images.length - 1].path.replace(/'/g, "'\\''")
+      concatContent += `file '${lastPath}'\n`
+    }
+    fs.writeFileSync(concatListPath, concatContent)
+
+    const outPath = path.join(tempDir, `guide-video-${randomUUID()}.mp4`)
+
+    const result = spawnSync(ffmpegPath, [
+      '-y',
+      '-f', 'concat',
+      '-safe', '0',
+      '-i', concatListPath,
+      '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
+      '-c:v', 'libx264',
+      '-pix_fmt', 'yuv420p',
+      '-r', String(params.fps),
+      outPath,
+    ], { encoding: 'utf8', timeout: 60000 })
+
+    // Clean up concat list
+    try { fs.unlinkSync(concatListPath) } catch { /* ignore */ }
+
+    if (result.status !== 0) {
+      throw new Error(`ffmpeg guide video render failed: ${result.stderr}`)
+    }
+
+    logger.info(`Rendered guide video: ${outPath} (${params.images.length} images, ${params.totalFrames} frames)`)
+    return outPath
+  })
+
+  ipcMain.handle('comfyui:pad-audio-to-length', async (_event, params: { sourcePath: string; targetDuration: number }) => {
+    const ffmpegPath = findFfmpegPath()
+    if (!ffmpegPath) {
+      throw new Error('ffmpeg not found — cannot pad audio')
+    }
+
+    const { sourcePath, targetDuration } = params
+    const tempDir = path.join(app.getPath('temp'), 'ltx-audio-segments')
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true })
+
+    const outPath = path.join(tempDir, `audio-padded-${randomUUID()}.wav`)
+
+    // Use apad filter to extend audio with silence to target duration
+    const result = spawnSync(ffmpegPath, [
+      '-y',
+      '-i', sourcePath,
+      '-af', `apad=whole_dur=${targetDuration}`,
+      '-acodec', 'pcm_s16le',
+      '-ar', '44100',
+      '-ac', '2',
+      '-t', String(targetDuration),
+      outPath,
+    ], { encoding: 'utf8', timeout: 30000 })
+
+    if (result.status !== 0) {
+      throw new Error(`ffmpeg audio padding failed: ${result.stderr}`)
+    }
+
+    logger.info(`Padded audio to ${targetDuration}s: ${outPath}`)
     return outPath
   })
 

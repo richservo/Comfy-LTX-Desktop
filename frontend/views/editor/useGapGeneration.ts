@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import type { TimelineClip, Track, SubtitleClip, Asset } from '../../types/project'
 import { DEFAULT_COLOR_CORRECTION } from '../../types/project'
 import type { GenerationSettings } from '../../components/SettingsPanel'
+import type { GenerationInitiator } from '../../contexts/GenerationContext'
 import { copyToAssetFolder } from '../../lib/asset-copy'
 import { fileUrlToPath } from '../../lib/url-to-path'
 
@@ -14,8 +15,8 @@ export interface UseGapGenerationParams {
   currentProjectId: string | null
   addAsset: (projectId: string, asset: Omit<Asset, 'id' | 'createdAt'>) => Asset
   resolveClipSrc: (clip: TimelineClip | null) => string
-  regenGenerate: (prompt: string, imagePath: string | null, settings: GenerationSettings) => Promise<void>
-  regenGenerateImage: (prompt: string, settings: GenerationSettings) => Promise<void>
+  regenGenerate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string, preserveAspectRatio?: boolean, initiator?: GenerationInitiator) => Promise<void>
+  regenGenerateImage: (prompt: string, settings: GenerationSettings, imagePath?: string | null, strength?: number, projectName?: string, referenceImagePaths?: string[], initiator?: GenerationInitiator) => Promise<void>
   regenVideoUrl: string | null
   regenVideoPath: string | null
   regenImageUrl: string | null
@@ -176,7 +177,7 @@ export function useGapGeneration({
     
     try {
       if (mode === 'text-to-image') {
-        await regenGenerateImage(finalPrompt, settings)
+        await regenGenerateImage(finalPrompt, settings, undefined, undefined, undefined, undefined, 'editor')
       } else {
         // Convert File to filesystem path for the JSON-based generate API
         let imagePath: string | null = null
@@ -195,7 +196,7 @@ export function useGapGeneration({
             imagePath = tmpPath
           }
         }
-        await regenGenerate(finalPrompt, imagePath, settings)
+        await regenGenerate(finalPrompt, imagePath, settings, undefined, undefined, undefined, undefined, undefined, undefined, 'editor')
       }
     } catch (err) {
       console.error('Gap generation failed:', err)

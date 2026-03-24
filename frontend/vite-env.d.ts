@@ -42,6 +42,10 @@ interface Window {
     getResourcePath: () => Promise<string | null>
     getDownloadsPath: () => Promise<string>
     ensureDirectory: (dirPath: string) => Promise<{ success: boolean; error?: string }>
+    archiveAsset: (filePath: string) => Promise<{ success: boolean; error?: string }>
+    listTrashedAssets: (projectDir: string) => Promise<{ path: string; filename: string; type: string; url: string; prompt?: string; timestamp?: string }[]>
+    restoreAsset: (filePath: string) => Promise<{ success: boolean; error?: string }>
+    deleteAssetPermanently: (filePath: string) => Promise<{ success: boolean; error?: string }>
     showSaveDialog: (options: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>
     saveFile: (filePath: string, data: string, encoding?: string) => Promise<{ success: boolean; path?: string; error?: string }>
     saveBinaryFile: (filePath: string, data: ArrayBuffer) => Promise<{ success: boolean; path?: string; error?: string }>
@@ -79,8 +83,13 @@ interface Window {
       lastStrength?: number
       imageMode?: boolean
       imageSteps?: number
+      imageGenerator?: string
       rtxSuperRes?: boolean
       projectName?: string
+      referenceImagePaths?: string[]
+      guideVideoPath?: string
+      guideIndexList?: string
+      guideStrength?: number
     }) => Promise<{ status: string; video_path?: string; image_path?: string; enhanced_prompt?: string; error?: string }>
     getGenerationProgress: () => Promise<{
       status: string
@@ -94,6 +103,8 @@ interface Window {
     getModelLists: () => Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[]; hasRtxSuperRes?: boolean; hasZImage?: boolean }>
     readVideoMetadata: (filePath: string) => Promise<Record<string, unknown> | null>
     extractAudioSegment: (params: { sourcePath: string; startTime: number; duration: number }) => Promise<string>
+    renderGuideVideo: (params: { images: { path: string; startFrame: number; endFrame: number }[]; fps: number; totalFrames: number; resolution: string; aspectRatio: string }) => Promise<string>
+    padAudioToLength: (params: { sourcePath: string; targetDuration: number }) => Promise<string>
     getProjectRenders: (projectName: string) => Promise<Array<{
       filename: string; filePath: string; type: string; prompt: string;
       enhancedPrompt: string | null; seed: number; resolution: string;

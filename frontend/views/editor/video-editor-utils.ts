@@ -725,7 +725,7 @@ export function isValidStackSelection(selectedClips: TimelineClip[]): boolean {
   const audios = selectedClips.filter(c => c.type === 'audio')
   const others = selectedClips.filter(c => c.type !== 'image' && c.type !== 'audio')
   if (others.length > 0) return false
-  if (images.length > 3 || audios.length > 1) return false
+  if (images.length > 20 || audios.length > 1) return false
   return images.length >= 1 || audios.length === 1
 }
 
@@ -779,16 +779,13 @@ export function getStackFrameMapping(stack: InferenceStack, allClips: TimelineCl
  */
 export function getStackDuration(stack: InferenceStack, allClips: TimelineClip[]): number {
   const stackClips = getStackClips(stack, allClips)
-
-  const audioClip = stackClips.find(c => c.type === 'audio')
-  if (audioClip) {
-    return audioClip.duration
-  }
-
-  // No audio — use image span
   if (stackClips.length === 0) return 5 // fallback
+
+  // Compute full span of all clips (images + audio)
   const sorted = [...stackClips].sort((a, b) => a.startTime - b.startTime)
   const first = sorted[0]
   const last = sorted[sorted.length - 1]
-  return (last.startTime + last.duration) - first.startTime
+  const fullSpan = (last.startTime + last.duration) - first.startTime
+
+  return fullSpan
 }
