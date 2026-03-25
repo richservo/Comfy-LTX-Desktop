@@ -613,7 +613,7 @@ export function registerComfyUIHandlers(): void {
     }
   })
 
-  ipcMain.handle('comfyui:get-project-renders', (_event, projectName: string) => {
+  ipcMain.handle('comfyui:get-project-renders', async (_event, projectName: string) => {
     try {
       const settings = getComfyUISettings()
       const outputDir = settings.comfyuiOutputDir || path.join(app.getPath('documents'), 'ComfyUI', 'output')
@@ -624,7 +624,7 @@ export function registerComfyUIHandlers(): void {
       const VIDEO_EXTS = new Set(['.mp4', '.webm', '.avi', '.mov'])
       const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 
-      // Single scan: collect all media files and compute total bytes
+      // Single scan: collect all media files and compute total bytes (async)
       let diskTotalBytes = 0
       const diskFiles = new Map<string, { filePath: string; type: string; size: number }>()
       for (const [subDir, exts, type] of [
@@ -632,11 +632,12 @@ export function registerComfyUIHandlers(): void {
         ['image', IMAGE_EXTS, 'image'],
       ] as const) {
         const dir = path.join(projectDir, subDir)
-        if (!fs.existsSync(dir)) continue
-        for (const file of fs.readdirSync(dir)) {
+        try { await fs.promises.access(dir) } catch { continue }
+        const files = await fs.promises.readdir(dir)
+        for (const file of files) {
           if (exts.has(path.extname(file).toLowerCase())) {
             const filePath = path.join(dir, file)
-            const stat = fs.statSync(filePath)
+            const stat = await fs.promises.stat(filePath)
             diskTotalBytes += stat.size
             diskFiles.set(file, { filePath, type, size: stat.size })
           }
@@ -679,19 +680,18 @@ export function registerComfyUIHandlers(): void {
       }
 
       // Full reconciliation: remove entries with no files, add files not in JSON
-      // Also deduplicate by filename (keep the entry with more data, i.e. has a prompt)
       const trackedFilenames = new Set<string>()
       renders = renders.filter(r => {
         const filename = r.filename as string
         if (!diskFiles.has(filename)) return false
-        if (trackedFilenames.has(filename)) return false // skip duplicate
+        if (trackedFilenames.has(filename)) return false
         trackedFilenames.add(filename)
         return true
       })
 
       for (const [filename, info] of diskFiles) {
         if (trackedFilenames.has(filename)) continue
-        const stat = fs.statSync(info.filePath)
+        const stat = await fs.promises.stat(info.filePath)
         renders.push({
           filename,
           type: info.type,
@@ -706,7 +706,7 @@ export function registerComfyUIHandlers(): void {
         })
       }
 
-      // Final dedup pass before writing (belt and suspenders)
+      // Final dedup pass before writing
       const finalSeen = new Set<string>()
       renders = renders.filter(r => {
         const fn = r.filename as string

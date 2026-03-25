@@ -86,6 +86,7 @@ interface KeyboardContext {
   deleteSubtitleRef: React.MutableRefObject<(id: string) => void>
   deleteAsset: (projectId: string, assetId: string) => void
   deleteGapRef: React.MutableRefObject<(gap: { trackIndex: number; startTime: number; endTime: number }) => void>
+  createStackRef: React.MutableRefObject<(clipIds: string[]) => any>
 }
 
 export interface UseEditorKeyboardParams {
@@ -540,6 +541,16 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
             setters.clearInOut()
           }
           break
+
+        // Inference Stacks
+        case 'stack.create': {
+          const state = refs.keyboardStateRef.current
+          const selIds = [...state.selectedClipIds]
+          if (selIds.length > 0) {
+            contextRef.current.createStackRef.current(selIds)
+          }
+          break
+        }
 
         // Timeline
         case 'timeline.zoomIn':

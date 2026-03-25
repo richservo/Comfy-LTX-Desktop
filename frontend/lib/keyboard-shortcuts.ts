@@ -44,6 +44,8 @@ export type ActionId =
   | 'marker.addOrEdit'
   | 'nav.prevMarker'
   | 'nav.nextMarker'
+  // Inference Stacks
+  | 'stack.create'
   // 3-Point Editing
   | 'edit.insertEdit'
   | 'edit.overwriteEdit'
@@ -124,6 +126,8 @@ export const ACTION_REGISTRY: ActionDefinition[] = [
   { id: 'marker.addOrEdit', label: 'Add / Edit Marker',    category: 'Marking', description: 'Add a marker at playhead, or edit an existing marker at that position' },
   { id: 'nav.prevMarker',   label: 'Previous Marker',      category: 'Transport', description: 'Jump playhead to the previous marker' },
   { id: 'nav.nextMarker',   label: 'Next Marker',          category: 'Transport', description: 'Jump playhead to the next marker' },
+  // Inference Stacks
+  { id: 'stack.create',       label: 'Create Inference Stack', category: 'Editing', description: 'Create an inference stack from selected clips' },
   // Timeline
   { id: 'timeline.zoomIn',    label: 'Zoom In',            category: 'Timeline' },
   { id: 'timeline.zoomOut',   label: 'Zoom Out',           category: 'Timeline' },
@@ -193,17 +197,19 @@ export const LTX_DEFAULT_LAYOUT: KeyboardLayout = {
   // Marking
   'mark.setIn':       [k('i')],
   'mark.setOut':       [k('o')],
-  'mark.clearIn':      [k('i', { alt: true })],
+  'mark.clearIn':      [k('i', { alt: true, shift: true })],
   'mark.clearOut':     [k('o', { alt: true })],
   'mark.clearInOut':   [k('x', { alt: true })],
   // Markers
   'marker.addOrEdit':  [k('m')],
   'nav.prevMarker':    [k('arrowleft', { ctrl: true })],
   'nav.nextMarker':    [k('arrowright', { ctrl: true })],
+  // Inference Stacks
+  'stack.create':      [k('i', { alt: true })],
   // Timeline
   'timeline.zoomIn':    [k('='), k('+')],
   'timeline.zoomOut':   [k('-')],
-  'timeline.fitToView': [k('0', { ctrl: true })],
+  'timeline.fitToView': [k('0', { ctrl: true }), k('x', { shift: true })],
   'timeline.toggleSnap': [k('s')],
   // Navigation
   'nav.prevEdit': [k('arrowup')],
@@ -252,22 +258,24 @@ export const PREMIERE_LAYOUT: KeyboardLayout = {
   // Marking (same as Premiere)
   'mark.setIn':       [k('i')],
   'mark.setOut':       [k('o')],
-  'mark.clearIn':      [k('i', { alt: true })],   // Premiere: Alt+I / Option+I
-  'mark.clearOut':     [k('o', { alt: true })],   // Premiere: Alt+O / Option+O
-  'mark.clearInOut':   [k('x', { alt: true })],   // Premiere: Alt+X or Option+X
+  'mark.clearIn':      [k('i', { alt: true, shift: true })],
+  'mark.clearOut':     [k('o', { alt: true })],
+  'mark.clearInOut':   [k('x', { alt: true })],
   // Markers
-  'marker.addOrEdit':  [k('m')],                 // Premiere: M = add marker
+  'marker.addOrEdit':  [k('m')],
   'nav.prevMarker':    [k('arrowleft', { ctrl: true })],
   'nav.nextMarker':    [k('arrowright', { ctrl: true })],
+  // Inference Stacks
+  'stack.create':      [k('i', { alt: true })],
   // Timeline
   'timeline.zoomIn':    [k('=')],
   'timeline.zoomOut':   [k('-')],
-  'timeline.fitToView': [k('\\')],       // Premiere: backslash fits timeline
-  'timeline.toggleSnap': [k('s')],       // Premiere: S = snap
-  // Navigation (Premiere: Up/Down = previous/next edit)
+  'timeline.fitToView': [k('\\')],
+  'timeline.toggleSnap': [k('s')],
+  // Navigation
   'nav.prevEdit': [k('arrowup')],
   'nav.nextEdit': [k('arrowdown')],
-  'view.fullscreen': [k('`')],           // Premiere: ` = fullscreen
+  'view.fullscreen': [k('`')],
 }
 
 // ═══════════════════════════════════════════
@@ -311,22 +319,24 @@ export const DAVINCI_LAYOUT: KeyboardLayout = {
   // Marking
   'mark.setIn':       [k('i')],
   'mark.setOut':       [k('o')],
-  'mark.clearIn':      [k('i', { alt: true })],
+  'mark.clearIn':      [k('i', { alt: true, shift: true })],
   'mark.clearOut':     [k('o', { alt: true })],
   'mark.clearInOut':   [k('x', { alt: true })],
   // Markers
   'marker.addOrEdit':  [k('m')],
   'nav.prevMarker':    [k('arrowleft', { ctrl: true })],
   'nav.nextMarker':    [k('arrowright', { ctrl: true })],
+  // Inference Stacks
+  'stack.create':      [k('i', { alt: true })],
   // Timeline
   'timeline.zoomIn':    [k('=', { ctrl: true })],
   'timeline.zoomOut':   [k('-', { ctrl: true })],
-  'timeline.fitToView': [k('z', { shift: true })],  // DaVinci: Shift+Z = fit
-  'timeline.toggleSnap': [k('n')],                   // DaVinci: N = snap
-  // Navigation (DaVinci: Up/Down = previous/next edit)
+  'timeline.fitToView': [k('z', { shift: true })],
+  'timeline.toggleSnap': [k('n')],
+  // Navigation
   'nav.prevEdit': [k('arrowup')],
   'nav.nextEdit': [k('arrowdown')],
-  'view.fullscreen': [k('p', { ctrl: true, shift: true })], // DaVinci: Ctrl+Shift+P
+  'view.fullscreen': [k('p', { ctrl: true, shift: true })],
 }
 
 // ═══════════════════════════════════════════
@@ -370,19 +380,21 @@ export const AVID_LAYOUT: KeyboardLayout = {
   // Marking — Avid classic: I/O or E/R
   'mark.setIn':       [k('i'), k('e')],   // Avid: E = mark in
   'mark.setOut':       [k('o')],           // Avid: O = mark out (R removed to avoid conflict with tool.ripple)
-  'mark.clearIn':      [k('i', { alt: true })],
+  'mark.clearIn':      [k('i', { alt: true, shift: true })],
   'mark.clearOut':     [k('o', { alt: true })],
   'mark.clearInOut':   [k('g')],           // Avid: G = clear both marks
   // Markers
   'marker.addOrEdit':  [k('m')],
   'nav.prevMarker':    [k('arrowleft', { ctrl: true })],
   'nav.nextMarker':    [k('arrowright', { ctrl: true })],
+  // Inference Stacks
+  'stack.create':      [k('i', { alt: true })],
   // Timeline
   'timeline.zoomIn':    [k('=', { ctrl: true })],
   'timeline.zoomOut':   [k('-', { ctrl: true })],
   'timeline.fitToView': [k('0', { ctrl: true })],
   'timeline.toggleSnap': [k('s')],
-  // Navigation (Avid: similar to A/S or arrow keys)
+  // Navigation
   'nav.prevEdit': [k('arrowup')],
   'nav.nextEdit': [k('arrowdown')],
   'view.fullscreen': [k('`'), k('f11')],

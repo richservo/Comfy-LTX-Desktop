@@ -64,6 +64,9 @@ export function VolumeAutomationOverlay({
   const lineColor = muted ? LINE_COLOR_MUTED : LINE_COLOR
   const hasKeyframes = activeKf && activeKf.length > 0
 
+  // Show points when hovered OR dragging — but don't hide mid-drag
+  const showPoints = hovered || draggingIdx !== null || draggingLine
+
   const buildPoints = (): string => {
     if (!hasKeyframes) {
       const y = valueToPx(activeVol)
@@ -91,6 +94,41 @@ export function VolumeAutomationOverlay({
       }
     }
   }
+
+  // Double-click on line segment: reset that segment to 100%
+  // With keyframes: set the two surrounding keyframes to 1.0
+  // Without keyframes: reset the flat line volume to 1.0
+  const handleLineDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+
+    if (onBeforeEdit) onBeforeEdit()
+
+    if (!hasKeyframes) {
+      onVolumeChange(1.0)
+      return
+    }
+
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const clickTime = pxToTime(e.clientX - rect.left)
+
+    const kfs = [...(keyframes || [])]
+    // Find the two keyframes that bracket the click time
+    let leftIdx = -1
+    let rightIdx = -1
+    for (let i = 0; i < kfs.length; i++) {
+      if (kfs[i].time <= clickTime) leftIdx = i
+    }
+    for (let i = kfs.length - 1; i >= 0; i--) {
+      if (kfs[i].time >= clickTime) { rightIdx = i; break }
+    }
+
+    if (leftIdx >= 0) kfs[leftIdx] = { ...kfs[leftIdx], value: 1.0 }
+    if (rightIdx >= 0 && rightIdx !== leftIdx) kfs[rightIdx] = { ...kfs[rightIdx], value: 1.0 }
+
+    onUpdate(kfs)
+  }, [hasKeyframes, keyframes, pxToTime, onUpdate, onVolumeChange, onBeforeEdit])
 
   // MouseDown on the hit-area polyline
   const handleLineMouseDown = useCallback((e: React.MouseEvent) => {
@@ -211,8 +249,6 @@ export function VolumeAutomationOverlay({
 
   if (widthPx < 20 || heightPx < 10) return null
 
-  const showPoints = hovered || draggingIdx !== null || draggingLine
-
   return (
     <svg
       ref={svgRef}
@@ -220,6 +256,8 @@ export function VolumeAutomationOverlay({
       width={widthPx}
       height={heightPx}
       style={{ overflow: 'visible', pointerEvents: 'none', zIndex: 15 }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => { if (draggingIdx === null && !draggingLine) setHovered(false) }}
     >
       {/* Wide invisible hit area — pointer-events on stroke only, sits above clip content */}
       <polyline
@@ -230,8 +268,7 @@ export function VolumeAutomationOverlay({
         strokeLinejoin="round"
         style={{ pointerEvents: 'stroke', cursor: hasKeyframes ? 'crosshair' : 'ns-resize' }}
         onMouseDown={handleLineMouseDown}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
+        onDoubleClick={handleLineDoubleClick}
       />
 
       {/* Visible volume line */}
@@ -247,7 +284,7 @@ export function VolumeAutomationOverlay({
       {/* Keyframe point handles — shown on hover or drag */}
       {showPoints && visibleKeyframes.map(({ idx, x, y }) => (
         <circle
-          key={idx}
+          key={`kf-${activeKf?.[idx]?.time.toFixed(4)}`}
           cx={x}
           cy={y}
           r={draggingIdx === idx ? POINT_RADIUS + 1 : POINT_RADIUS}

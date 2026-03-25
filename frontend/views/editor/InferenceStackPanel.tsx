@@ -100,6 +100,89 @@ function ErrorRecoveryPanel({ stack, projectName, onRelinkOutput }: {
   )
 }
 
+function LinkOutputPanel({ stack, projectName, onRelinkOutput }: {
+  stack: InferenceStack
+  projectName?: string
+  onRelinkOutput: (stackId: string, videoPath: string) => Promise<boolean>
+}) {
+  const [showPicker, setShowPicker] = useState(false)
+  const [renders, setRenders] = useState<RenderEntry[]>([])
+  const [loading, setLoading] = useState(false)
+  const [linking, setLinking] = useState(false)
+
+  useEffect(() => {
+    if (!showPicker || !projectName) return
+    setLoading(true)
+    window.electronAPI.getProjectRenders(projectName).then(results => {
+      const videos = (results || [])
+        .filter(r => r.type === 'video')
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      setRenders(videos)
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [showPicker, projectName])
+
+  const handlePick = async (render: RenderEntry) => {
+    setLinking(true)
+    await onRelinkOutput(stack.id, render.filePath)
+    setLinking(false)
+    setShowPicker(false)
+  }
+
+  return (
+    <div className="bg-zinc-800/50 border border-zinc-700/30 rounded-lg p-3 space-y-2">
+      {!showPicker ? (
+        <button
+          onClick={() => setShowPicker(true)}
+          className="px-3 py-1.5 rounded bg-violet-700/50 text-violet-300 text-xs hover:bg-violet-700/70 transition-colors flex items-center gap-1.5"
+        >
+          <Link className="h-3 w-3" />
+          Link Output
+        </button>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-zinc-400">Select a rendered video:</span>
+            <button onClick={() => setShowPicker(false)} className="text-zinc-500 hover:text-zinc-300">
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+          {loading ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-4 w-4 text-zinc-500 animate-spin" />
+            </div>
+          ) : renders.length === 0 ? (
+            <p className="text-[10px] text-zinc-500 py-2">No renders found in project</p>
+          ) : (
+            <div className="max-h-48 overflow-y-auto space-y-1 scrollbar-thin">
+              {renders.map((r, i) => (
+                <button
+                  key={i}
+                  disabled={linking}
+                  onClick={() => handlePick(r)}
+                  className="w-full flex items-center gap-2 p-1.5 rounded bg-zinc-800/50 hover:bg-zinc-700/50 transition-colors text-left disabled:opacity-50"
+                >
+                  <video
+                    src={pathToFileUrl(r.filePath)}
+                    className="h-10 aspect-video object-cover rounded flex-shrink-0"
+                    muted
+                    preload="metadata"
+                    onLoadedData={(e) => { (e.target as HTMLVideoElement).currentTime = 0.1 }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] text-zinc-300 truncate">{r.prompt || r.filename}</p>
+                    <p className="text-[9px] text-zinc-500">{new Date(r.timestamp).toLocaleString()}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface InferenceStackPanelProps {
   stack: InferenceStack
   clips: TimelineClip[]
@@ -538,6 +621,15 @@ export function InferenceStackPanel({
           {stack.renderState === 'complete' && stack.renderedClipId && !clips.some(c => c.id === stack.renderedClipId) && (
             <ErrorRecoveryPanel
               stack={{ ...stack, errorMessage: 'Rendered clip missing from timeline' }}
+              projectName={projectName}
+              onRelinkOutput={onRelinkOutput}
+            />
+          )}
+
+          {/* Link Output — available when not rendering and not already showing error recovery */}
+          {stack.renderState !== 'rendering' && stack.renderState !== 'error' && !(stack.renderState === 'complete' && stack.renderedClipId && !clips.some(c => c.id === stack.renderedClipId)) && (
+            <LinkOutputPanel
+              stack={stack}
               projectName={projectName}
               onRelinkOutput={onRelinkOutput}
             />

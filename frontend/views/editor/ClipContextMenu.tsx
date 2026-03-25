@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, // IC-LORA HIDDEN: removed Sparkles
   Video, Camera, Box,
 } from 'lucide-react'
-import type { Asset, TimelineClip, Track, TextOverlayStyle } from '../../types/project'
+import type { Asset, TimelineClip, Track, TextOverlayStyle, InferenceStack } from '../../types/project'
 import { TEXT_PRESETS } from '../../types/project'
 import { COLOR_LABELS, isValidStackSelection } from './video-editor-utils'
 
@@ -58,6 +58,9 @@ export interface ClipContextMenuProps {
   onRemoveFromStack: (clipId: string) => void
   onEditStack: (stackId: string) => void
   onRevertStack: (stackId: string) => void
+  onRelinkStackOutput: (stackId: string, videoPath: string) => Promise<boolean>
+  inferenceStacks: InferenceStack[]
+  projectName?: string
 }
 
 // Reusable menu item component
@@ -141,6 +144,9 @@ export function ClipContextMenu({
   onRemoveFromStack,
   onEditStack,
   onRevertStack,
+  onRelinkStackOutput,
+  inferenceStacks,
+  projectName,
 }: ClipContextMenuProps) {
   const close = () => setClipContextMenu(null)
   const isBackground = !contextClip
@@ -263,6 +269,9 @@ export function ClipContextMenu({
           onRemoveFromStack={onRemoveFromStack}
           onEditStack={onEditStack}
           onRevertStack={onRevertStack}
+          onRelinkStackOutput={onRelinkStackOutput}
+          inferenceStacks={inferenceStacks}
+          projectName={projectName}
           close={close}
         />
       ) : null}
@@ -299,6 +308,9 @@ function SingleClipMenu({
   onRemoveFromStack,
   onEditStack,
   onRevertStack,
+  onRelinkStackOutput: _onRelinkStackOutput,
+  inferenceStacks: _inferenceStacks,
+  projectName: _projectName,
   close,
 }: {
   contextClip: TimelineClip
@@ -336,6 +348,9 @@ function SingleClipMenu({
   onRemoveFromStack: (clipId: string) => void
   onEditStack: (stackId: string) => void
   onRevertStack: (stackId: string) => void
+  onRelinkStackOutput: (stackId: string, videoPath: string) => Promise<boolean>
+  inferenceStacks: InferenceStack[]
+  projectName?: string
   close: () => void
 }) {
   const liveAsset = getLiveAsset(contextClip)
@@ -411,14 +426,25 @@ function SingleClipMenu({
           <MenuItem icon={Unlink2} label="Unlink Audio" onClick={() => {
             pushUndo()
             const allLinked = new Set(contextClip.linkedClipIds!)
-            setClips(prev => prev.map(c => {
-              if (c.id === contextClip.id) return { ...c, linkedClipIds: undefined }
-              if (allLinked.has(c.id)) {
-                const remaining = (c.linkedClipIds || []).filter(lid => lid !== contextClip.id)
-                return { ...c, linkedClipIds: remaining.length ? remaining : undefined }
-              }
-              return c
-            }))
+            const stackId = contextClip.inferenceStackId
+            setClips(prev => {
+              // Build set of stack-sibling IDs to preserve those links
+              const stackSiblingIds = stackId
+                ? new Set(prev.filter(c => c.inferenceStackId === stackId && c.id !== contextClip.id).map(c => c.id))
+                : new Set<string>()
+              return prev.map(c => {
+                if (c.id === contextClip.id) {
+                  // Keep links to stack siblings, remove audio/video links
+                  const remaining = (c.linkedClipIds || []).filter(lid => stackSiblingIds.has(lid))
+                  return { ...c, linkedClipIds: remaining.length ? remaining : undefined }
+                }
+                if (allLinked.has(c.id)) {
+                  const remaining = (c.linkedClipIds || []).filter(lid => lid !== contextClip.id)
+                  return { ...c, linkedClipIds: remaining.length ? remaining : undefined }
+                }
+                return c
+              })
+            })
             close()
           }} />
           {(() => {
@@ -520,6 +546,9 @@ function SingleClipMenu({
           <Divider />
           <MenuItem icon={Layers} iconClass="text-violet-400" label="Edit Stack"
             onClick={() => { onEditStack(contextClip.inferenceStackId!); close() }} />
+          <MenuItem icon={Link2} iconClass="text-amber-400" label="Link Output"
+            onClick={() => { onEditStack(contextClip.inferenceStackId!); close() }}
+            title="Open stack panel to link a rendered video output" />
           <MenuItem icon={RotateCcw} iconClass="text-amber-400" label="Reset Stack"
             onClick={() => { onRevertStack(contextClip.inferenceStackId!); close() }} />
           <MenuItem icon={X} iconClass="text-violet-400" label="Remove from Stack"
@@ -766,11 +795,23 @@ function MultiClipMenu({
         <MenuItem icon={Unlink2} label="Unlink" onClick={() => {
           pushUndo()
           const selIds = new Set(selectedClipIds)
-          setClips(prev => prev.map(c => {
-            if (!selIds.has(c.id)) return c
-            const remaining = (c.linkedClipIds || []).filter(lid => !selIds.has(lid))
-            return { ...c, linkedClipIds: remaining.length ? remaining : undefined }
-          }))
+          setClips(prev => {
+            // Build stack sibling sets so we preserve stack-internal links
+            const stackSiblings = new Map<string, Set<string>>()
+            for (const id of selIds) {
+              const clip = prev.find(c => c.id === id)
+              if (clip?.inferenceStackId) {
+                const siblings = new Set(prev.filter(c => c.inferenceStackId === clip.inferenceStackId && c.id !== id).map(c => c.id))
+                stackSiblings.set(id, siblings)
+              }
+            }
+            return prev.map(c => {
+              if (!selIds.has(c.id)) return c
+              const keepIds = stackSiblings.get(c.id) || new Set<string>()
+              const remaining = (c.linkedClipIds || []).filter(lid => !selIds.has(lid) || keepIds.has(lid))
+              return { ...c, linkedClipIds: remaining.length ? remaining : undefined }
+            })
+          })
           close()
         }} />
       )}
