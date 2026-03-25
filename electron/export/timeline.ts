@@ -4,6 +4,7 @@ export interface ExportClip {
   url: string; type: string; startTime: number; duration: number; trimStart: number;
   speed: number; reversed: boolean; flipH: boolean; flipV: boolean; opacity: number; trackIndex: number;
   muted: boolean; volume: number;
+  volumeAutomation?: { time: number; value: number }[];
 }
 
 export interface FlatSegment {

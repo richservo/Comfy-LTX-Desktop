@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useCallback } from 'react'
 import type { TimelineClip, Track, Asset } from '../../types/project'
 import { fetchAudioBuffer } from '../../lib/audio-decode'
+import { interpolateVolume } from '../../lib/volume-automation'
 
 export interface UsePlaybackEngineParams {
   isPlaying: boolean
@@ -49,6 +50,28 @@ export interface UsePlaybackEngineParams {
 interface DecodedAudio {
   fwd: AudioBuffer
   rev: AudioBuffer
+}
+
+/** Apply proxy resolution scaling to a pool video element */
+function applyVideoResolution(video: HTMLVideoElement, resolution: number) {
+  if (resolution < 1) {
+    // Scale down, then scale back up — reduces compositing layer raster size
+    video.style.transform = `scale(${1 / resolution})`
+    video.style.transformOrigin = 'top left'
+    // Shrink the element so the scaled result fills the container
+    video.style.width = `${resolution * 100}%`
+    video.style.height = `${resolution * 100}%`
+    // Override inset-based sizing: remove right/bottom pinning
+    video.style.right = 'auto'
+    video.style.bottom = 'auto'
+  } else {
+    video.style.transform = ''
+    video.style.transformOrigin = ''
+    video.style.width = '100%'
+    video.style.height = '100%'
+    video.style.right = '0'
+    video.style.bottom = '0'
+  }
 }
 
 export function usePlaybackEngine(params: UsePlaybackEngineParams) {
@@ -163,11 +186,11 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     src.onended = () => { if (scrubSourceRef.current === src) scrubSourceRef.current = null }
   }, [getAudioCtx, stopScrubSource])
 
-  // ── Pre-decode audio for all clips on the timeline ──
+  // ── Pre-decode audio for audio clips on the timeline ──
   useEffect(() => {
     const urls = new Set<string>()
     for (const clip of clips) {
-      if (clip.type === 'adjustment' || clip.type === 'text' || clip.type === 'image') continue
+      if (clip.type !== 'audio') continue
       const url = resolveClipSrc(clip)
       if (url) urls.add(url)
     }
@@ -277,7 +300,19 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       const isMuted = clip.muted || trackObj?.muted || isSoloMuted || false
 
       const gain = ctx.createGain()
-      gain.gain.value = isMuted ? 0 : clip.volume
+      const baseVol = isMuted ? 0 : interpolateVolume(clip.volumeAutomation, mediaTime, clip.volume)
+      gain.gain.setValueAtTime(baseVol, ctx.currentTime)
+
+      // Schedule future keyframe ramps if automation exists and not muted
+      if (!isMuted && clip.volumeAutomation && clip.volumeAutomation.length > 0) {
+        const playRate = Math.abs(effectiveSpeed) * clip.speed
+        for (const kf of clip.volumeAutomation) {
+          const secFromNow = (kf.time - mediaTime) / playRate
+          if (secFromNow > 0.01) {
+            gain.gain.linearRampToValueAtTime(kf.value, ctx.currentTime + secFromNow)
+          }
+        }
+      }
       gain.connect(ctx.destination)
 
       const isReverse = effectiveSpeed < 0
@@ -325,17 +360,13 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         : Math.max(0, clip.trimStart + timeInClip * clip.speed)
     }
 
-    // Start audio for all clips at the initial playhead position
+    // Start audio for audio clips at the initial playhead position
     const allClips = clipsRef.current
     const trks = tracksRef.current
     for (const c of allClips) {
-      if (c.type === 'adjustment' || c.type === 'text' || c.type === 'image') continue
+      if (c.type !== 'audio') continue
       if (currentTime < c.startTime || currentTime >= c.startTime + c.duration) continue
       if (trks[c.trackIndex]?.enabled === false) continue
-      // Skip video clips that have no audio (no linked audio clip = no embedded audio to play)
-      if (c.type === 'video' && (!c.linkedClipIds || !c.linkedClipIds.some(lid => allClips.some(ac => ac.id === lid && ac.type === 'audio')))) continue
-      // Skip audio clips that are linked to a video clip — the video clip plays the audio
-      if (c.type === 'audio' && c.linkedClipIds?.some(lid => allClips.some(vc => vc.id === lid && vc.type === 'video'))) continue
       const mt = getMediaTime(c, currentTime)
       startAudioForClip(c, mt)
     }
@@ -455,7 +486,8 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
             v.preload = 'auto'
             v.playsInline = true
             v.muted = true
-            v.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;z-index:0;'
+            v.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%;object-fit:cover;opacity:0;z-index:0;'
+            applyVideoResolution(v, playbackResolutionRef.current)
             v.src = inSrc
             v.load()
             pool.set(inSrc, v)
@@ -577,12 +609,9 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         const anySoloed = trks.some(t => t.solo)
 
         for (const c of allClips) {
-          if (c.type === 'adjustment' || c.type === 'text' || c.type === 'image') continue
+          if (c.type !== 'audio') continue
           if (next < c.startTime || next >= c.startTime + c.duration) continue
           if (trks[c.trackIndex]?.enabled === false) continue
-          if (c.type === 'video' && (!c.linkedClipIds || !c.linkedClipIds.some(lid => allClips.some(ac => ac.id === lid && ac.type === 'audio')))) continue
-          // Skip audio clips that are linked to a video clip — the video clip plays the audio
-          if (c.type === 'audio' && c.linkedClipIds?.some(lid => allClips.some(vc => vc.id === lid && vc.type === 'video'))) continue
           activeAudioIds.add(c.id)
         }
 
@@ -603,7 +632,8 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
               const trackObj = trks[c.trackIndex]
               const isSoloMuted = anySoloed && !trackObj?.solo
               const isMuted = c.muted || trackObj?.muted || isSoloMuted || false
-              entry.gain.gain.value = isMuted ? 0 : c.volume
+              const mt = getMediaTime(c, next)
+              entry.gain.gain.value = isMuted ? 0 : interpolateVolume(c.volumeAutomation, mt, c.volume)
             }
             continue
           }
@@ -718,7 +748,8 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         video.preload = 'auto'
         video.playsInline = true
         video.muted = true
-        video.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;z-index:0;pointer-events:none;'
+        video.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%;object-fit:cover;opacity:0;z-index:0;pointer-events:none;'
+        applyVideoResolution(video, playbackResolutionRef.current)
         video.src = src
         video.load()
         pool.set(src, video)
@@ -743,21 +774,16 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     }
   }, [timelineVideoSources])
 
-  // Apply playback resolution
+  // Store playbackResolution in a ref so video creation helpers can read it
+  const playbackResolutionRef = useRef(playbackResolution)
+  playbackResolutionRef.current = playbackResolution
+
+  // Apply playback resolution to each video element in the pool.
+  // Uses CSS transform to reduce the compositing layer size.
   useEffect(() => {
     const pool = videoPoolRef.current
     for (const [, video] of pool) {
-      if (playbackResolution < 1) {
-        video.style.width = `${playbackResolution * 100}%`
-        video.style.height = `${playbackResolution * 100}%`
-        video.style.transform = `scale(${1 / playbackResolution})`
-        video.style.transformOrigin = 'top left'
-      } else {
-        video.style.width = '100%'
-        video.style.height = '100%'
-        video.style.transform = ''
-        video.style.transformOrigin = ''
-      }
+      applyVideoResolution(video, playbackResolution)
     }
   }, [playbackResolution, timelineVideoSources])
 
@@ -833,7 +859,8 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       video.preload = 'auto'
       video.playsInline = true
       video.muted = true
-      video.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;z-index:0;'
+      video.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%;object-fit:cover;opacity:0;z-index:0;'
+      applyVideoResolution(video, playbackResolution)
       video.src = clipSrc
       video.load()
       pool.set(clipSrc, video)
@@ -936,12 +963,9 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     let played = false
 
     for (const clip of clips) {
-      if (clip.type === 'adjustment' || clip.type === 'text' || clip.type === 'image') continue
+      if (clip.type !== 'audio') continue
       if (currentTime < clip.startTime || currentTime >= clip.startTime + clip.duration) continue
       if (trks[clip.trackIndex]?.enabled === false) continue
-      if (clip.type === 'video' && (!clip.linkedClipIds || !clip.linkedClipIds.some(lid => clips.some(ac => ac.id === lid && ac.type === 'audio')))) continue
-      // Skip audio clips that are linked to a video clip — the video clip plays the audio
-      if (clip.type === 'audio' && clip.linkedClipIds?.some(lid => clips.some(vc => vc.id === lid && vc.type === 'video'))) continue
 
       const trackObj = trks[clip.trackIndex]
       const isSoloMuted = anySoloed && !trackObj?.solo
@@ -960,7 +984,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
 
       if (!played) {
         // Play scrub audio for the first active audio clip
-        playScrubFrame(clip, url, mediaTime, clip.volume, isMuted)
+        playScrubFrame(clip, url, mediaTime, interpolateVolume(clip.volumeAutomation, mediaTime, clip.volume), isMuted)
         played = true
       }
     }

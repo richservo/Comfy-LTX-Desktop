@@ -116,6 +116,8 @@ interface GenerateParams {
   guideVideoPath?: string
   guideIndexList?: string
   guideStrength?: number
+  stgScale?: number
+  stackId?: string
 }
 
 let activePromptId: string | null = null
@@ -239,6 +241,7 @@ export function registerComfyUIHandlers(): void {
         filmGrain: params.filmGrain ?? false,
         filmGrainIntensity: params.filmGrainIntensity,
         filmGrainSize: params.filmGrainSize,
+        stgScale: params.stgScale,
         firstStrength: params.firstStrength,
         lastStrength: params.lastStrength,
         checkpoint: settings.checkpoint,
@@ -320,6 +323,7 @@ export function registerComfyUIHandlers(): void {
             promptId: result.prompt_id,
             filename: null,
             status: 'pending',
+            stackId: params.stackId || null,
             type: params.imageMode ? 'image' : 'video',
             prompt: params.prompt,
             enhancedPrompt: null,
@@ -475,16 +479,22 @@ export function registerComfyUIHandlers(): void {
       logger.error(`ComfyUI generation failed: ${message}`)
       return { status: 'error', error: message }
     } finally {
-      // Remove pending render entries that never completed (no filename)
+      // Mark pending render entries as error (don't delete — they may be recoverable)
       if (params.projectName) {
         try {
           const safePN = params.projectName.replace(/[<>:"/\\|?*]/g, '_')
           const videoDir = path.join(outputDir, safePN, 'video')
           const rendersPath = path.join(videoDir, '.renders.json')
           if (fs.existsSync(rendersPath)) {
-            const renders = JSON.parse(fs.readFileSync(rendersPath, 'utf-8')) as Record<string, unknown>[]
-            const cleaned = renders.filter(r => r.status !== 'pending')
-            fs.writeFileSync(rendersPath, JSON.stringify(cleaned, null, 2))
+            const renders = readRendersJson(rendersPath)
+            let changed = false
+            for (const r of renders) {
+              if (r.status === 'pending') {
+                r.status = 'error'
+                changed = true
+              }
+            }
+            if (changed) writeRendersJson(rendersPath, renders)
           }
         } catch {
           // Ignore cleanup errors
@@ -493,6 +503,35 @@ export function registerComfyUIHandlers(): void {
       activePromptId = null
       progressTracker.disconnect()
       progressTracker.reset()
+    }
+  })
+
+  // Scan renders directory for completed outputs matching a stackId
+  ipcMain.handle('comfyui:find-stack-output', async (_event, params: { projectName: string; stackId: string }) => {
+    try {
+      const safePN = params.projectName.replace(/[<>:"/\\|?*]/g, '_')
+      const videoDir = path.join(outputDir, safePN, 'video')
+      const rendersPath = path.join(videoDir, '.renders.json')
+      if (!fs.existsSync(rendersPath)) return null
+
+      const renders = readRendersJson(rendersPath)
+      // Find the most recent completed entry for this stack
+      const match = renders
+        .filter(r => r.stackId === params.stackId && r.status === 'complete' && r.filename)
+        .pop()
+
+      if (!match || typeof match.filename !== 'string') return null
+
+      const filePath = path.join(videoDir, match.filename)
+      if (!fs.existsSync(filePath)) return null
+
+      return {
+        video_path: filePath,
+        enhanced_prompt: match.enhancedPrompt || null,
+      }
+    } catch (err) {
+      logger.warn(`Failed to find stack output: ${err}`)
+      return null
     }
   })
 
@@ -738,7 +777,10 @@ export function registerComfyUIHandlers(): void {
       throw new Error('ffmpeg not found — cannot render guide video')
     }
 
-    const { width, height } = getResolutionDimensions(params.resolution, params.aspectRatio || '16:9')
+    // Use source image native resolution — ComfyUI handles final resize (matching frame image pipeline)
+    const firstDims = params.images.length > 0 ? getImageDimensions(params.images[0].path) : null
+    const width = firstDims?.width ?? 1920
+    const height = firstDims?.height ?? 1080
 
     const tempDir = path.join(app.getPath('temp'), 'ltx-guide-videos')
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true })
@@ -760,13 +802,15 @@ export function registerComfyUIHandlers(): void {
 
     const outPath = path.join(tempDir, `guide-video-${randomUUID()}.mp4`)
 
+    // Scale to first image's native dimensions with center crop (matches frame image processing)
     const result = spawnSync(ffmpegPath, [
       '-y',
       '-f', 'concat',
       '-safe', '0',
       '-i', concatListPath,
-      '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
+      '-vf', `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`,
       '-c:v', 'libx264',
+      '-qp', '0',
       '-pix_fmt', 'yuv420p',
       '-r', String(params.fps),
       outPath,
@@ -779,7 +823,7 @@ export function registerComfyUIHandlers(): void {
       throw new Error(`ffmpeg guide video render failed: ${result.stderr}`)
     }
 
-    logger.info(`Rendered guide video: ${outPath} (${params.images.length} images, ${params.totalFrames} frames)`)
+    logger.info(`Rendered guide video: ${outPath} (${params.images.length} images, ${width}x${height}, ${params.totalFrames} frames)`)
     return outPath
   })
 

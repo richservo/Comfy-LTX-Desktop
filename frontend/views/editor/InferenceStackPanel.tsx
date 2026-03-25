@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Play, X, Layers, Loader2, Trash2, Mic, RotateCcw } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Play, X, Layers, Loader2, Trash2, Mic, RotateCcw, Unlink, Link } from 'lucide-react'
 import { SettingsPanel } from '../../components/SettingsPanel'
 import type { TimelineClip, InferenceStack } from '../../types/project'
 import { getStackFrameMapping, getStackDuration, getStackClips } from './video-editor-utils'
@@ -8,6 +8,96 @@ import { fileUrlToPath } from '../../lib/url-to-path'
 function pathToFileUrl(p: string): string {
   const normalized = p.replace(/\\/g, '/')
   return normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
+}
+
+interface RenderEntry {
+  filename: string; filePath: string; type: string; prompt: string;
+  enhancedPrompt: string | null; timestamp: string;
+}
+
+function ErrorRecoveryPanel({ stack, projectName, onRelinkOutput }: {
+  stack: InferenceStack
+  projectName?: string
+  onRelinkOutput: (stackId: string, videoPath: string) => Promise<boolean>
+}) {
+  const [showPicker, setShowPicker] = useState(false)
+  const [renders, setRenders] = useState<RenderEntry[]>([])
+  const [loading, setLoading] = useState(false)
+  const [linking, setLinking] = useState(false)
+
+  useEffect(() => {
+    if (!showPicker || !projectName) return
+    setLoading(true)
+    window.electronAPI.getProjectRenders(projectName).then(results => {
+      // Only show videos, sorted newest first
+      const videos = (results || [])
+        .filter(r => r.type === 'video')
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      setRenders(videos)
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [showPicker, projectName])
+
+  const handlePick = async (render: RenderEntry) => {
+    setLinking(true)
+    await onRelinkOutput(stack.id, render.filePath)
+    setLinking(false)
+    setShowPicker(false)
+  }
+
+  return (
+    <div className="bg-red-900/20 border border-red-800/30 rounded-lg p-3 space-y-2">
+      <p className="text-xs text-red-400">{stack.errorMessage}</p>
+      {!showPicker ? (
+        <button
+          onClick={() => setShowPicker(true)}
+          className="px-3 py-1.5 rounded bg-amber-700/50 text-amber-300 text-xs hover:bg-amber-700/70 transition-colors flex items-center gap-1.5"
+        >
+          <Link className="h-3 w-3" />
+          Link Output
+        </button>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-zinc-400">Select the rendered output:</span>
+            <button onClick={() => setShowPicker(false)} className="text-zinc-500 hover:text-zinc-300">
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+          {loading ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-4 w-4 text-zinc-500 animate-spin" />
+            </div>
+          ) : renders.length === 0 ? (
+            <p className="text-[10px] text-zinc-500 py-2">No renders found in project</p>
+          ) : (
+            <div className="max-h-48 overflow-y-auto space-y-1 scrollbar-thin">
+              {renders.map((r, i) => (
+                <button
+                  key={i}
+                  disabled={linking}
+                  onClick={() => handlePick(r)}
+                  className="w-full flex items-center gap-2 p-1.5 rounded bg-zinc-800/50 hover:bg-zinc-700/50 transition-colors text-left disabled:opacity-50"
+                >
+                  <video
+                    src={pathToFileUrl(r.filePath)}
+                    className="h-10 aspect-video object-cover rounded flex-shrink-0"
+                    muted
+                    preload="metadata"
+                    onLoadedData={(e) => { (e.target as HTMLVideoElement).currentTime = 0.1 }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] text-zinc-300 truncate">{r.prompt || r.filename}</p>
+                    <p className="text-[9px] text-zinc-500">{new Date(r.timestamp).toLocaleString()}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 interface InferenceStackPanelProps {
@@ -20,7 +110,10 @@ interface InferenceStackPanelProps {
   onUpdateStack: (stackId: string, updates: Partial<InferenceStack>) => void
   onRenderStack: (stackId: string) => void
   onDeleteStack: (stackId: string) => void
+  onBreakStack: (stackId: string) => void
   onRevertStack: (stackId: string) => void
+  onRelinkOutput: (stackId: string, videoPath: string) => Promise<boolean>
+  projectName?: string
   onCancelRender: () => void
   onClose: () => void
 }
@@ -35,7 +128,10 @@ export function InferenceStackPanel({
   onUpdateStack,
   onRenderStack,
   onDeleteStack,
+  onBreakStack,
   onRevertStack,
+  onRelinkOutput,
+  projectName,
   onCancelRender,
   onClose,
 }: InferenceStackPanelProps) {
@@ -52,7 +148,7 @@ export function InferenceStackPanel({
   // Collect all image clips for this stack
   const allImageClips = stackClips.filter(c => c.type === 'image').sort((a, b) => a.startTime - b.startTime)
   const imageCount = allImageClips.length
-  const useGuideVideo = imageCount >= 3 || (imageCount === 2 && stack.guideMode === 'guide-video')
+  const useGuideVideo = imageCount >= 3
 
   // Build frame URLs: prefer live clips, fall back to stored sourcePaths only when clips are gone
   let firstImageUrl: string | undefined
@@ -125,6 +221,13 @@ export function InferenceStackPanel({
             </div>
           </div>
           <div className="flex items-center gap-1">
+            <button
+              onClick={() => { onBreakStack(stack.id); onClose() }}
+              className="p-1.5 rounded-lg hover:bg-amber-900/30 text-zinc-500 hover:text-amber-400"
+              title="Break stack — restore all clips as independent"
+            >
+              <Unlink className="h-4 w-4" />
+            </button>
             <button
               onClick={() => { onDeleteStack(stack.id); onClose() }}
               className="p-1.5 rounded-lg hover:bg-red-900/30 text-zinc-500 hover:text-red-400"
@@ -282,31 +385,6 @@ export function InferenceStackPanel({
                 </div>
               )}
 
-              {/* 2-image mode toggle: First/Last vs Guide Video */}
-              {imageCount === 2 && (
-                <div className="flex items-center mt-2 bg-zinc-800 rounded-lg border border-zinc-700 p-0.5">
-                  <button
-                    onClick={() => onUpdateStack(stack.id, { guideMode: 'first-last' })}
-                    className={`flex-1 text-[9px] font-medium py-1 rounded-md transition-colors ${
-                      stack.guideMode !== 'guide-video'
-                        ? 'bg-violet-600 text-white'
-                        : 'text-zinc-400 hover:text-zinc-300'
-                    }`}
-                  >
-                    First / Last
-                  </button>
-                  <button
-                    onClick={() => onUpdateStack(stack.id, { guideMode: 'guide-video' })}
-                    className={`flex-1 text-[9px] font-medium py-1 rounded-md transition-colors ${
-                      stack.guideMode === 'guide-video'
-                        ? 'bg-violet-600 text-white'
-                        : 'text-zinc-400 hover:text-zinc-300'
-                    }`}
-                  >
-                    Guide Video
-                  </button>
-                </div>
-              )}
             </div>
           )}
 
@@ -377,10 +455,53 @@ export function InferenceStackPanel({
             </div>
           </div>
 
+          {/* Handles */}
+          <div>
+            <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold mb-1.5 block">
+              Handles (extra frames)
+            </label>
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className="text-[9px] text-zinc-500 mb-0.5 block">Head</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={120}
+                  value={stack.headHandles ?? 0}
+                  onChange={(e) => onUpdateStack(stack.id, { headHandles: Math.max(0, parseInt(e.target.value) || 0) })}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-violet-500/50"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-[9px] text-zinc-500 mb-0.5 block">Tail</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={120}
+                  value={stack.tailHandles ?? 0}
+                  onChange={(e) => onUpdateStack(stack.id, { tailHandles: Math.max(0, parseInt(e.target.value) || 0) })}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-violet-500/50"
+                />
+              </div>
+            </div>
+            {((stack.headHandles ?? 0) > 0 || (stack.tailHandles ?? 0) > 0) && (
+              <p className="text-[9px] text-zinc-500 mt-1">
+                +{((stack.headHandles ?? 0) / stack.settings.fps).toFixed(2)}s head, +{((stack.tailHandles ?? 0) / stack.settings.fps).toFixed(2)}s tail
+              </p>
+            )}
+          </div>
+
           {/* Duration info */}
           <div className="flex items-center gap-2 text-[10px] text-zinc-500">
             <span className="uppercase tracking-wider font-semibold">Duration:</span>
             <span className="text-zinc-300">{duration.toFixed(1)}s</span>
+            {((stack.headHandles ?? 0) > 0 || (stack.tailHandles ?? 0) > 0) && (
+              <span className="text-zinc-400">
+                ({(duration + (stack.headHandles ?? 0) / stack.settings.fps + (stack.tailHandles ?? 0) / stack.settings.fps).toFixed(1)}s with handles)
+              </span>
+            )}
             <span className="text-zinc-600">
               {clips.find(c => stack.clipIds.includes(c.id) && c.type === 'audio')
                 ? '(from audio)'
@@ -404,11 +525,22 @@ export function InferenceStackPanel({
             </div>
           )}
 
-          {/* Error */}
+          {/* Error with render picker */}
           {stack.renderState === 'error' && stack.errorMessage && (
-            <div className="bg-red-900/20 border border-red-800/30 rounded-lg p-3">
-              <p className="text-xs text-red-400">{stack.errorMessage}</p>
-            </div>
+            <ErrorRecoveryPanel
+              stack={stack}
+              projectName={projectName}
+              onRelinkOutput={onRelinkOutput}
+            />
+          )}
+
+          {/* Complete but missing clip — offer relink */}
+          {stack.renderState === 'complete' && stack.renderedClipId && !clips.some(c => c.id === stack.renderedClipId) && (
+            <ErrorRecoveryPanel
+              stack={{ ...stack, errorMessage: 'Rendered clip missing from timeline' }}
+              projectName={projectName}
+              onRelinkOutput={onRelinkOutput}
+            />
           )}
         </div>
 

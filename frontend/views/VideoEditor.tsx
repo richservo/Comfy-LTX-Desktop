@@ -24,6 +24,7 @@ import { ExportModal } from '../components/ExportModal'
 import { MenuBar, type MenuDefinition } from '../components/MenuBar'
 import { ImportTimelineModal } from '../components/ImportTimelineModal'
 import { ClipWaveform } from '../components/AudioWaveform'
+import { VolumeAutomationOverlay } from '../components/VolumeAutomationOverlay'
 // IC-LORA HIDDEN - import { ICLoraPanel } from '../components/ICLoraPanel'
 import type { TimelineClip, Track, SubtitleClip, Asset, InferenceStack, TimelineMarker } from '../types/project' // EFFECTS HIDDEN: removed EffectType
 import { DEFAULT_TRACKS, MARKER_COLORS } from '../types/project' // EFFECTS HIDDEN: removed EFFECT_DEFINITIONS
@@ -172,6 +173,10 @@ export function VideoEditor() {
   const markerPopoverRef = useRef<HTMLDivElement>(null)
   const markersRef = useRef(markers)
   markersRef.current = markers
+  const subtitlesRef = useRef(subtitles)
+  subtitlesRef.current = subtitles
+  const inferenceStacksRef = useRef(inferenceStacks)
+  inferenceStacksRef.current = inferenceStacks
 
   // Editable timecode state
   const [editingTimecode, setEditingTimecode] = useState(false)
@@ -822,13 +827,22 @@ export function VideoEditor() {
     }
   }, [clips, tracks, subtitles, inferenceStacks, markers, currentProjectId])
   
-  // Save on unmount
+  // Save on unmount — use refs to capture latest state since cleanup can't read useState
+  const currentProjectIdRef = useRef(currentProjectId)
+  currentProjectIdRef.current = currentProjectId
   useEffect(() => {
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
-      if (currentProjectId && loadedTimelineIdRef.current) {
-        // We can't read latest clips/tracks from state here since this is a cleanup,
-        // but the debounced save should have already caught the latest changes.
+      const pid = currentProjectIdRef.current
+      const tid = loadedTimelineIdRef.current
+      if (pid && tid) {
+        updateTimeline(pid, tid, {
+          clips: clipsRef.current,
+          tracks: tracksRef.current,
+          subtitles: subtitlesRef.current,
+          inferenceStacks: inferenceStacksRef.current,
+          markers: markersRef.current,
+        })
       }
     }
   }, [])
@@ -1188,12 +1202,12 @@ export function VideoEditor() {
     renderingStackId, isRendering: isStackRendering,
     renderProgress: stackRenderProgress, renderStatusMessage: stackRenderStatusMessage,
     createStack, updateStack, deleteStack, breakStack, removeClipFromStack, revertStack,
-    renderStack, renderAllStacks, cancelRender: cancelStackRender,
+    renderStack, renderAllStacks, cancelRender: cancelStackRender, relinkStackOutput,
   } = useInferenceStacks({
     clips, setClips, inferenceStacks, setInferenceStacks,
     tracks, setTracks,
     assets, currentProjectId,
-    addAsset, addTakeToAsset, resolveClipSrc,
+    addAsset, updateAsset, addTakeToAsset, resolveClipSrc,
     regenGenerate, regenVideoUrl, regenVideoPath,
     isRegenerating, regenProgress, regenStatusMessage,
     regenCancel, regenReset, regenError,
@@ -3422,6 +3436,11 @@ export function VideoEditor() {
                     const liveAsset = clip.assetId ? assets.find(a => a.id === clip.assetId) : null
                     const clipColor = getColorLabel(clip.colorLabel || liveAsset?.colorLabel || clip.asset?.colorLabel)
                     const isInStack = !!clip.inferenceStackId
+                    const clipStack = isInStack ? inferenceStacks.find(s => s.id === clip.inferenceStackId) : undefined
+                    const isInBrokenStack = !!clipStack && (
+                      clipStack.renderState === 'error' ||
+                      (clipStack.renderState === 'complete' && clipStack.renderedClipId && !clips.some(c => c.id === clipStack.renderedClipId))
+                    )
                     const isRenderingClip = !!renderingStackId && clip.inferenceStackId === renderingStackId
                     // Compute positional drift between linked clips (start time only, not trim/duration)
                     let driftSeconds = 0
@@ -3443,6 +3462,8 @@ export function VideoEditor() {
                           ? 'border-red-500 shadow-lg shadow-red-500/20'
                           : selectedClipIds.has(clip.id)
                           ? 'border-blue-500 shadow-lg shadow-blue-500/20'
+                          : isInBrokenStack
+                          ? 'border-red-500/70 shadow-md shadow-red-500/10'
                           : isInStack
                           ? 'border-violet-500/70 shadow-md shadow-violet-500/10'
                           : clipColor
@@ -3682,8 +3703,23 @@ export function VideoEditor() {
                           {driftSeconds > 0 ? '+' : ''}{driftSeconds.toFixed(1)}s
                         </div>
                       )}
-                      
-                      
+
+                      {/* Volume automation overlay for audio/video clips */}
+                      {clip.type === 'audio' && (
+                        <VolumeAutomationOverlay
+                          clipDuration={clip.duration}
+                          trimStart={clip.trimStart}
+                          volume={clip.volume}
+                          keyframes={clip.volumeAutomation}
+                          widthPx={clip.duration * pixelsPerSecond}
+                          heightPx={getTrackHeight(clip.trackIndex) - 8}
+                          muted={clip.muted}
+                          onBeforeEdit={() => pushUndo()}
+                          onUpdate={(kf) => updateClip(clip.id, { volumeAutomation: kf })}
+                          onVolumeChange={(v) => updateClip(clip.id, { volume: v })}
+                        />
+                      )}
+
                       {/* Transition in indicator */}
                       {clip.transitionIn?.type !== 'none' && clip.transitionIn?.duration > 0 && (
                         <div
@@ -4500,6 +4536,7 @@ export function VideoEditor() {
               step={5}
               value={Math.round(zoom * 100)}
               onChange={(e) => { centerOnPlayheadRef.current = true; setZoom(Math.max(getMinZoom(), +(parseInt(e.target.value) / 100).toFixed(2))) }}
+              onMouseUp={(e) => (e.target as HTMLInputElement).blur()}
               className="w-28 h-1 accent-blue-500 cursor-pointer"
               title={`Zoom: ${Math.round(zoom * 100)}%`}
             />
@@ -4983,6 +5020,8 @@ export function VideoEditor() {
             onDeleteStack={deleteStack}
             onBreakStack={breakStack}
             onRevertStack={revertStack}
+            onRelinkOutput={relinkStackOutput}
+            projectName={currentProject?.name}
             onCancelRender={cancelStackRender}
             onClose={() => setActiveStackId(null)}
           />

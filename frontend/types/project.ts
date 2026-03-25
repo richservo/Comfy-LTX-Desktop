@@ -21,6 +21,12 @@ export interface GenerationParams {
   retakeMode?: string
 }
 
+// Volume automation keyframe for per-clip volume envelopes
+export interface VolumeKeyframe {
+  time: number   // seconds, in media time (relative to trimStart)
+  value: number  // 0–1
+}
+
 // A single "take" (version) of a generated asset
 export interface AssetTake {
   url: string
@@ -46,6 +52,21 @@ export interface Asset {
   takes?: AssetTake[] // All takes (index 0 = original). If undefined, the asset itself is the only take.
   activeTakeIndex?: number // Which take is currently active (default = 0 / latest)
   colorLabel?: string // Color label for organization (e.g. 'violet', 'blue', 'green', 'yellow', 'red', 'rose', 'orange', 'mango')
+  // Inference stack data — stored so stack settings can be recovered from the bin
+  inferenceStackData?: {
+    stackId: string
+    prompt: string
+    settings: import('../components/SettingsPanel').GenerationSettings
+    strengths: { first?: number; middle?: number; last?: number }
+    preserveAspectRatio?: boolean
+    singleFramePosition?: 'first' | 'last'
+    guideMode?: 'first-last' | 'guide-video'
+    guideStrength?: number
+    guideEndMode?: 'cut' | 'end'
+    headHandles?: number
+    tailHandles?: number
+    sourcePaths?: InferenceStack['sourcePaths']
+  }
 }
 
 export interface Track {
@@ -391,6 +412,8 @@ export interface TimelineClip {
   // Inference stack membership
   inferenceStackId?: string  // ID of the inference stack this clip belongs to
   hiddenByStack?: boolean    // True when a rendered video replaces this clip visually
+  // Volume automation keyframes — overrides flat `volume` when present
+  volumeAutomation?: VolumeKeyframe[]
 }
 
 export interface InferenceStack {

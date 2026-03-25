@@ -19,6 +19,7 @@ export interface GenerationSettings {
   filmGrainSize?: number
   rtxSuperRes?: boolean
   promptEnhance?: boolean
+  stgScale?: number
   iterations?: number
   // Image-specific settings
   imageResolution: string
@@ -389,6 +390,25 @@ export function SettingsPanel({
           />
         </div>
       )}
+
+      {/* STG Scale (Spatiotemporal Guidance) */}
+      <div>
+        <div className="flex justify-between text-[11px] mb-1">
+          <span className="text-zinc-400">STG Scale</span>
+          <span className="text-zinc-500">{settings.stgScale ?? 1}</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={10}
+          step={0.5}
+          value={settings.stgScale ?? 1}
+          onChange={(e) => handleChange('stgScale', parseFloat(e.target.value))}
+          disabled={disabled}
+          className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-violet-500"
+        />
+        <div className="text-[10px] text-zinc-600 mt-0.5">Multimodal guidance strength (0 = off)</div>
+      </div>
 
       {/* Film Grain */}
       <div className={`rounded-lg border transition-colors ${

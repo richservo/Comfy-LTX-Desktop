@@ -133,6 +133,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     totalSteps: number | null
   }> => ipcRenderer.invoke('comfyui:progress'),
   cancelGeneration: (): Promise<void> => ipcRenderer.invoke('comfyui:cancel'),
+  findStackOutput: (params: { projectName: string; stackId: string }): Promise<{ video_path: string; enhanced_prompt: string | null } | null> =>
+    ipcRenderer.invoke('comfyui:find-stack-output', params),
   checkComfyUIHealth: (): Promise<{ connected: boolean }> =>
     ipcRenderer.invoke('comfyui:health'),
   getModelLists: (): Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[]; hasZImage?: boolean; hasGemini?: boolean; geminiModels?: string[]; geminiAspectRatios?: string[]; geminiImageSizes?: string[] }> =>

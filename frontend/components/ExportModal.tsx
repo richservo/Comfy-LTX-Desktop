@@ -275,6 +275,7 @@ export function ExportModal({ open, onClose, clips, tracks, timeline, projectNam
       // Build clip data for ffmpeg native export (video/image + audio clips)
       // When in/out points are set, trim clips to the export range
       const exportClips = clips
+        .filter(c => !c.hiddenByStack)
         .filter(c => c.type === 'video' || c.type === 'image' || c.type === 'audio')
         .filter(c => tracks[c.trackIndex]?.enabled !== false)
         .filter(c => {
@@ -312,6 +313,7 @@ export function ExportModal({ open, onClose, clips, tracks, timeline, projectNam
             trackIndex: c.trackIndex,
             muted: c.muted || false,
             volume: c.volume ?? 1,
+            volumeAutomation: c.volumeAutomation,
           }
         })
 

@@ -17,10 +17,11 @@ export interface UseInferenceStacksParams {
   assets: Asset[]
   currentProjectId: string | null
   addAsset: (projectId: string, asset: Omit<Asset, 'id' | 'createdAt'>) => Asset
+  updateAsset: (projectId: string, assetId: string, updates: Partial<Asset>) => void
   addTakeToAsset: (projectId: string, assetId: string, take: { url: string; path: string; createdAt: number }) => void
   resolveClipSrc: (clip: TimelineClip | null) => string
   // Generation hook values
-  regenGenerate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string, preserveAspectRatio?: boolean, initiator?: GenerationInitiator, guideVideoPath?: string, guideIndexList?: string, guideStrength?: number) => Promise<void>
+  regenGenerate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string, preserveAspectRatio?: boolean, initiator?: GenerationInitiator, guideVideoPath?: string, guideIndexList?: string, guideStrength?: number, stackId?: string) => Promise<void>
   regenVideoUrl: string | null
   regenVideoPath: string | null
   isRegenerating: boolean
@@ -39,15 +40,19 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     clips, setClips, inferenceStacks, setInferenceStacks,
     tracks, setTracks,
     assets, currentProjectId,
-    addAsset, addTakeToAsset, resolveClipSrc,
+    addAsset, updateAsset, addTakeToAsset, resolveClipSrc,
     regenGenerate, regenVideoUrl, regenVideoPath,
     isRegenerating, regenProgress, regenStatusMessage,
     regenCancel, regenReset, regenError,
     assetSavePath, projectName, projectGenerationSettings,
   } = params
 
-  // Which stack is currently being rendered
-  const [renderingStackId, setRenderingStackId] = useState<string | null>(null)
+  // Which stack is currently being rendered — initialise from persisted state so we
+  // reconnect after unmount/HMR/settings-panel navigation
+  const [renderingStackId, setRenderingStackId] = useState<string | null>(() => {
+    const rendering = inferenceStacks.find(s => s.renderState === 'rendering')
+    return rendering?.id ?? null
+  })
   // Which stack's panel is open
   const [activeStackId, setActiveStackId] = useState<string | null>(null)
   // Batch render queue
@@ -57,6 +62,27 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
   // Ref for inferenceStacks to avoid stale closures in callbacks
   const inferenceStacksRef = useRef(inferenceStacks)
   inferenceStacksRef.current = inferenceStacks
+
+  // On cold restart: if a stack is stuck in 'rendering' but the generation context
+  // has no active generation and no completed result, reset it so the user can retry.
+  const coldStartChecked = useRef(false)
+  useEffect(() => {
+    if (coldStartChecked.current) return
+    coldStartChecked.current = true
+
+    const stuckStacks = inferenceStacks.filter(s => s.renderState === 'rendering')
+    if (stuckStacks.length === 0) return
+
+    // If generation context shows no active generation AND no result waiting, the render was lost
+    if (!isRegenerating && !regenVideoUrl && !regenError) {
+      logger.info(`[useInferenceStacks] cold start: resetting ${stuckStacks.length} stuck rendering stack(s) to error`)
+      for (const s of stuckStacks) {
+        updateStack(s.id, { renderState: 'error', errorMessage: 'Render interrupted (app restarted or code reloaded)' })
+      }
+      setRenderingStackId(null)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const createStack = useCallback((clipIds: string[]) => {
     const selectedClips = clipIds.map(id => clips.find(c => c.id === id)).filter((c): c is TimelineClip => c != null)
@@ -409,6 +435,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
           guideVideoPath,
           guideIndexList,
           guideStrength,
+          stackId,
         )
       } else {
         logger.info(`[renderStack] calling generate: firstImage=${firstImagePath} middleImage=${middleImagePath} lastImage=${lastImagePath} audio=${audioPath} prompt=${stack.prompt.substring(0, 50)}`)
@@ -423,6 +450,10 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
           projectName,
           stack.preserveAspectRatio,
           'editor',
+          undefined,
+          undefined,
+          undefined,
+          stackId,
         )
       }
     } catch (err) {
@@ -466,22 +497,41 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
         const videoTrackIndex = isAudioOnly ? 0 : firstClip.trackIndex
 
         if (stack.renderedAssetId) {
-          // Re-render: add take to existing asset
+          // Re-render: add take to existing asset and update stack data
           addTakeToAsset(currentProjectId, stack.renderedAssetId, {
             url: finalUrl,
             path: finalPath,
             createdAt: Date.now(),
           })
+          // Update stack data on the asset for recovery
+          updateAsset(currentProjectId, stack.renderedAssetId, {
+            inferenceStackData: {
+              stackId: stack.id,
+              prompt: stack.prompt,
+              settings: { ...stack.settings },
+              strengths: { ...stack.strengths },
+              preserveAspectRatio: stack.preserveAspectRatio,
+              singleFramePosition: stack.singleFramePosition,
+              guideMode: stack.guideMode,
+              guideStrength: stack.guideStrength,
+              guideEndMode: stack.guideEndMode,
+              headHandles: stack.headHandles,
+              tailHandles: stack.tailHandles,
+              sourcePaths: stack.sourcePaths ? { ...stack.sourcePaths } : undefined,
+            },
+          })
 
-          // Update the existing rendered clip's asset reference
+          // Update the existing rendered clip's asset reference and advance take index
+          const liveAsset = assets.find(a => a.id === stack.renderedAssetId)
+          const newTakeIndex = liveAsset?.takes ? liveAsset.takes.length : 0 // points to the take we just added
           setClips(prev => prev.map(c => {
             if (c.id === stack.renderedClipId) {
-              const liveAsset = assets.find(a => a.id === stack.renderedAssetId)
               return {
                 ...c,
                 duration: visibleDuration,
                 trimStart: headSec,
                 trimEnd: tailSec,
+                takeIndex: newTakeIndex,
                 asset: liveAsset ? { ...liveAsset, url: finalUrl, path: finalPath, duration: fullDuration } : c.asset,
               }
             }
@@ -490,7 +540,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
 
           updateStack(renderingStackId, { renderState: 'complete', errorMessage: undefined })
         } else {
-          // First render: create new asset and clip
+          // First render: create new asset and clip (with full stack data for recovery)
           const asset = addAsset(currentProjectId, {
             type: 'video',
             path: finalPath,
@@ -510,6 +560,20 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
             },
             takes: [{ url: finalUrl, path: finalPath, createdAt: Date.now() }],
             activeTakeIndex: 0,
+            inferenceStackData: {
+              stackId: stack.id,
+              prompt: stack.prompt,
+              settings: { ...stack.settings },
+              strengths: { ...stack.strengths },
+              preserveAspectRatio: stack.preserveAspectRatio,
+              singleFramePosition: stack.singleFramePosition,
+              guideMode: stack.guideMode,
+              guideStrength: stack.guideStrength,
+              guideEndMode: stack.guideEndMode,
+              headHandles: stack.headHandles,
+              tailHandles: stack.tailHandles,
+              sourcePaths: stack.sourcePaths ? { ...stack.sourcePaths } : undefined,
+            },
           })
 
           const renderedClipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
@@ -640,12 +704,105 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [regenVideoUrl, isRegenerating])
 
-  // Handle render error
+  // Handle render error — attempt to recover output from disk before giving up
   useEffect(() => {
     if (!renderingStackId || isRegenerating || !regenError) return
-    updateStack(renderingStackId, { renderState: 'error', errorMessage: regenError })
-    setRenderingStackId(null)
-    setBatchQueue([])
+    const failedStackId = renderingStackId
+
+    ;(async () => {
+      // Try to find the completed output on disk
+      if (projectName && window.electronAPI?.findStackOutput) {
+        try {
+          const found = await window.electronAPI.findStackOutput({ projectName, stackId: failedStackId })
+          if (found?.video_path) {
+            logger.info(`[useInferenceStacks] recovered output for stack ${failedStackId}: ${found.video_path}`)
+            const pathNorm = found.video_path.replace(/\\/g, '/')
+            const fileUrl = pathNorm.startsWith('/') ? `file://${pathNorm}` : `file:///${pathNorm}`
+            // Feed it back through the completion handler by simulating regenVideoUrl
+            // We do this by directly running the completion logic
+            const stack = inferenceStacksRef.current.find(s => s.id === failedStackId)
+            if (stack && currentProjectId && assetSavePath) {
+              const { path: finalPath, url: finalUrl } = await copyToAssetFolder(
+                found.video_path, fileUrl, assetSavePath
+              )
+              const visibleDuration = getStackDuration(stack, clips)
+              const stackFps = stack.settings.fps
+              const headSec = (stack.headHandles ?? 0) / stackFps
+              const tailSec = (stack.tailHandles ?? 0) / stackFps
+              const fullDuration = visibleDuration + headSec + tailSec
+              const currentStackClips = getStackClips(stack, clips)
+              const imageClips = currentStackClips.filter(c => c.type === 'image').sort((a, b) => a.startTime - b.startTime)
+              const firstClip = imageClips[0] ?? currentStackClips.sort((a, b) => a.startTime - b.startTime)[0]
+
+              if (firstClip) {
+                const isAudioOnly = imageClips.length === 0
+                const videoTrackIndex = isAudioOnly ? 0 : firstClip.trackIndex
+
+                const autoRecoverClipExists = stack.renderedAssetId && stack.renderedClipId && clips.some(c => c.id === stack.renderedClipId)
+                if (autoRecoverClipExists) {
+                  addTakeToAsset(currentProjectId, stack.renderedAssetId!, {
+                    url: finalUrl, path: finalPath, createdAt: Date.now(),
+                  })
+                  const liveAsset = assets.find(a => a.id === stack.renderedAssetId)
+                  const newTakeIndex = liveAsset?.takes ? liveAsset.takes.length : 0
+                  setClips(prev => prev.map(c => {
+                    if (c.id === stack.renderedClipId) {
+                      return { ...c, duration: visibleDuration, trimStart: headSec, trimEnd: tailSec, takeIndex: newTakeIndex, asset: liveAsset ? { ...liveAsset, url: finalUrl, path: finalPath, duration: fullDuration } : c.asset }
+                    }
+                    return c
+                  }))
+                  updateStack(failedStackId, { renderState: 'complete', errorMessage: undefined })
+                } else {
+                  const asset = addAsset(currentProjectId, {
+                    type: 'video', path: finalPath, url: finalUrl,
+                    prompt: stack.prompt, resolution: stack.settings.videoResolution, duration: fullDuration,
+                    generationParams: { mode: 'image-to-video', prompt: stack.prompt, model: stack.settings.model, duration: stack.settings.duration, resolution: stack.settings.videoResolution, fps: stack.settings.fps, audio: stack.settings.audio, cameraMotion: stack.settings.cameraMotion },
+                    takes: [{ url: finalUrl, path: finalPath, createdAt: Date.now() }],
+                    activeTakeIndex: 0,
+                    inferenceStackData: { stackId: stack.id, prompt: stack.prompt, settings: { ...stack.settings }, strengths: { ...stack.strengths }, preserveAspectRatio: stack.preserveAspectRatio, singleFramePosition: stack.singleFramePosition, guideMode: stack.guideMode, guideStrength: stack.guideStrength, guideEndMode: stack.guideEndMode, headHandles: stack.headHandles, tailHandles: stack.tailHandles, sourcePaths: stack.sourcePaths ? { ...stack.sourcePaths } : undefined },
+                  })
+                  const renderedClipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+                  setClips(prev => {
+                    const stackMemberIds = new Set(prev.filter(c => c.inferenceStackId === stack.id).map(c => c.id))
+                    const newClip: TimelineClip = {
+                      id: renderedClipId, assetId: asset.id, type: 'video',
+                      startTime: firstClip.startTime, duration: visibleDuration, trimStart: headSec, trimEnd: tailSec,
+                      speed: 1, reversed: false, muted: false, volume: 1, trackIndex: videoTrackIndex, asset,
+                      flipH: false, flipV: false,
+                      transitionIn: { type: 'none', duration: 0 }, transitionOut: { type: 'none', duration: 0 },
+                      colorCorrection: { brightness: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, exposure: 0, highlights: 0, shadows: 0 },
+                      opacity: 100, inferenceStackId: stack.id,
+                    }
+                    return [
+                      ...prev.map(c => {
+                        if (!stackMemberIds.has(c.id)) return c
+                        if (c.type === 'audio' && !isAudioOnly) return c
+                        return { ...c, hiddenByStack: true }
+                      }),
+                      newClip,
+                    ]
+                  })
+                  updateStack(failedStackId, { renderState: 'complete', renderedAssetId: asset.id, renderedClipId, errorMessage: undefined })
+                }
+
+                setRenderingStackId(null)
+                regenReset()
+                logger.info(`[useInferenceStacks] stack ${failedStackId} recovered successfully`)
+                return
+              }
+            }
+          }
+        } catch (err) {
+          logger.warn(`[useInferenceStacks] recovery attempt failed: ${err}`)
+        }
+      }
+
+      // No recovery possible — mark as error
+      updateStack(failedStackId, { renderState: 'error', errorMessage: regenError })
+      setRenderingStackId(null)
+      setBatchQueue([])
+      regenReset()
+    })()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [regenError, renderingStackId, isRegenerating])
 
@@ -746,6 +903,83 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     if (activeStackId === stackId) setActiveStackId(null)
   }, [setClips, setInferenceStacks, activeStackId, revertStack])
 
+  // Manually relink an errored stack to a specific video file
+  const relinkStackOutput = useCallback(async (stackId: string, videoPath: string) => {
+    const stack = inferenceStacks.find(s => s.id === stackId)
+    if (!stack || !currentProjectId || !assetSavePath) return false
+
+    try {
+      const pathNorm = videoPath.replace(/\\/g, '/')
+      const fileUrl = pathNorm.startsWith('/') ? `file://${pathNorm}` : `file:///${pathNorm}`
+      const { path: finalPath, url: finalUrl } = await copyToAssetFolder(videoPath, fileUrl, assetSavePath)
+
+      const visibleDuration = getStackDuration(stack, clips)
+      const stackFps = stack.settings.fps
+      const headSec = (stack.headHandles ?? 0) / stackFps
+      const tailSec = (stack.tailHandles ?? 0) / stackFps
+      const fullDuration = visibleDuration + headSec + tailSec
+      const currentStackClips = getStackClips(stack, clips)
+      const imageClips = currentStackClips.filter(c => c.type === 'image').sort((a, b) => a.startTime - b.startTime)
+      const firstClip = imageClips[0] ?? currentStackClips.sort((a, b) => a.startTime - b.startTime)[0]
+      if (!firstClip) return false
+
+      const isAudioOnly = imageClips.length === 0
+      const videoTrackIndex = isAudioOnly ? 0 : firstClip.trackIndex
+
+      // Only take re-render path if the rendered clip actually exists on the timeline
+      const renderedClipExists = stack.renderedAssetId && stack.renderedClipId && clips.some(c => c.id === stack.renderedClipId)
+      if (renderedClipExists) {
+        addTakeToAsset(currentProjectId, stack.renderedAssetId!, { url: finalUrl, path: finalPath, createdAt: Date.now() })
+        const liveAsset = assets.find(a => a.id === stack.renderedAssetId)
+        const newTakeIndex = liveAsset?.takes ? liveAsset.takes.length : 0
+        setClips(prev => prev.map(c => {
+          if (c.id === stack.renderedClipId) {
+            return { ...c, duration: visibleDuration, trimStart: headSec, trimEnd: tailSec, takeIndex: newTakeIndex, asset: liveAsset ? { ...liveAsset, url: finalUrl, path: finalPath, duration: fullDuration } : c.asset }
+          }
+          return c
+        }))
+        updateStack(stackId, { renderState: 'complete', errorMessage: undefined })
+      } else {
+        const asset = addAsset(currentProjectId, {
+          type: 'video', path: finalPath, url: finalUrl,
+          prompt: stack.prompt, resolution: stack.settings.videoResolution, duration: fullDuration,
+          generationParams: { mode: 'image-to-video', prompt: stack.prompt, model: stack.settings.model, duration: stack.settings.duration, resolution: stack.settings.videoResolution, fps: stack.settings.fps, audio: stack.settings.audio, cameraMotion: stack.settings.cameraMotion },
+          takes: [{ url: finalUrl, path: finalPath, createdAt: Date.now() }],
+          activeTakeIndex: 0,
+          inferenceStackData: { stackId: stack.id, prompt: stack.prompt, settings: { ...stack.settings }, strengths: { ...stack.strengths }, preserveAspectRatio: stack.preserveAspectRatio, singleFramePosition: stack.singleFramePosition, guideMode: stack.guideMode, guideStrength: stack.guideStrength, guideEndMode: stack.guideEndMode, headHandles: stack.headHandles, tailHandles: stack.tailHandles, sourcePaths: stack.sourcePaths ? { ...stack.sourcePaths } : undefined },
+        })
+        const renderedClipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        setClips(prev => {
+          const stackMemberIds = new Set(prev.filter(c => c.inferenceStackId === stack.id).map(c => c.id))
+          const newClip: TimelineClip = {
+            id: renderedClipId, assetId: asset.id, type: 'video',
+            startTime: firstClip.startTime, duration: visibleDuration, trimStart: headSec, trimEnd: tailSec,
+            speed: 1, reversed: false, muted: false, volume: 1, trackIndex: videoTrackIndex, asset,
+            flipH: false, flipV: false,
+            transitionIn: { type: 'none', duration: 0 }, transitionOut: { type: 'none', duration: 0 },
+            colorCorrection: { brightness: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, exposure: 0, highlights: 0, shadows: 0 },
+            opacity: 100, inferenceStackId: stack.id,
+          }
+          return [
+            ...prev.map(c => {
+              if (!stackMemberIds.has(c.id)) return c
+              if (c.type === 'audio' && !isAudioOnly) return c
+              return { ...c, hiddenByStack: true }
+            }),
+            newClip,
+          ]
+        })
+        updateStack(stackId, { renderState: 'complete', renderedAssetId: asset.id, renderedClipId, errorMessage: undefined })
+      }
+
+      logger.info(`[relinkStackOutput] successfully relinked stack ${stackId}`)
+      return true
+    } catch (err) {
+      logger.error(`[relinkStackOutput] failed: ${err}`)
+      return false
+    }
+  }, [inferenceStacks, clips, assets, currentProjectId, assetSavePath, addAsset, addTakeToAsset, updateStack, setClips])
+
   return {
     // State
     inferenceStacks,
@@ -766,5 +1000,6 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     renderStack,
     renderAllStacks,
     cancelRender,
+    relinkStackOutput,
   }
 }

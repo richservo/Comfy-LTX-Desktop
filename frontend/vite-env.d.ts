@@ -55,7 +55,7 @@ interface Window {
     showOpenFileDialog: (options: { title?: string; filters?: { name: string; extensions: string[] }[]; properties?: string[] }) => Promise<string[] | null>
     searchDirectoryForFiles: (directory: string, filenames: string[]) => Promise<Record<string, string | null>>
     exportNative: (data: {
-      clips: { url: string; type: string; startTime: number; duration: number; trimStart: number; speed: number; reversed: boolean; flipH: boolean; flipV: boolean; opacity: number; trackIndex: number; muted: boolean; volume: number }[]
+      clips: { url: string; type: string; startTime: number; duration: number; trimStart: number; speed: number; reversed: boolean; flipH: boolean; flipV: boolean; opacity: number; trackIndex: number; muted: boolean; volume: number; volumeAutomation?: { time: number; value: number }[] }[]
       outputPath: string; codec: string; width: number; height: number; fps: number; quality: number
       letterbox?: { ratio: number; color: string; opacity: number }
       subtitles?: { text: string; startTime: number; endTime: number; style: { fontSize: number; fontFamily: string; fontWeight: string; color: string; backgroundColor: string; position: string; italic: boolean } }[]
@@ -90,6 +90,7 @@ interface Window {
       guideVideoPath?: string
       guideIndexList?: string
       guideStrength?: number
+      stgScale?: number
     }) => Promise<{ status: string; video_path?: string; image_path?: string; enhanced_prompt?: string; error?: string }>
     getGenerationProgress: () => Promise<{
       status: string
@@ -99,6 +100,7 @@ interface Window {
       totalSteps: number | null
     }>
     cancelGeneration: () => Promise<void>
+    findStackOutput: (params: { projectName: string; stackId: string }) => Promise<{ video_path: string; enhanced_prompt: string | null } | null>
     checkComfyUIHealth: () => Promise<{ connected: boolean }>
     getModelLists: () => Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[]; hasRtxSuperRes?: boolean; hasZImage?: boolean }>
     readVideoMetadata: (filePath: string) => Promise<Record<string, unknown> | null>

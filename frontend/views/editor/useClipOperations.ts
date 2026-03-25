@@ -4,6 +4,7 @@ import { DEFAULT_COLOR_CORRECTION, DEFAULT_LETTERBOX, EFFECT_DEFINITIONS, DEFAUL
 import type { ParsedTimeline } from '../../lib/timeline-import'
 import { exportFcp7Xml } from '../../lib/timeline-import'
 import { resolveOverlaps, DEFAULT_DISSOLVE_DURATION } from './video-editor-utils'
+import { splitKeyframes } from '../../lib/volume-automation'
 
 interface UseClipOperationsParams {
   clips: TimelineClip[]
@@ -414,18 +415,24 @@ export function useClipOperations(params: UseClipOperationsParams) {
         .map(lid => newClips.find(c => c.id === lid))
         .filter((c): c is TimelineClip => !!c)
       
+      // Split volume automation keyframes at the media-time split point
+      const splitMediaTime = clip.trimStart + splitPoint
+      const [kfBefore, kfAfter] = splitKeyframes(clip.volumeAutomation, splitMediaTime, clip.volume)
+
       const firstHalf: TimelineClip = {
         ...clip,
         duration: splitPoint,
         trimEnd: clip.trimEnd + (clip.duration - splitPoint),
+        volumeAutomation: kfBefore,
       }
-      
+
       const secondHalf: TimelineClip = {
         ...clip,
         id: secondHalfId,
         startTime: clip.startTime + splitPoint,
         duration: clip.duration - splitPoint,
         trimStart: clip.trimStart + splitPoint,
+        volumeAutomation: kfAfter,
       }
       
       newClips = newClips.map(c => c.id === splitId ? firstHalf : c).concat(secondHalf)
@@ -448,13 +455,17 @@ export function useClipOperations(params: UseClipOperationsParams) {
         firstHalfLinkedIds.push(linkedClip.id)
         secondHalfLinkedIds.push(linkedSecondId)
         
+        const linkedSplitMedia = linkedClip.trimStart + linkedSplitPoint
+        const [linkedKfBefore, linkedKfAfter] = splitKeyframes(linkedClip.volumeAutomation, linkedSplitMedia, linkedClip.volume)
+
         const linkedFirstHalf: TimelineClip = {
           ...linkedClip,
           duration: linkedSplitPoint,
           trimEnd: linkedClip.trimEnd + (linkedClip.duration - linkedSplitPoint),
           linkedClipIds: [firstHalfId],
+          volumeAutomation: linkedKfBefore,
         }
-        
+
         const linkedSecondHalf: TimelineClip = {
           ...linkedClip,
           id: linkedSecondId,
@@ -462,6 +473,7 @@ export function useClipOperations(params: UseClipOperationsParams) {
           duration: linkedClip.duration - linkedSplitPoint,
           trimStart: linkedClip.trimStart + linkedSplitPoint,
           linkedClipIds: [secondHalfId],
+          volumeAutomation: linkedKfAfter,
         }
         
         newClips = newClips

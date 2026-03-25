@@ -27,7 +27,7 @@ interface GenerationProgress {
 }
 
 export interface GenerationContextType extends GenerationState {
-  generate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string, preserveAspectRatio?: boolean, initiator?: GenerationInitiator, guideVideoPath?: string, guideIndexList?: string, guideStrength?: number) => Promise<void>
+  generate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string, preserveAspectRatio?: boolean, initiator?: GenerationInitiator, guideVideoPath?: string, guideIndexList?: string, guideStrength?: number, stackId?: string) => Promise<void>
   generateImage: (prompt: string, settings: GenerationSettings, imagePath?: string | null, strength?: number, projectName?: string, referenceImagePaths?: string[], initiator?: GenerationInitiator) => Promise<void>
   cancel: () => void
   reset: () => void
@@ -81,6 +81,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
     guideVideoPath?: string,
     guideIndexList?: string,
     guideStrength?: number,
+    stackId?: string,
   ) => {
     const iterations = settings.iterations || 1
 
@@ -139,6 +140,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
         filmGrain: settings.filmGrain,
         filmGrainIntensity: settings.filmGrainIntensity,
         filmGrainSize: settings.filmGrainSize,
+        stgScale: settings.stgScale,
         firstStrength: strengths?.first,
         middleStrength: strengths?.middle,
         lastStrength: strengths?.last,
@@ -148,6 +150,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
         guideVideoPath,
         guideIndexList,
         guideStrength,
+        stackId,
       }
 
       for (let i = 1; i <= iterations; i++) {

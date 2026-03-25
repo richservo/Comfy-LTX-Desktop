@@ -97,6 +97,8 @@ export interface WorkflowParams {
   guideIndexList?: string
   /** Guide video strength (0–1, default 0.7) */
   guideStrength?: number
+  /** STG scale (spatiotemporal guidance, default 1) */
+  stgScale?: number
 }
 
 type WorkflowNode = { class_type: string; inputs: Record<string, unknown>; _meta?: { title: string } }
@@ -491,6 +493,7 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   genNode.inputs['num_frames'] = params.numFrames
   genNode.inputs['steps'] = params.steps
   genNode.inputs['cfg'] = params.cfg
+  if (params.stgScale != null) genNode.inputs['stg_scale'] = params.stgScale
   genNode.inputs['noise_seed'] = params.seed
   genNode.inputs['seed_mode'] = 'fixed'
 
@@ -585,7 +588,21 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
       },
       _meta: { title: 'Load Guide Video' },
     }
-    genNode.inputs['guide_video'] = ['85', 0]
+
+    // Scale guide video frames to frameDims — same resize pipeline as frame images
+    workflow['86'] = {
+      class_type: 'ImageScale',
+      inputs: {
+        upscale_method: 'lanczos',
+        width: frameDims.width,
+        height: frameDims.height,
+        crop: frameCrop,
+        image: ['85', 0],
+      },
+      _meta: { title: 'Scale Guide Video' },
+    }
+
+    genNode.inputs['guide_video'] = ['86', 0]
     genNode.inputs['guide_index_list'] = params.guideIndexList ?? ''
     genNode.inputs['guide_strength'] = params.guideStrength ?? 0.7
 

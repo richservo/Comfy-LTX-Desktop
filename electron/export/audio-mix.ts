@@ -2,7 +2,7 @@ import { spawn } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import { logger } from '../logger'
-import { fileHasAudio, urlToFilePath } from './ffmpeg-utils'
+import { urlToFilePath } from './ffmpeg-utils'
 import type { ExportClip } from './timeline'
 
 const SAMPLE_RATE = 48000
@@ -49,9 +49,30 @@ function extractPcmBuffer(
   })
 }
 
+interface VolumeKeyframe {
+  time: number   // seconds, in media time (relative to trimStart)
+  value: number  // 0–1
+}
+
 interface AudioSource {
   filePath: string; trimStart: number; trimEnd: number;
   timelineStart: number; speed: number; reversed: boolean; volume: number;
+  volumeAutomation?: VolumeKeyframe[];
+}
+
+/** Linearly interpolate volume at a given media-time position from keyframes */
+function interpolateVolume(kf: VolumeKeyframe[] | undefined, mediaTime: number, fallback: number): number {
+  if (!kf || kf.length === 0) return fallback
+  if (kf.length === 1) return kf[0].value
+  if (mediaTime <= kf[0].time) return kf[0].value
+  if (mediaTime >= kf[kf.length - 1].time) return kf[kf.length - 1].value
+  for (let i = 0; i < kf.length - 1; i++) {
+    if (mediaTime >= kf[i].time && mediaTime <= kf[i + 1].time) {
+      const t = (mediaTime - kf[i].time) / (kf[i + 1].time - kf[i].time)
+      return kf[i].value + t * (kf[i + 1].value - kf[i].value)
+    }
+  }
+  return kf[kf.length - 1].value
 }
 
 /**
@@ -63,8 +84,7 @@ export async function mixAudioToPcm(
   totalDuration: number,
   ffmpegPath: string,
 ): Promise<{ pcmBuffer: Buffer; sampleRate: number; channels: number }> {
-  // Collect audio sources from ORIGINAL clips
-  const audioProbeCache = new Map<string, boolean>()
+  // Collect audio sources from audio clips only
   const audioSources: AudioSource[] = []
 
   for (const c of clips) {
@@ -81,20 +101,7 @@ export async function mixAudioToPcm(
         speed: c.speed,
         reversed: c.reversed,
         volume: c.volume,
-      })
-    } else if (c.type === 'video') {
-      if (!audioProbeCache.has(fp)) {
-        audioProbeCache.set(fp, fileHasAudio(ffmpegPath, fp))
-      }
-      if (!audioProbeCache.get(fp)) continue
-      audioSources.push({
-        filePath: fp,
-        trimStart: c.trimStart,
-        trimEnd: c.trimStart + c.duration * c.speed,
-        timelineStart: c.startTime,
-        speed: c.speed,
-        reversed: c.reversed,
-        volume: c.volume,
+        volumeAutomation: c.volumeAutomation,
       })
     }
   }
@@ -116,11 +123,20 @@ export async function mixAudioToPcm(
       const startSample = startFrame * NUM_CHANNELS
       const numPcmSamples = Math.floor(pcm.length / BYTES_PER_SAMPLE)
 
+      const hasAutomation = src.volumeAutomation && src.volumeAutomation.length > 0
       for (let s = 0; s < numPcmSamples; s++) {
         const destIdx = startSample + s
         if (destIdx < 0 || destIdx >= totalSamples) continue
         const value = pcm.readInt16LE(s * BYTES_PER_SAMPLE)
-        mixBuffer[destIdx] += value * src.volume
+        // Compute per-sample volume: use automation keyframes if present, else flat volume
+        let vol = src.volume
+        if (hasAutomation) {
+          // Convert sample index to media time: sample is stereo interleaved
+          const frameIdx = Math.floor(s / NUM_CHANNELS)
+          const mediaTime = src.trimStart + (frameIdx / SAMPLE_RATE) * src.speed
+          vol = interpolateVolume(src.volumeAutomation, mediaTime, src.volume)
+        }
+        mixBuffer[destIdx] += value * vol
       }
       logger.info( `[Export] Audio ${i + 1}: mixed ${numPcmSamples} samples (${(numPcmSamples / SAMPLE_RATE / NUM_CHANNELS).toFixed(2)}s) at offset frame ${startFrame}`)
     } catch (err: any) {

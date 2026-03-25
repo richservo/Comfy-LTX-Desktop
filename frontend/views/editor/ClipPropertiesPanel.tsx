@@ -685,7 +685,26 @@ export function ClipPropertiesPanel(props: ClipPropertiesPanelProps) {
         </div>
 
         <div>
-          <label className="block text-xs text-zinc-500 mb-1">Volume</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs text-zinc-500">Volume</label>
+            {selectedClip.volumeAutomation && selectedClip.volumeAutomation.length > 0 && (
+              <div className="flex items-center gap-1">
+                <span className="text-[9px] text-emerald-400">Automation active</span>
+                <button
+                  onClick={() => {
+                    updateClip(selectedClip.id, { volumeAutomation: undefined })
+                    if (selectedClip.linkedClipIds) {
+                      for (const lid of selectedClip.linkedClipIds) updateClip(lid, { volumeAutomation: undefined })
+                    }
+                  }}
+                  className="text-[9px] text-zinc-500 hover:text-red-400 px-1"
+                  title="Remove all keyframes"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+          </div>
           <input
             type="range"
             min={0}
@@ -707,6 +726,9 @@ export function ClipPropertiesPanel(props: ClipPropertiesPanelProps) {
             <span className="text-white">{selectedClip.muted ? '0' : Math.round(selectedClip.volume * 100)}%</span>
             <span>100%</span>
           </div>
+          {(!selectedClip.volumeAutomation || selectedClip.volumeAutomation.length === 0) && (
+            <p className="text-[9px] text-zinc-600 mt-1">Alt+click on clip to add volume keyframes</p>
+          )}
         </div>
 
         <div className="space-y-2">
