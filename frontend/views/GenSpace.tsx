@@ -665,6 +665,8 @@ export function GenSpace() {
   const [showFavorites, setShowFavorites] = useState(false)
   type SortOrder = 'newest' | 'oldest' | 'favorites'
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest')
+  type MediaFilter = 'all' | 'videos' | 'images'
+  const [mediaFilter, setMediaFilter] = useState<MediaFilter>('all')
   const [gallerySize, setGallerySize] = useState<GallerySize>('medium')
   const [showSizeMenu, setShowSizeMenu] = useState(false)
   const [isPanelOpen, setIsPanelOpen] = useState(false)
@@ -1252,7 +1254,10 @@ export function GenSpace() {
     const timeB = b.takes?.[0]?.createdAt || b.createdAt || 0
     return sortOrder === 'newest' ? timeB - timeA : timeA - timeB
   })
-  const filteredAssets = showFavorites ? sortedAssets.filter(a => a.favorite) : sortedAssets
+  const typeFilteredAssets = mediaFilter === 'all' ? sortedAssets
+    : mediaFilter === 'videos' ? sortedAssets.filter(a => a.type === 'video')
+    : sortedAssets.filter(a => a.type === 'image')
+  const filteredAssets = showFavorites ? typeFilteredAssets.filter(a => a.favorite) : typeFilteredAssets
   const favoriteCount = assets.filter(a => a.favorite).length
 
   // Navigation for the asset preview modal
@@ -1495,16 +1500,14 @@ export function GenSpace() {
           {/* Top bar */}
           <div className="flex items-center justify-end pb-2 gap-2">
             <button
-              onClick={handleToggleTrash}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                showTrash
-                  ? 'bg-zinc-600/30 text-zinc-300 border border-zinc-500/30'
-                  : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-              }`}
+              onClick={() => setMediaFilter(prev => prev === 'all' ? 'videos' : prev === 'videos' ? 'images' : 'all')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors text-zinc-400 hover:text-white hover:bg-zinc-800"
+              title={`Show: ${mediaFilter === 'all' ? 'All media' : mediaFilter === 'videos' ? 'Videos only' : 'Images only'}`}
             >
-              <Trash2 className="h-4 w-4" />
-              Trash
+              {mediaFilter === 'all' ? <Film className="h-4 w-4" /> : mediaFilter === 'videos' ? <Video className="h-4 w-4" /> : <Image className="h-4 w-4" />}
+              {mediaFilter === 'all' ? 'All' : mediaFilter === 'videos' ? 'Videos' : 'Images'}
             </button>
+
             <button
               onClick={() => { setShowFavorites(!showFavorites); if (showTrash) setShowTrash(false) }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
@@ -1531,6 +1534,18 @@ export function GenSpace() {
             >
               <ArrowUpDown className="h-4 w-4" />
               {sortOrder === 'newest' ? 'Newest' : sortOrder === 'oldest' ? 'Oldest' : 'Favorites'}
+            </button>
+
+            <button
+              onClick={handleToggleTrash}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                showTrash
+                  ? 'bg-zinc-600/30 text-zinc-300 border border-zinc-500/30'
+                  : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+              }`}
+            >
+              <Trash2 className="h-4 w-4" />
+              Trash
             </button>
 
             <div ref={sizeMenuRef} className="relative">
