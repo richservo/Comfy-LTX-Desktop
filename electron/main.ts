@@ -2,6 +2,7 @@ import './app-paths'
 import { app } from 'electron'
 import { setupCSP } from './csp'
 import { registerExportHandlers } from './export/export-handler'
+import { registerPreviewHandlers, cleanupPreviewFiles } from './export/preview-renderer'
 import { stopExportProcess } from './export/ffmpeg-utils'
 import { registerAppHandlers } from './ipc/app-handlers'
 import { registerComfyUIHandlers } from './ipc/comfyui-handlers'
@@ -36,6 +37,7 @@ if (!gotLock) {
   registerFileHandlers()
   registerLogHandlers()
   registerExportHandlers()
+  registerPreviewHandlers()
   registerSetupHandlers()
   registerUpdateHandlers()
   registerVideoProcessingHandlers()
@@ -119,5 +121,6 @@ if (!gotLock) {
 
   app.on('before-quit', () => {
     stopExportProcess()
+    cleanupPreviewFiles()
   })
 }

@@ -789,3 +789,65 @@ export function getStackDuration(stack: InferenceStack, allClips: TimelineClip[]
 
   return fullSpan
 }
+
+/**
+ * Build export-ready clip data from timeline clips.
+ * Shared by ExportModal and useRenderedPreview.
+ * Handles: hidden-by-stack filtering, type filtering, track enable filtering,
+ * in/out range trimming, and time shifting.
+ */
+export function buildExportClips(
+  clips: TimelineClip[],
+  tracks: Track[],
+  inPoint: number | null,
+  outPoint: number | null,
+  resolveClipSrc?: (clip: TimelineClip) => string,
+): {
+  url: string; type: string; startTime: number; duration: number; trimStart: number;
+  speed: number; reversed: boolean; flipH: boolean; flipV: boolean; opacity: number;
+  trackIndex: number; muted: boolean; volume: number;
+  volumeAutomation?: { time: number; value: number }[];
+}[] {
+  const rangeStart = (inPoint != null && outPoint != null) ? Math.min(inPoint, outPoint) : 0
+  const rangeEnd = (inPoint != null && outPoint != null) ? Math.max(inPoint, outPoint) : Infinity
+
+  return clips
+    .filter(c => !c.hiddenByStack)
+    .filter(c => c.type === 'video' || c.type === 'image' || c.type === 'audio')
+    .filter(c => tracks[c.trackIndex]?.enabled !== false)
+    .filter(c => {
+      const clipEnd = c.startTime + c.duration
+      return clipEnd > rangeStart && c.startTime < rangeEnd
+    })
+    .map(c => {
+      let startTime = c.startTime
+      let duration = c.duration
+      let trimStart = c.trimStart
+      if (startTime < rangeStart) {
+        const trimAmount = rangeStart - startTime
+        trimStart += trimAmount * (c.speed || 1)
+        duration -= trimAmount
+        startTime = rangeStart
+      }
+      if (startTime + duration > rangeEnd) {
+        duration = rangeEnd - startTime
+      }
+      startTime -= rangeStart
+      return {
+        url: resolveClipSrc ? resolveClipSrc(c) : (c.asset?.url || c.importedUrl || ''),
+        type: c.type as string,
+        startTime,
+        duration,
+        trimStart,
+        speed: c.speed || 1,
+        reversed: c.reversed || false,
+        flipH: c.flipH || false,
+        flipV: c.flipV || false,
+        opacity: c.opacity ?? 100,
+        trackIndex: c.trackIndex,
+        muted: c.muted || false,
+        volume: c.volume ?? 1,
+        volumeAutomation: c.volumeAutomation,
+      }
+    })
+}

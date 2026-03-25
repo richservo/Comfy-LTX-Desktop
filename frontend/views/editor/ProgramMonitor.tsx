@@ -10,6 +10,7 @@ import { DEFAULT_SUBTITLE_STYLE } from '../../types/project'
 import type { TimelineClip, Track, SubtitleClip } from '../../types/project'
 import { getClipEffectStyles, getTransitionBgColor, formatTime, getShortcutLabel, tooltipLabel, getMaskedEffectOverlays } from './video-editor-utils'
 import type { KeyboardLayout } from '../../lib/keyboard-shortcuts'
+import type { PreviewStatus } from './useRenderedPreview'
 
 export interface ProgramMonitorProps {
   // Layout
@@ -92,6 +93,10 @@ export interface ProgramMonitorProps {
 
   // Keyboard shortcuts
   kbLayout: KeyboardLayout
+
+  // Rendered preview
+  previewStatus: PreviewStatus
+  renderedVideoUrl: string | null
 }
 
 export function ProgramMonitor({
@@ -147,6 +152,8 @@ export function ProgramMonitor({
   isFullscreen,
   toggleFullscreen,
   kbLayout,
+  previewStatus,
+  renderedVideoUrl,
 }: ProgramMonitorProps) {
   // Flag to prevent the video frame wrapper's onClick from clearing selection
   // when the user clicked on a text overlay (mousedown fires first on the overlay,
@@ -386,6 +393,15 @@ export function ProgramMonitor({
                 </>
                 )
               })()}
+
+              {/* Rendered preview overlay — single mp4 covers all live playback when ready */}
+              <video
+                id="rendered-preview-video"
+                src={renderedVideoUrl || undefined}
+                className={`absolute inset-0 w-full h-full object-cover pointer-events-none z-[20] ${previewStatus !== 'ready' || !renderedVideoUrl ? 'hidden' : ''}`}
+                playsInline
+                preload="auto"
+              />
 
               {/* Adjustment layer effects */}
               {activeAdjustmentEffects.map(({ clip: adjClip, filterStyle, hasVignette, vignetteAmount, hasGrain, grainAmount }) => {

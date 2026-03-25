@@ -58,6 +58,8 @@ import { useTimelineDrag } from './editor/useTimelineDrag'
 import { useContextMenuEffects } from './editor/useContextMenuEffects'
 import { buildMenuDefinitions } from './editor/buildMenuDefinitions'
 import { usePlaybackEngine } from './editor/usePlaybackEngine'
+import { useRenderedPreview } from './editor/useRenderedPreview'
+import { PreviewRenderBar } from './editor/PreviewRenderBar'
 import { GapGenerationModal } from './editor/GapGenerationModal'
 import { GenerationErrorDialog } from '../components/GenerationErrorDialog'
 import { I2vGenerationModal } from './editor/I2vGenerationModal'
@@ -1167,6 +1169,7 @@ export function VideoEditor() {
   const matchFrameRef = useRef<() => void>(() => {})
   const splitAtPlayheadRef = useRef<() => void>(() => {})
   const addOrEditMarkerRef = useRef<() => void>(() => {})
+  const createStackRef = useRef<(clipIds: string[]) => any>(() => null)
 
   // Ref for renderStack — assigned after useInferenceStacks, used by useRegeneration
   const renderStackRef = useRef<(stackId: string) => void>(() => {})
@@ -1216,6 +1219,7 @@ export function VideoEditor() {
     projectGenerationSettings: currentProject?.generationSettings,
   })
   renderStackRef.current = renderStack
+  createStackRef.current = createStack
 
   useEditorKeyboard({
     refs: {
@@ -1283,6 +1287,7 @@ export function VideoEditor() {
       deleteSubtitleRef,
       deleteAsset,
       deleteGapRef,
+      createStackRef,
     },
   })
   
@@ -1314,6 +1319,30 @@ export function VideoEditor() {
   }, [totalDuration, getMinZoom])
   
 
+  // Rendered preview system — pre-render timeline to single mp4
+  const previewLetterbox = useMemo(() => {
+    const ratioMap: Record<string, number> = { '2.35:1': 2.35, '2.39:1': 2.39, '2.76:1': 2.76, '1.85:1': 1.85, '4:3': 4 / 3 }
+    const adjClips = clips.filter(c => c.type === 'adjustment' && c.letterbox?.enabled && tracks[c.trackIndex]?.enabled !== false)
+    if (adjClips.length === 0) return null
+    const best = adjClips.reduce((a, b) => (b.duration > a.duration ? b : a))
+    const lb = best.letterbox!
+    const ratio = lb.aspectRatio === 'custom' ? (lb.customRatio || 2.35) : (ratioMap[lb.aspectRatio] || 2.35)
+    return { ratio, color: lb.color || '#000000', opacity: (lb.opacity ?? 100) / 100 }
+  }, [clips, tracks])
+
+  const { previewStatus, renderedVideoUrl, renderProgress, forceRender, cancelRender } = useRenderedPreview({
+    clips,
+    tracks,
+    subtitles,
+    inPoint,
+    outPoint,
+    fps: activeTimeline?.fps ?? 24,
+    width: activeTimeline?.resolution?.width ?? 1920,
+    height: activeTimeline?.resolution?.height ?? 1080,
+    letterbox: previewLetterbox,
+    resolveClipSrc,
+  })
+
   // Playback engine (extracted hook)
   usePlaybackEngine({
     isPlaying, setIsPlaying, shuttleSpeed, setShuttleSpeed,
@@ -1327,9 +1356,10 @@ export function VideoEditor() {
     playheadOverlayRef, playheadRulerRef, lastStateUpdateRef,
     preSeekDoneRef, rafActiveClipIdRef, setPlaybackActiveClipId,
     inPoint, outPoint, totalDuration, zoom,
+    previewStatus, renderedVideoUrl,
   })
 
-  
+
   // Keep keyboard refs in sync
   undoRef.current = handleUndo
   redoRef.current = handleRedo
@@ -2184,6 +2214,8 @@ export function VideoEditor() {
             isFullscreen={isFullscreen}
             toggleFullscreen={toggleFullscreen}
             kbLayout={kbLayout}
+            previewStatus={previewStatus}
+            renderedVideoUrl={renderedVideoUrl}
           />
           </div> {/* end program monitor drop zone */}
         </div> {/* end split preview area */}
@@ -3106,6 +3138,12 @@ export function VideoEditor() {
                   ref={playheadOverlayRef}
                   className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-30 pointer-events-none"
                   style={{ left: `${currentTime * pixelsPerSecond - (trackContainerRef.current?.scrollLeft || 0)}px` }}
+                />
+                {/* Rendered preview status bar — FCP-style above clips */}
+                <PreviewRenderBar
+                  status={previewStatus}
+                  progress={renderProgress}
+                  onForceRender={forceRender}
                 />
                 {/* Spacer matching the add-track button bar height */}
                 <div className="flex-shrink-0 h-7 border-b border-zinc-700/50" />
@@ -4456,6 +4494,27 @@ export function VideoEditor() {
             Export
           </Button>
 
+          <Button
+            variant="outline"
+            size="sm"
+            className={`h-6 text-[10px] px-2 ${
+              previewStatus === 'rendering'
+                ? 'border-blue-700 text-blue-400'
+                : previewStatus === 'ready'
+                ? 'border-green-700 text-green-400'
+                : 'border-zinc-700 text-zinc-400'
+            }`}
+            onClick={previewStatus === 'rendering' ? cancelRender : forceRender}
+          >
+            {previewStatus === 'rendering' ? (
+              <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Rendering...</>
+            ) : previewStatus === 'ready' ? (
+              <><Film className="h-3 w-3 mr-1" />Preview Ready</>
+            ) : (
+              <><Film className="h-3 w-3 mr-1" />Render Preview</>
+            )}
+          </Button>
+
           {inferenceStacks.length > 0 && (
             <>
               <div className="w-px h-4 bg-zinc-700" />
@@ -4801,6 +4860,9 @@ export function VideoEditor() {
             onRemoveFromStack={removeClipFromStack}
             onEditStack={setActiveStackId}
             onRevertStack={revertStack}
+            onRelinkStackOutput={relinkStackOutput}
+            inferenceStacks={inferenceStacks}
+            projectName={currentProject?.name}
           />
         )
       })()}
@@ -4816,6 +4878,7 @@ export function VideoEditor() {
         projectName={currentProject?.name || 'Untitled'}
         inPoint={inPoint}
         outPoint={outPoint}
+        resolveClipSrc={resolveClipSrc}
       />
       
       <ImportTimelineModal

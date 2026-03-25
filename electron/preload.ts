@@ -112,6 +112,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportCancel: (sessionId: string): Promise<{ ok?: boolean }> =>
     ipcRenderer.invoke('export-cancel', sessionId),
 
+  // Preview rendering (rendered preview system)
+  previewRender: (data: {
+    clips: { url: string; type: string; startTime: number; duration: number; trimStart: number; speed: number; reversed: boolean; flipH: boolean; flipV: boolean; opacity: number; trackIndex: number; muted: boolean; volume: number; volumeAutomation?: { time: number; value: number }[] }[];
+    width: number; height: number; fps: number;
+    letterbox?: { ratio: number; color: string; opacity: number };
+    subtitles?: { text: string; startTime: number; endTime: number; style: { fontSize: number; fontFamily: string; fontWeight: string; color: string; backgroundColor: string; position: string; italic: boolean } }[];
+  }): Promise<{ success?: boolean; error?: string; filePath?: string; fileUrl?: string }> =>
+    ipcRenderer.invoke('preview:render', data),
+  previewCancel: (): Promise<{ ok?: boolean }> =>
+    ipcRenderer.invoke('preview:cancel'),
+  previewCleanup: (filePath?: string): Promise<{ ok?: boolean }> =>
+    ipcRenderer.invoke('preview:cleanup', filePath),
+  onPreviewProgress: (callback: (_event: unknown, data: { phase: string; percent: number }) => void) => {
+    ipcRenderer.on('preview:progress', callback)
+    return () => { ipcRenderer.removeListener('preview:progress', callback) }
+  },
+
   // ComfyUI generation
   generateVideo: (params: {
     prompt: string
@@ -258,6 +275,15 @@ declare global {
         subtitles?: { text: string; startTime: number; endTime: number; style: { fontSize: number; fontFamily: string; fontWeight: string; color: string; backgroundColor: string; position: string; italic: boolean } }[];
       }) => Promise<{ success?: boolean; error?: string }>
       exportCancel: (sessionId: string) => Promise<{ ok?: boolean }>
+      previewRender: (data: {
+        clips: { url: string; type: string; startTime: number; duration: number; trimStart: number; speed: number; reversed: boolean; flipH: boolean; flipV: boolean; opacity: number; trackIndex: number; muted: boolean; volume: number; volumeAutomation?: { time: number; value: number }[] }[];
+        width: number; height: number; fps: number;
+        letterbox?: { ratio: number; color: string; opacity: number };
+        subtitles?: { text: string; startTime: number; endTime: number; style: { fontSize: number; fontFamily: string; fontWeight: string; color: string; backgroundColor: string; position: string; italic: boolean } }[];
+      }) => Promise<{ success?: boolean; error?: string; filePath?: string; fileUrl?: string }>
+      previewCancel: () => Promise<{ ok?: boolean }>
+      previewCleanup: (filePath?: string) => Promise<{ ok?: boolean }>
+      onPreviewProgress: (callback: (_event: unknown, data: { phase: string; percent: number }) => void) => () => void
       generateVideo: (params: {
         prompt: string
         imagePath?: string | null

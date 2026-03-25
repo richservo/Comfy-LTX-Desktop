@@ -3,6 +3,7 @@ import { X, Download, FolderOpen, Film, Package, Loader2, Check, AlertCircle, Ch
 import { Button } from './ui/button'
 import type { Track, Timeline, TimelineClip } from '../types/project'
 import { DEFAULT_SUBTITLE_STYLE } from '../types/project'
+import { buildExportClips } from '../views/editor/video-editor-utils'
 
 interface ExportModalProps {
   open: boolean
@@ -13,6 +14,7 @@ interface ExportModalProps {
   projectName: string
   inPoint?: number | null
   outPoint?: number | null
+  resolveClipSrc: (clip: TimelineClip) => string
 }
 
 type ExportStatus = 'idle' | 'exporting' | 'done' | 'error'
@@ -144,7 +146,7 @@ function escapeXml(str: string): string {
     .replace(/'/g, '&apos;')
 }
 
-export function ExportModal({ open, onClose, clips, tracks, timeline, projectName, inPoint, outPoint }: ExportModalProps) {
+export function ExportModal({ open, onClose, clips, tracks, timeline, projectName, inPoint, outPoint, resolveClipSrc }: ExportModalProps) {
   const [exportStatus, setExportStatus] = useState<ExportStatus>('idle')
   const [exportType, setExportType] = useState<'package' | 'video' | null>(null)
   const [exportProgress, setExportProgress] = useState(0)
@@ -268,54 +270,12 @@ export function ExportModal({ open, onClose, clips, tracks, timeline, projectNam
         return
       }
 
-      // Determine export range from in/out points
+      // Build clip data for ffmpeg native export
+      const exportClips = buildExportClips(clips, tracks, inPoint ?? null, outPoint ?? null, resolveClipSrc)
+
+      // Determine export range for subtitle shifting
       const rangeStart = (inPoint != null && outPoint != null) ? Math.min(inPoint, outPoint) : 0
       const rangeEnd = (inPoint != null && outPoint != null) ? Math.max(inPoint, outPoint) : Infinity
-
-      // Build clip data for ffmpeg native export (video/image + audio clips)
-      // When in/out points are set, trim clips to the export range
-      const exportClips = clips
-        .filter(c => !c.hiddenByStack)
-        .filter(c => c.type === 'video' || c.type === 'image' || c.type === 'audio')
-        .filter(c => tracks[c.trackIndex]?.enabled !== false)
-        .filter(c => {
-          // Filter out clips completely outside the export range
-          const clipEnd = c.startTime + c.duration
-          return clipEnd > rangeStart && c.startTime < rangeEnd
-        })
-        .map(c => {
-          // Trim clip to fit within the export range
-          let startTime = c.startTime
-          let duration = c.duration
-          let trimStart = c.trimStart
-          if (startTime < rangeStart) {
-            const trimAmount = rangeStart - startTime
-            trimStart += trimAmount * (c.speed || 1)
-            duration -= trimAmount
-            startTime = rangeStart
-          }
-          if (startTime + duration > rangeEnd) {
-            duration = rangeEnd - startTime
-          }
-          // Shift startTime so export begins at 0
-          startTime -= rangeStart
-          return {
-            url: c.asset?.url || c.importedUrl || '',
-            type: c.type as string,
-            startTime,
-            duration,
-            trimStart,
-            speed: c.speed || 1,
-            reversed: c.reversed || false,
-            flipH: c.flipH || false,
-            flipV: c.flipV || false,
-            opacity: c.opacity ?? 100,
-            trackIndex: c.trackIndex,
-            muted: c.muted || false,
-            volume: c.volume ?? 1,
-            volumeAutomation: c.volumeAutomation,
-          }
-        })
 
       // Compute subtitle data for burn-in (shifted to export range)
       const subtitleData = (burnSubtitles && timeline.subtitles) ? timeline.subtitles

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useCallback } from 'react'
 import type { TimelineClip, Track, Asset } from '../../types/project'
 import { fetchAudioBuffer } from '../../lib/audio-decode'
 import { interpolateVolume } from '../../lib/volume-automation'
+import type { PreviewStatus } from './useRenderedPreview'
 
 export interface UsePlaybackEngineParams {
   isPlaying: boolean
@@ -44,6 +45,9 @@ export interface UsePlaybackEngineParams {
   totalDuration: number
   zoom: number
   setPlaybackActiveClipId: React.Dispatch<React.SetStateAction<string | null>>
+  // Rendered preview mode
+  previewStatus?: PreviewStatus
+  renderedVideoUrl?: string | null
 }
 
 // ── Web Audio: pre-decoded buffer cache keyed by URL ──
@@ -87,6 +91,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     playheadOverlayRef, playheadRulerRef, lastStateUpdateRef,
     preSeekDoneRef, rafActiveClipIdRef, setPlaybackActiveClipId,
     inPoint, outPoint, totalDuration, zoom,
+    previewStatus,
   } = params
 
   // ── Web Audio refs (same pattern as source monitor) ──
@@ -220,6 +225,9 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
   // ─── Unified playback engine (rAF) ───────────────────────────────────
   useEffect(() => {
     if (!isPlaying) return
+    // When rendered preview is ready, skip the entire live engine — the
+    // rendered preview effect below handles playback of a single mp4.
+    if (previewStatus === 'ready') return
 
     const effectiveSpeed = shuttleSpeed !== 0 ? shuttleSpeed : 1
     let lastTimestamp: number | null = null
@@ -696,7 +704,134 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       // Kill the AudioContext entirely to guarantee silence
       killAudioCtx()
     }
-  }, [isPlaying, totalDuration, shuttleSpeed, playingInOut, inPoint, outPoint, zoom])
+  }, [isPlaying, totalDuration, shuttleSpeed, playingInOut, inPoint, outPoint, zoom, previewStatus])
+
+  // ─── Rendered preview: PLAYBACK (replaces live engine when ready) ───
+  // Deps intentionally exclude currentTime — the rAF loop owns time during play.
+  // This effect only fires on play/pause or preview readiness changes.
+  useEffect(() => {
+    if (previewStatus !== 'ready' || !isPlaying) return
+    const renderedVideo = document.getElementById('rendered-preview-video') as HTMLVideoElement | null
+    if (!renderedVideo) return
+
+    // Hide video pool, pause all pool videos
+    const poolEl = document.getElementById('video-pool-container')
+    if (poolEl) poolEl.style.visibility = 'hidden'
+    for (const [, v] of videoPoolRef.current) {
+      if (!v.paused) v.pause()
+    }
+
+    const effectiveSpeed = shuttleSpeed !== 0 ? shuttleSpeed : 1
+    renderedVideo.muted = false
+    renderedVideo.playbackRate = Math.abs(effectiveSpeed)
+    renderedVideo.currentTime = playbackTimeRef.current
+    renderedVideo.play().catch(() => {})
+
+    const STATE_UPDATE_INTERVAL = 250
+    let lastStateUpdate = 0
+
+    let rafId: number
+    const tick = (timestamp: number) => {
+      if (!renderedVideo || renderedVideo.paused) {
+        rafId = requestAnimationFrame(tick)
+        return
+      }
+
+      let t = renderedVideo.currentTime
+
+      // In/Out looping
+      if (playingInOut && inPoint !== null && outPoint !== null) {
+        const loopStart = Math.min(inPoint, outPoint)
+        const loopEnd = Math.max(inPoint, outPoint)
+        if (t >= loopEnd) {
+          renderedVideo.currentTime = loopStart
+          t = loopStart
+        } else if (t <= loopStart && effectiveSpeed < 0) {
+          renderedVideo.currentTime = loopEnd
+          t = loopEnd
+        }
+      }
+
+      // End-of-video stop
+      if (t >= totalDuration || renderedVideo.ended) {
+        renderedVideo.pause()
+        renderedVideo.currentTime = 0
+        playbackTimeRef.current = 0
+        setIsPlaying(false)
+        setShuttleSpeed(0)
+        setCurrentTime(0)
+        return
+      }
+
+      playbackTimeRef.current = t
+
+      // Playhead DOM updates
+      const pps = zoom * 100
+      const px = `${t * pps}px`
+      if (playheadRulerRef.current) playheadRulerRef.current.style.left = px
+      if (playheadOverlayRef.current) {
+        const scrollX = trackContainerRef.current?.scrollLeft || 0
+        playheadOverlayRef.current.style.left = `${t * pps - scrollX}px`
+      }
+
+      // Auto-scroll timeline
+      const container = trackContainerRef.current
+      if (container) {
+        const playheadX = t * pps
+        const { scrollLeft, clientWidth } = container
+        const margin = 80
+        if (playheadX > scrollLeft + clientWidth - margin) {
+          container.scrollLeft = playheadX - clientWidth + margin
+        } else if (playheadX < scrollLeft + margin) {
+          container.scrollLeft = Math.max(0, playheadX - margin)
+        }
+        if (rulerScrollRef.current) rulerScrollRef.current.scrollLeft = container.scrollLeft
+      }
+
+      // Throttled React state sync
+      if (timestamp - lastStateUpdate >= STATE_UPDATE_INTERVAL) {
+        lastStateUpdate = timestamp
+        setCurrentTime(t)
+      }
+
+      rafId = requestAnimationFrame(tick)
+    }
+
+    playbackTimeRef.current = playbackTimeRef.current
+    rafId = requestAnimationFrame(tick)
+
+    return () => {
+      cancelAnimationFrame(rafId)
+      renderedVideo.pause()
+      setCurrentTime(playbackTimeRef.current)
+      if (poolEl) poolEl.style.visibility = ''
+    }
+  }, [isPlaying, previewStatus, shuttleSpeed, zoom, playingInOut, inPoint, outPoint, totalDuration])
+
+  // ─── Rendered preview: SCRUB (seek rendered video to playhead) ───
+  useEffect(() => {
+    if (previewStatus !== 'ready' || isPlaying) return
+    const renderedVideo = document.getElementById('rendered-preview-video') as HTMLVideoElement | null
+    if (!renderedVideo) return
+
+    // Hide video pool
+    const poolEl = document.getElementById('video-pool-container')
+    if (poolEl) poolEl.style.visibility = 'hidden'
+    for (const [, v] of videoPoolRef.current) {
+      if (!v.paused) v.pause()
+    }
+
+    renderedVideo.pause()
+    renderedVideo.muted = false
+    if (!isNaN(currentTime) && Math.abs(renderedVideo.currentTime - currentTime) > 0.04) {
+      renderedVideo.currentTime = currentTime
+    }
+
+    // Restore pool visibility when leaving ready state
+    return () => {
+      if (poolEl) poolEl.style.visibility = ''
+    }
+  }, [previewStatus, isPlaying, currentTime])
 
   // Clear In/Out loop mode when playback stops
   useEffect(() => {
@@ -803,6 +938,8 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
   // Sync preview video with timeline (scrubbing only — rAF handles playback)
   useEffect(() => {
     if (isPlaying) return
+    // Skip live video pool sync when rendered preview handles scrubbing
+    if (previewStatus === 'ready') return
 
     if (crossDissolveState) {
       const { incoming } = crossDissolveState
@@ -949,7 +1086,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         delete (video as any).__syncOnLoad
       }
     }
-  }, [currentTime, isPlaying, activeClip, crossDissolveState, tracks, resolveClipSrc])
+  }, [currentTime, isPlaying, activeClip, crossDissolveState, tracks, resolveClipSrc, previewStatus])
 
   // ── Scrub audio: play 1 frame of audio whenever currentTime changes while stopped ──
   useEffect(() => {
@@ -992,7 +1129,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     if (!played) {
       stopScrubSource()
     }
-  }, [currentTime, isPlaying, clips, tracks, resolveClipSrc, playScrubFrame, stopScrubSource])
+  }, [currentTime, isPlaying, clips, tracks, resolveClipSrc, playScrubFrame, stopScrubSource, previewStatus])
 
   // Clean up Web Audio on unmount
   useEffect(() => {
