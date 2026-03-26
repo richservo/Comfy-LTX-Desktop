@@ -55,6 +55,8 @@ export function useRenderedPreview(params: UseRenderedPreviewParams): UseRendere
         opacity: c.opacity,
         resolvedUrl: resolveClipSrc(c),
         hiddenByStack: c.hiddenByStack,
+        transitionIn: c.transitionIn?.type !== 'none' ? c.transitionIn : undefined,
+        transitionOut: c.transitionOut?.type !== 'none' ? c.transitionOut : undefined,
       })),
       tracks: tracks.map(t => ({ enabled: t.enabled, muted: t.muted, solo: t.solo })),
       subtitles: subtitles?.map(s => ({ id: s.id, text: s.text, startTime: s.startTime, endTime: s.endTime })),

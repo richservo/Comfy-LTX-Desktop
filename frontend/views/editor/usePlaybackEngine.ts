@@ -92,6 +92,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     preSeekDoneRef, rafActiveClipIdRef, setPlaybackActiveClipId,
     inPoint, outPoint, totalDuration, zoom,
     previewStatus,
+    renderedVideoUrl,
   } = params
 
   // ── Web Audio refs (same pattern as source monitor) ──
@@ -706,6 +707,13 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     }
   }, [isPlaying, totalDuration, shuttleSpeed, playingInOut, inPoint, outPoint, zoom, previewStatus])
 
+  // Pre-decode rendered preview audio so reverse playback has it ready
+  useEffect(() => {
+    if (previewStatus === 'ready' && renderedVideoUrl) {
+      decodeAudioForUrl(renderedVideoUrl)
+    }
+  }, [previewStatus, renderedVideoUrl, decodeAudioForUrl])
+
   // ─── Rendered preview: PLAYBACK (replaces live engine when ready) ───
   // Deps intentionally exclude currentTime — the rAF loop owns time during play.
   // This effect only fires on play/pause or preview readiness changes.
@@ -714,6 +722,9 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     const renderedVideo = document.getElementById('rendered-preview-video') as HTMLVideoElement | null
     if (!renderedVideo) return
 
+    const effectiveSpeed = shuttleSpeed !== 0 ? shuttleSpeed : 1
+    const isReverse = effectiveSpeed < 0
+
     // Hide video pool, pause all pool videos
     const poolEl = document.getElementById('video-pool-container')
     if (poolEl) poolEl.style.visibility = 'hidden'
@@ -721,16 +732,37 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       if (!v.paused) v.pause()
     }
 
-    const effectiveSpeed = shuttleSpeed !== 0 ? shuttleSpeed : 1
-    renderedVideo.muted = false
-    renderedVideo.playbackRate = Math.abs(effectiveSpeed)
     renderedVideo.currentTime = playbackTimeRef.current
-    renderedVideo.play().catch(() => {})
+
+    // Start reverse audio via Web Audio API (video element can't play backwards)
+    let reverseAudioSource: AudioBufferSourceNode | null = null
+    if (isReverse) {
+      renderedVideo.muted = true
+      renderedVideo.pause()
+      // Play reversed audio from decoded preview buffer
+      if (renderedVideoUrl) {
+        const cached = decodedCacheRef.current.get(renderedVideoUrl)
+        if (cached) {
+          const ctx = getAudioCtx()
+          const src = ctx.createBufferSource()
+          src.buffer = cached.rev
+          src.playbackRate.value = Math.abs(effectiveSpeed)
+          src.connect(ctx.destination)
+          const offset = Math.max(0, cached.rev.duration - playbackTimeRef.current)
+          src.start(0, offset)
+          reverseAudioSource = src
+        }
+      }
+    } else {
+      renderedVideo.muted = false
+      renderedVideo.playbackRate = effectiveSpeed
+      renderedVideo.play().catch(() => {})
+    }
 
     const STATE_UPDATE_INTERVAL = 250
     let lastStateUpdate = 0
     let lastTimestamp = 0
-    let pastPreviewEnd = false // true once rendered video has ended but timeline continues
+    let reverseSeekReady = true
 
     let rafId: number
     const tick = (timestamp: number) => {
@@ -739,41 +771,58 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         return
       }
 
-      let t: number
-      if (pastPreviewEnd) {
-        // Advance time using wall clock since the preview video has ended
-        const dt = lastTimestamp > 0 ? (timestamp - lastTimestamp) / 1000 * Math.abs(effectiveSpeed) : 0
-        t = playbackTimeRef.current + dt
-      } else if (renderedVideo.paused && !renderedVideo.ended) {
-        // Video paused by user or system — keep ticking but don't advance
+      // For forward playback, wait if paused
+      if (!isReverse && renderedVideo.paused) {
         rafId = requestAnimationFrame(tick)
-        lastTimestamp = timestamp
         return
-      } else if (renderedVideo.ended) {
-        // Preview video ended but timeline continues (audio extends past)
-        pastPreviewEnd = true
-        t = playbackTimeRef.current
+      }
+
+      let t: number
+      if (isReverse) {
+        const dt = lastTimestamp > 0 ? (timestamp - lastTimestamp) / 1000 * Math.abs(effectiveSpeed) : 0
+        lastTimestamp = timestamp
+        t = playbackTimeRef.current - dt
+
+        if (t <= 0) {
+          renderedVideo.pause()
+          renderedVideo.currentTime = 0
+          playbackTimeRef.current = 0
+          setIsPlaying(false)
+          setShuttleSpeed(0)
+          setCurrentTime(0)
+          return
+        }
+
+        // Seek video to the new time (gated so we don't queue seeks)
+        if (reverseSeekReady) {
+          reverseSeekReady = false
+          if (typeof (renderedVideo as any).fastSeek === 'function') {
+            (renderedVideo as any).fastSeek(t)
+          } else {
+            renderedVideo.currentTime = t
+          }
+          renderedVideo.addEventListener('seeked', () => { reverseSeekReady = true }, { once: true })
+        }
       } else {
+        lastTimestamp = timestamp
         t = renderedVideo.currentTime
       }
-      lastTimestamp = timestamp
 
       // In/Out looping
       if (playingInOut && inPoint !== null && outPoint !== null) {
         const loopStart = Math.min(inPoint, outPoint)
         const loopEnd = Math.max(inPoint, outPoint)
         if (t >= loopEnd) {
-          if (!pastPreviewEnd) renderedVideo.currentTime = loopStart
+          renderedVideo.currentTime = loopStart
           t = loopStart
-          pastPreviewEnd = false
-        } else if (t <= loopStart && effectiveSpeed < 0) {
-          if (!pastPreviewEnd) renderedVideo.currentTime = loopEnd
+        } else if (t <= loopStart && isReverse) {
+          renderedVideo.currentTime = loopEnd
           t = loopEnd
         }
       }
 
-      // End-of-timeline stop
-      if (t >= totalDuration) {
+      // End-of-video stop
+      if (t >= totalDuration || renderedVideo.ended) {
         renderedVideo.pause()
         renderedVideo.currentTime = 0
         playbackTimeRef.current = 0
@@ -823,10 +872,13 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     return () => {
       cancelAnimationFrame(rafId)
       renderedVideo.pause()
+      if (reverseAudioSource) {
+        try { reverseAudioSource.stop() } catch {}
+      }
       setCurrentTime(playbackTimeRef.current)
       if (poolEl) poolEl.style.visibility = ''
     }
-  }, [isPlaying, previewStatus, shuttleSpeed, zoom, playingInOut, inPoint, outPoint, totalDuration])
+  }, [isPlaying, previewStatus, shuttleSpeed, zoom, playingInOut, inPoint, outPoint, totalDuration, renderedVideoUrl])
 
   // ─── Rendered preview: SCRUB (seek rendered video to playhead) ───
   useEffect(() => {
@@ -843,10 +895,8 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
 
     renderedVideo.pause()
     renderedVideo.muted = false
-    // Clamp seek to the preview video's duration (audio may extend past it)
-    const clampedTime = Math.min(currentTime, renderedVideo.duration || Infinity)
-    if (!isNaN(clampedTime) && Math.abs(renderedVideo.currentTime - clampedTime) > 0.04) {
-      renderedVideo.currentTime = clampedTime
+    if (!isNaN(currentTime) && Math.abs(renderedVideo.currentTime - currentTime) > 0.04) {
+      renderedVideo.currentTime = currentTime
     }
 
     // Restore pool visibility when leaving ready state

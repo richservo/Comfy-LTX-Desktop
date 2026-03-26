@@ -58,6 +58,12 @@ interface AudioSource {
   filePath: string; trimStart: number; trimEnd: number;
   timelineStart: number; speed: number; reversed: boolean; volume: number;
   volumeAutomation?: VolumeKeyframe[];
+  /** Dissolve fade-in at start of clip (seconds) */
+  fadeInDuration: number;
+  /** Dissolve fade-out at end of clip (seconds) */
+  fadeOutDuration: number;
+  /** Total clip duration on timeline (seconds) */
+  clipDuration: number;
 }
 
 /** Linearly interpolate volume at a given media-time position from keyframes */
@@ -102,6 +108,9 @@ export async function mixAudioToPcm(
         reversed: c.reversed,
         volume: c.volume,
         volumeAutomation: c.volumeAutomation,
+        fadeInDuration: (c.transitionIn?.type === 'dissolve' && c.transitionIn.duration > 0) ? c.transitionIn.duration : 0,
+        fadeOutDuration: (c.transitionOut?.type === 'dissolve' && c.transitionOut.duration > 0) ? c.transitionOut.duration : 0,
+        clipDuration: c.duration,
       })
     }
   }
@@ -124,6 +133,9 @@ export async function mixAudioToPcm(
       const numPcmSamples = Math.floor(pcm.length / BYTES_PER_SAMPLE)
 
       const hasAutomation = src.volumeAutomation && src.volumeAutomation.length > 0
+      const fadeInFrames = Math.round(src.fadeInDuration * SAMPLE_RATE)
+      const fadeOutStartFrame = Math.round((src.clipDuration - src.fadeOutDuration) * SAMPLE_RATE)
+      const fadeOutFrames = Math.round(src.fadeOutDuration * SAMPLE_RATE)
       for (let s = 0; s < numPcmSamples; s++) {
         const destIdx = startSample + s
         if (destIdx < 0 || destIdx >= totalSamples) continue
@@ -135,6 +147,14 @@ export async function mixAudioToPcm(
           const frameIdx = Math.floor(s / NUM_CHANNELS)
           const mediaTime = src.trimStart + (frameIdx / SAMPLE_RATE) * src.speed
           vol = interpolateVolume(src.volumeAutomation, mediaTime, src.volume)
+        }
+        // Apply dissolve crossfade ramps
+        const frameIdx = Math.floor(s / NUM_CHANNELS)
+        if (fadeInFrames > 0 && frameIdx < fadeInFrames) {
+          vol *= frameIdx / fadeInFrames
+        }
+        if (fadeOutFrames > 0 && frameIdx >= fadeOutStartFrame) {
+          vol *= 1 - (frameIdx - fadeOutStartFrame) / fadeOutFrames
         }
         mixBuffer[destIdx] += value * vol
       }

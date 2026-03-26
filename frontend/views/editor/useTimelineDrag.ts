@@ -64,6 +64,7 @@ interface UseTimelineDragParams {
   currentTime: number
   setCurrentTime: (time: number) => void
   setIsPlaying: (playing: boolean) => void
+  isPlayingRef: React.MutableRefObject<boolean>
   snapEnabled: boolean
   pushUndo: (c?: any) => void
   resolveClipSrc: (clip: TimelineClip | null) => string
@@ -95,7 +96,7 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
     pixelsPerSecond, totalDuration,
     clips, setClips, tracks,
     selectedClipIds, setSelectedClipIds,
-    currentTime, setCurrentTime, setIsPlaying,
+    currentTime, setCurrentTime, setIsPlaying, isPlayingRef,
     snapEnabled, pushUndo, getMaxClipDuration, addClipToTimeline,
     assets, timelines, activeTimeline,
     timelineRef, trackContainerRef,
@@ -132,18 +133,27 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
     if (e.button !== 0) return // only left button
     e.preventDefault() // prevent text selection
     isScrubbing.current = true
-    setIsPlaying(false) // pause playback while scrubbing
+    const wasPlaying = isPlayingRef.current
     scrubFromEvent(e.clientX)
-    
+
+    let hasDragged = false
     const onMove = (ev: MouseEvent) => {
       if (!isScrubbing.current) return
       ev.preventDefault()
+      if (!hasDragged) {
+        hasDragged = true
+        setIsPlaying(false) // only pause when actually dragging/scrubbing
+      }
       scrubFromEvent(ev.clientX)
     }
     const onUp = () => {
       isScrubbing.current = false
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
+      // If was playing and user just clicked (didn't drag), resume playback
+      if (wasPlaying && !hasDragged) {
+        setIsPlaying(true)
+      }
     }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)

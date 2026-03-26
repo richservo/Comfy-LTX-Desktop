@@ -1098,7 +1098,7 @@ export function VideoEditor() {
     pixelsPerSecond, totalDuration,
     clips, setClips, tracks,
     selectedClipIds, setSelectedClipIds,
-    currentTime, setCurrentTime, setIsPlaying,
+    currentTime, setCurrentTime, setIsPlaying, isPlayingRef,
     snapEnabled, pushUndo, resolveClipSrc, getMaxClipDuration, addClipToTimeline,
     assets, timelines, activeTimeline, currentProjectId,
     timelineRef, trackContainerRef,
@@ -4174,25 +4174,32 @@ export function VideoEditor() {
                     return (
                       <div
                         key={`cut-${cp.leftClip.id}-${cp.rightClip.id}`}
-                        className="absolute z-20"
+                        className="absolute"
                         style={{
                           left: `${cp.hasDissolve ? leftPx - dissolveWidthPx : leftPx - 10}px`,
                           top: `${topPx - 24}px`,
                           width: `${cp.hasDissolve ? dissolveWidthPx * 2 : 20}px`,
                           height: `${48 + 24}px`, /* extend upward to include popup zone */
+                          pointerEvents: 'none', /* visuals only — interactive parts opt in below */
+                          zIndex: 20,
                         }}
-                        onMouseEnter={() => setHoveredCutPoint({
-                          leftClipId: cp.leftClip.id,
-                          rightClipId: cp.rightClip.id,
-                          time: cp.time,
-                          trackIndex: cp.trackIndex,
-                        })}
-                        onMouseLeave={() => setHoveredCutPoint(null)}
                       >
+                        {/* Hover zone — full height for detecting mouse enter/leave */}
+                        <div
+                          className="absolute top-0 bottom-0"
+                          style={{ left: `${cp.hasDissolve ? dissolveWidthPx - 10 : 0}px`, width: '20px', pointerEvents: 'auto' }}
+                          onMouseEnter={() => setHoveredCutPoint({
+                            leftClipId: cp.leftClip.id,
+                            rightClipId: cp.rightClip.id,
+                            time: cp.time,
+                            trackIndex: cp.trackIndex,
+                          })}
+                          onMouseLeave={() => setHoveredCutPoint(null)}
+                        />
                         {/* Visible indicator line — click to select, drag to roll edit */}
                         <div
                           className="absolute top-6 bottom-0 cursor-ew-resize z-25 flex items-stretch justify-center"
-                          style={{ left: `${cp.hasDissolve ? dissolveWidthPx : 10}px`, transform: 'translateX(-50%)', width: '12px' }}
+                          style={{ left: `${cp.hasDissolve ? dissolveWidthPx : 10}px`, transform: 'translateX(-50%)', width: '12px', pointerEvents: 'auto' }}
                           onMouseDown={(e) => {
                             if (cp.hasDissolve) return // Don't roll edit over dissolves
                             e.stopPropagation()
@@ -4312,7 +4319,7 @@ export function VideoEditor() {
                             {/* Left drag handle */}
                             <div
                               className="absolute top-6 bottom-0 w-2 cursor-ew-resize hover:bg-blue-500/40 transition-colors z-30"
-                              style={{ left: 0 }}
+                              style={{ left: 0, pointerEvents: 'auto' }}
                               onMouseDown={(e) => {
                                 e.stopPropagation()
                                 e.preventDefault()
@@ -4347,7 +4354,7 @@ export function VideoEditor() {
                             {/* Right drag handle */}
                             <div
                               className="absolute top-6 bottom-0 w-2 cursor-ew-resize hover:bg-blue-500/40 transition-colors z-30"
-                              style={{ right: 0 }}
+                              style={{ right: 0, pointerEvents: 'auto' }}
                               onMouseDown={(e) => {
                                 e.stopPropagation()
                                 e.preventDefault()
@@ -4379,20 +4386,19 @@ export function VideoEditor() {
                               <div className="absolute inset-y-0 right-0 w-0.5 bg-blue-400 rounded-full" />
                             </div>
                             
-                            {/* Remove button (shown on hover, positioned inside the zone) */}
-                            {isHovered && (
-                              <div
-                                className="absolute left-1/2 -translate-x-1/2 top-0 whitespace-nowrap z-40"
-                                onClick={(e) => e.stopPropagation()}
+                            {/* Remove button — always visible for dissolves */}
+                            <div
+                              className="absolute left-1/2 -translate-x-1/2 top-0 whitespace-nowrap z-40"
+                              style={{ pointerEvents: 'auto' }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                className="px-1.5 py-0.5 rounded bg-red-900/80 border border-red-700 text-[8px] text-red-300 hover:bg-red-800 transition-colors shadow-lg opacity-60 hover:opacity-100"
+                                onClick={() => removeCrossDissolve(cp.leftClip.id, cp.rightClip.id)}
                               >
-                                <button
-                                  className="px-2 py-0.5 rounded bg-red-900/80 border border-red-700 text-[9px] text-red-300 hover:bg-red-800 transition-colors shadow-lg"
-                                  onClick={() => removeCrossDissolve(cp.leftClip.id, cp.rightClip.id)}
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            )}
+                                ✕
+                              </button>
+                            </div>
                           </>
                         ) : (
                           <>
@@ -4400,6 +4406,7 @@ export function VideoEditor() {
                             {isHovered && (
                               <div
                                 className="absolute left-1/2 -translate-x-1/2 top-0 whitespace-nowrap z-40"
+                                style={{ pointerEvents: 'auto' }}
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 <button

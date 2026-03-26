@@ -434,6 +434,8 @@ export interface InferenceStack {
   renderedClipId?: string              // video clip on timeline
   errorMessage?: string
   createdAt: number
+  // Snapshot of source clips at creation time — used by revertStack to restore exact original state
+  originalClips?: TimelineClip[]
   // Resolved source file paths — stored at render time so re-renders always have the original inputs
   sourcePaths?: {
     firstImage?: string

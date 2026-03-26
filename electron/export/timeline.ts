@@ -5,12 +5,16 @@ export interface ExportClip {
   speed: number; reversed: boolean; flipH: boolean; flipV: boolean; opacity: number; trackIndex: number;
   muted: boolean; volume: number;
   volumeAutomation?: { time: number; value: number }[];
+  transitionIn?: { type: string; duration: number };
+  transitionOut?: { type: string; duration: number };
 }
 
 export interface FlatSegment {
   filePath: string; type: string; startTime: number; duration: number; trimStart: number;
   speed: number; reversed: boolean; flipH: boolean; flipV: boolean; opacity: number;
   muted: boolean; volume: number;
+  /** If this segment should xfade into the next, the dissolve duration in seconds */
+  xfadeNext?: number;
 }
 
 /**
@@ -84,6 +88,27 @@ export function flattenTimeline(clips: ExportClip[]): FlatSegment[] {
     } else {
       merged.push({ ...seg })
     }
+  }
+
+  // Annotate dissolve transitions between adjacent merged segments
+  for (let i = 0; i < merged.length - 1; i++) {
+    const seg = merged[i]
+    const nextSeg = merged[i + 1]
+    if (seg.type === 'gap' || nextSeg.type === 'gap') continue
+    const segEnd = seg.startTime + seg.duration
+    // Find clip that ends at segEnd with transitionOut dissolve
+    const outClip = videoClips.find(c =>
+      Math.abs((c.startTime + c.duration) - segEnd) < 0.05 &&
+      c.transitionOut?.type === 'dissolve' && c.transitionOut.duration > 0
+    )
+    if (!outClip) continue
+    // Find clip that starts at segEnd with transitionIn dissolve
+    const inClip = videoClips.find(c =>
+      Math.abs(c.startTime - segEnd) < 0.05 &&
+      c.transitionIn?.type === 'dissolve' && c.transitionIn.duration > 0
+    )
+    if (!inClip) continue
+    seg.xfadeNext = Math.min(outClip.transitionOut!.duration, seg.duration, nextSeg.duration)
   }
 
   return merged

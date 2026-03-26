@@ -94,6 +94,10 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     if (!isValidStackSelection(selectedClips)) return null
 
     const stackId = `stack-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+
+    // Snapshot the source clips so revert can restore them exactly
+    const originalClips = selectedClips.map(c => ({ ...c }))
+
     const newStack: InferenceStack = {
       id: stackId,
       clipIds,
@@ -114,6 +118,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
       strengths: { first: 0.7, middle: 0.7, last: 0.7 },
       renderState: 'pending',
       createdAt: Date.now(),
+      originalClips,
     }
 
     // Tag clips with the stack ID and link them together
@@ -892,24 +897,29 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
       return
     }
 
-    // The original clips that existed when the stack was created
     const originalClipIds = new Set(stack.clipIds)
 
     setClips(prev => {
-      // 1. Find everything to REMOVE: rendered clip + any clips created by the render
-      //    (i.e. clips with this inferenceStackId that are NOT original source clips)
-      const removeIds = new Set<string>()
-      for (const c of prev) {
-        if (c.inferenceStackId === stackId && !originalClipIds.has(c.id)) {
-          removeIds.add(c.id)
-        }
+      // Remove ALL clips belonging to this stack (rendered + originals)
+      const withoutStack = prev.filter(c => c.inferenceStackId !== stackId)
+
+      // Restore original clips from the snapshot if available, otherwise un-hide existing ones
+      if (stack.originalClips && stack.originalClips.length > 0) {
+        // Use the exact snapshot — restore clips to their creation-time state
+        const restored = stack.originalClips.map(c => ({
+          ...c,
+          hiddenByStack: undefined,
+          inferenceStackId: stackId,
+        }))
+        logger.info(`[revertStack] stack=${stackId} restored ${restored.length} clips from snapshot`)
+        return [...withoutStack, ...restored]
       }
 
-      logger.info(`[revertStack] stack=${stackId} removing=[${[...removeIds].join(',')}] restoring=[${[...originalClipIds].join(',')}]`)
-
-      // 2. Remove render artifacts, restore ALL original clips to visible
+      // Fallback for stacks created before snapshot was added:
+      // just put back any original clips that are still in the timeline
+      logger.info(`[revertStack] stack=${stackId} no snapshot, falling back to un-hide`)
       return prev
-        .filter(c => !removeIds.has(c.id))
+        .filter(c => !c.inferenceStackId || c.inferenceStackId !== stackId || originalClipIds.has(c.id))
         .map(c => {
           if (originalClipIds.has(c.id)) {
             return { ...c, hiddenByStack: undefined }

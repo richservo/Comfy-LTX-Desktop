@@ -807,6 +807,8 @@ export function buildExportClips(
   speed: number; reversed: boolean; flipH: boolean; flipV: boolean; opacity: number;
   trackIndex: number; muted: boolean; volume: number;
   volumeAutomation?: { time: number; value: number }[];
+  transitionIn?: { type: string; duration: number };
+  transitionOut?: { type: string; duration: number };
 }[] {
   const rangeStart = (inPoint != null && outPoint != null) ? Math.min(inPoint, outPoint) : 0
   const rangeEnd = (inPoint != null && outPoint != null) ? Math.max(inPoint, outPoint) : Infinity
@@ -848,6 +850,8 @@ export function buildExportClips(
         muted: c.muted || false,
         volume: c.volume ?? 1,
         volumeAutomation: c.volumeAutomation,
+        transitionIn: c.transitionIn?.type !== 'none' && c.transitionIn?.duration > 0 ? { type: c.transitionIn.type, duration: c.transitionIn.duration } : undefined,
+        transitionOut: c.transitionOut?.type !== 'none' && c.transitionOut?.duration > 0 ? { type: c.transitionOut.type, duration: c.transitionOut.duration } : undefined,
       }
     })
 }

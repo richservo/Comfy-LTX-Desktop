@@ -970,7 +970,7 @@ export function LeftPanel(props: LeftPanelProps) {
                     <div className="w-8 h-6 flex-shrink-0 rounded overflow-hidden bg-zinc-800">
                       {asset.type === 'video' ? (
                         thumbnailMap[asset.url] ? (
-                          <img src={thumbnailMap[asset.url]} alt="" className="w-full h-full object-cover" />
+                          <img src={thumbnailMap[asset.url]} alt="" className="w-full h-full object-cover" draggable={false} />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center"><Film className="h-2.5 w-2.5 text-zinc-500" /></div>
                         )

@@ -43,6 +43,7 @@ export function AssetThumbnail({
       alt={alt}
       className={className}
       loading="lazy"
+      draggable={false}
     />
   )
 }

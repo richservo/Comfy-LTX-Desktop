@@ -111,7 +111,7 @@ export function registerPreviewHandlers(): void {
           '-y', ...inputs, '-filter_complex_script', filterFile,
           '-map', '[outv]', '-an',
           '-c:v', 'libx264', '-preset', 'fast', '-crf', '16',
-          '-g', String(fps), // keyframe every 1s for scrub accuracy
+          '-g', '4', // keyframe every 4 frames for fast scrub/reverse seeking
           '-pix_fmt', 'yuv420p', tmpVideo,
         ])
         try { fs.unlinkSync(filterFile) } catch {}
@@ -151,7 +151,7 @@ export function registerPreviewHandlers(): void {
           '-map', '0:v', '-map', '1:a',
           '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k',
           '-movflags', '+faststart',
-          '-shortest', outputFile,
+          outputFile,
         ])
         cleanupTemp()
         if (!r.success) return { error: r.error }

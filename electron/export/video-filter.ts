@@ -22,6 +22,9 @@ export function buildVideoFilterGraph(
   const filterParts: string[] = []
   let idx = 0
 
+  // Check if any dissolves are present (needed to decide per-segment fps)
+  const hasDissolves = segments.some(s => s.xfadeNext && s.xfadeNext > 0)
+
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i]
 
@@ -40,8 +43,7 @@ export function buildVideoFilterGraph(
       filterParts.push(chain)
       idx++
     } else {
-      // Video: trim -> speed -> scale, NO per-segment fps conversion
-      // (fps is applied ONCE after concat to avoid per-segment duration quantization)
+      // Video: trim -> speed -> scale
       const trimEnd = seg.trimStart + seg.duration * seg.speed
       inputs.push('-i', seg.filePath)
       let chain = `[${idx}:v]trim=start=${seg.trimStart.toFixed(6)}:end=${trimEnd.toFixed(6)},setpts=PTS-STARTPTS`
@@ -50,19 +52,46 @@ export function buildVideoFilterGraph(
       chain += `,scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1`
       if (seg.flipH) chain += ',hflip'
       if (seg.flipV) chain += ',vflip'
+      // When dissolves are present, normalize fps per-segment so xfade gets consistent inputs
+      if (hasDissolves) chain += `,fps=${fps}`
       chain += `[v${i}]`
       filterParts.push(chain)
       idx++
     }
   }
 
-  const concatInputs = segments.map((_, i) => `[v${i}]`).join('')
+  let lastLabel = 'fpsout'
+  if (hasDissolves) {
+    // Chain segments with xfade where dissolves exist, concat where they don't.
+    // Build incrementally: start with first segment, then merge each subsequent one.
+    let currentLabel = 'v0'
+    let accumulatedDur = segments[0].duration
 
-  // Concat all segments, then apply fps ONCE to the entire output.
+    for (let i = 1; i < segments.length; i++) {
+      const prevSeg = segments[i - 1]
+      const outLabel = i === segments.length - 1 ? 'concatraw' : `xf${i}`
+
+      if (prevSeg.xfadeNext && prevSeg.xfadeNext > 0) {
+        // xfade: the offset is measured from start of the accumulated stream
+        const offset = accumulatedDur - prevSeg.xfadeNext
+        filterParts.push(`[${currentLabel}][v${i}]xfade=transition=dissolve:duration=${prevSeg.xfadeNext.toFixed(6)}:offset=${offset.toFixed(6)}[${outLabel}]`)
+        // xfade output duration = accumulatedDur + seg[i].duration - xfadeDur
+        accumulatedDur = accumulatedDur + segments[i].duration - prevSeg.xfadeNext
+      } else {
+        // No dissolve — concat these two
+        filterParts.push(`[${currentLabel}][v${i}]concat=n=2:v=1:a=0[${outLabel}]`)
+        accumulatedDur += segments[i].duration
+      }
+      currentLabel = outLabel
+    }
+  } else {
+    const concatInputs = segments.map((_, i) => `[v${i}]`).join('')
+    filterParts.push(`${concatInputs}concat=n=${segments.length}:v=1:a=0[concatraw]`)
+  }
+
+  // Apply fps ONCE to the entire output.
   // This is how real NLEs work: frame rate conversion happens globally,
   // not per-clip, so per-segment duration quantization doesn't accumulate.
-  let lastLabel = 'fpsout'
-  filterParts.push(`${concatInputs}concat=n=${segments.length}:v=1:a=0[concatraw]`)
   filterParts.push(`[concatraw]fps=${fps}[${lastLabel}]`)
 
   // Letterbox overlay (drawbox)

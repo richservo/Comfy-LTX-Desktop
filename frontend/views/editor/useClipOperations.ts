@@ -424,6 +424,8 @@ export function useClipOperations(params: UseClipOperationsParams) {
         duration: splitPoint,
         trimEnd: clip.trimEnd + (clip.duration - splitPoint),
         volumeAutomation: kfBefore,
+        // Keep original transitionIn on the first half, clear transitionOut at the split point
+        transitionOut: { type: 'none', duration: 0.5 },
       }
 
       const secondHalf: TimelineClip = {
@@ -433,6 +435,8 @@ export function useClipOperations(params: UseClipOperationsParams) {
         duration: clip.duration - splitPoint,
         trimStart: clip.trimStart + splitPoint,
         volumeAutomation: kfAfter,
+        // Keep original transitionOut on the second half, clear transitionIn at the split point
+        transitionIn: { type: 'none', duration: 0.5 },
       }
       
       newClips = newClips.map(c => c.id === splitId ? firstHalf : c).concat(secondHalf)
@@ -464,6 +468,7 @@ export function useClipOperations(params: UseClipOperationsParams) {
           trimEnd: linkedClip.trimEnd + (linkedClip.duration - linkedSplitPoint),
           linkedClipIds: [firstHalfId],
           volumeAutomation: linkedKfBefore,
+          transitionOut: { type: 'none', duration: 0.5 },
         }
 
         const linkedSecondHalf: TimelineClip = {
@@ -474,6 +479,7 @@ export function useClipOperations(params: UseClipOperationsParams) {
           trimStart: linkedClip.trimStart + linkedSplitPoint,
           linkedClipIds: [secondHalfId],
           volumeAutomation: linkedKfAfter,
+          transitionIn: { type: 'none', duration: 0.5 },
         }
         
         newClips = newClips
