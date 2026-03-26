@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import type { Asset, TimelineClip, Timeline } from '../../types/project'
 import { VideoThumbnailCard } from './VideoThumbnailCard'
+import { AssetThumbnail } from '../../components/AssetThumbnail'
 import { getColorLabel, COLOR_LABELS } from './video-editor-utils'
 import { Tooltip } from '../../components/ui/tooltip'
 
@@ -457,7 +458,7 @@ export function LeftPanel(props: LeftPanelProps) {
                           thumbnailUrl={thumbnailMap[take.url]}
                         />
                       ) : (
-                        <img src={take.url} alt="" className="w-full aspect-video object-cover" />
+                        <AssetThumbnail src={take.url} type="image" className="w-full aspect-video object-cover" />
                       )}
                       
                       {/* Active overlay */}
@@ -738,7 +739,7 @@ export function LeftPanel(props: LeftPanelProps) {
                       <p className="text-[9px] text-blue-300/70 font-medium">Adjustment Layer</p>
                     </div>
                   ) : (
-                    <img src={asset.url} alt="" className="w-full aspect-video object-cover" />
+                    <AssetThumbnail src={asset.url} type="image" className="w-full aspect-video object-cover" />
                   )}
                   {selectedAssetIds.has(asset.id) && (
                     <div className="absolute inset-0 bg-blue-600/25 pointer-events-none z-[1]" />
@@ -978,7 +979,7 @@ export function LeftPanel(props: LeftPanelProps) {
                       ) : asset.type === 'adjustment' ? (
                         <div className="w-full h-full flex items-center justify-center bg-blue-900/30"><Layers className="h-2.5 w-2.5 text-blue-400" /></div>
                       ) : (
-                        <img src={asset.url} alt="" className="w-full h-full object-cover" />
+                        <AssetThumbnail src={asset.url} type="image" className="w-full h-full object-cover" />
                       )}
                     </div>
                     {/* Name column */}

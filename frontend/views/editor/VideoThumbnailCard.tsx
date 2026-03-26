@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { Video } from 'lucide-react'
+import { useThumbnail } from '../../hooks/use-thumbnail'
 
-export function VideoThumbnailCard({ url, thumbnailUrl }: { url: string; thumbnailUrl?: string }) {
+export function VideoThumbnailCard({ url, thumbnailUrl: thumbnailUrlProp }: { url: string; thumbnailUrl?: string }) {
+  const [isVisible, setIsVisible] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -10,6 +12,22 @@ export function VideoThumbnailCard({ url, thumbnailUrl }: { url: string; thumbna
   const [scrubProgress, setScrubProgress] = useState(0)
   const [scrubTime, setScrubTime] = useState('')
   const rafRef = useRef<number>(0)
+
+  // Lazy thumbnail: only generate when visible, use prop if available
+  const generatedThumb = useThumbnail(isVisible && !thumbnailUrlProp ? url : undefined, 'video')
+  const thumbnailUrl = thumbnailUrlProp || generatedThumb
+
+  // IntersectionObserver for lazy loading
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setIsVisible(true) },
+      { rootMargin: '100px' },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   const drawFrame = useCallback(() => {
     const video = videoRef.current

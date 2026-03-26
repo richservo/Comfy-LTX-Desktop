@@ -397,7 +397,7 @@ export function ProgramMonitor({
               {/* Rendered preview overlay — single mp4 covers all live playback when ready */}
               <video
                 id="rendered-preview-video"
-                src={renderedVideoUrl || undefined}
+                src={previewStatus === 'ready' && renderedVideoUrl ? renderedVideoUrl : undefined}
                 className={`absolute inset-0 w-full h-full object-cover pointer-events-none z-[20] ${previewStatus !== 'ready' || !renderedVideoUrl ? 'hidden' : ''}`}
                 playsInline
                 preload="auto"

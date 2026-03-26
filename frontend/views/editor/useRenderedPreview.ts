@@ -29,7 +29,7 @@ export interface UseRenderedPreviewReturn {
 const IDLE_TIMEOUT_MS = 3000
 
 export function useRenderedPreview(params: UseRenderedPreviewParams): UseRenderedPreviewReturn {
-  const { clips, tracks, subtitles, inPoint, outPoint, resolveClipSrc } = params
+  const { clips, tracks, subtitles, inPoint, outPoint, width, height, resolveClipSrc } = params
 
   const [status, setStatus] = useState<PreviewStatus>('stale')
   const [renderedVideoUrl, setRenderedVideoUrl] = useState<string | null>(null)
@@ -38,6 +38,7 @@ export function useRenderedPreview(params: UseRenderedPreviewParams): UseRendere
   const serialRef = useRef(0)
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isRenderingRef = useRef(false)
+  const lastFilePathRef = useRef<string | null>(null)
 
   // Keep latest params in refs so triggerRender always reads fresh values
   const paramsRef = useRef(params)
@@ -57,9 +58,9 @@ export function useRenderedPreview(params: UseRenderedPreviewParams): UseRendere
       })),
       tracks: tracks.map(t => ({ enabled: t.enabled, muted: t.muted, solo: t.solo })),
       subtitles: subtitles?.map(s => ({ id: s.id, text: s.text, startTime: s.startTime, endTime: s.endTime })),
-      inPoint, outPoint,
+      inPoint, outPoint, width, height,
     })
-  }, [clips, tracks, subtitles, inPoint, outPoint, resolveClipSrc])
+  }, [clips, tracks, subtitles, inPoint, outPoint, width, height, resolveClipSrc])
 
   // Stable render function that reads from refs (no stale closures)
   const triggerRender = useCallback(async () => {
@@ -118,6 +119,11 @@ export function useRenderedPreview(params: UseRenderedPreviewParams): UseRendere
       }
 
       if (result?.success && result.fileUrl) {
+        // Clean up previous rendered file before setting new one
+        if (lastFilePathRef.current) {
+          window.electronAPI?.previewCleanup(lastFilePathRef.current).catch(() => {})
+        }
+        lastFilePathRef.current = result.filePath ?? null
         setRenderedVideoUrl(result.fileUrl)
         setStatus('ready')
         setRenderProgress(100)
@@ -149,6 +155,12 @@ export function useRenderedPreview(params: UseRenderedPreviewParams): UseRendere
     setStatus('stale')
     setRenderedVideoUrl(null)
     setRenderProgress(0)
+
+    // Clean up previous rendered file on disk
+    if (lastFilePathRef.current) {
+      window.electronAPI?.previewCleanup(lastFilePathRef.current).catch(() => {})
+      lastFilePathRef.current = null
+    }
 
     // Simple debounce: render after 3s of no further edits
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current)

@@ -6,6 +6,8 @@ import {
   ChevronLeft, ChevronRight, Copy, Check,
   Menu, Square, ArrowUpDown, Pencil, RotateCcw
 } from 'lucide-react'
+import { useThumbnail } from '../hooks/use-thumbnail'
+import { THUMB_SIZE_SMALL, THUMB_SIZE_MEDIUM, THUMB_SIZE_LARGE } from '../lib/thumbnails'
 import { useProjects } from '../contexts/ProjectContext'
 import type { GenSpaceRetakeSource } from '../contexts/ProjectContext'
 import { useGeneration } from '../contexts/GenerationContext'
@@ -32,7 +34,8 @@ function AssetCard({
   onCreateVideo,
   onRerender,
   onEdit,
-  onToggleFavorite
+  onToggleFavorite,
+  thumbWidth,
 }: {
   asset: Asset
   onDelete: () => void
@@ -42,24 +45,39 @@ function AssetCard({
   onRerender?: (asset: Asset) => void
   onEdit?: (asset: Asset) => void
   onToggleFavorite?: () => void
+  thumbWidth?: number
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const [isVisible, setIsVisible] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [isMuted, setIsMuted] = useState(true)
   const isFavorite = asset.favorite || false
 
+  // Only generate thumbnail when card is in viewport
+  const thumbnailUrl = useThumbnail(
+    isVisible ? asset.url : undefined,
+    asset.type === 'image' ? 'image' : 'video',
+    thumbWidth,
+  )
+
+  // IntersectionObserver for lazy loading — generate thumbnails only when visible
   useEffect(() => {
-    if (asset.type === 'video' && videoRef.current) {
-      if (isHovered) {
-        videoRef.current.play().catch(() => {})
-      } else {
-        videoRef.current.pause()
-        videoRef.current.currentTime = 0
-        setCurrentTime(0)
-      }
-    }
-  }, [isHovered, asset.type])
+    const el = cardRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setIsVisible(true) },
+      { rootMargin: '200px' }, // start loading slightly before visible
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  // Reset time display when hover ends (video element unmounts automatically)
+  useEffect(() => {
+    if (!isHovered) setCurrentTime(0)
+  }, [isHovered])
 
   const handleTimeUpdate = () => {
     if (videoRef.current) {
@@ -83,6 +101,7 @@ function AssetCard({
 
   return (
     <div
+      ref={cardRef}
       className="relative group cursor-pointer rounded-xl overflow-hidden bg-zinc-900"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -90,17 +109,24 @@ function AssetCard({
       draggable={asset.type === 'image'}
       onDragStart={(e) => asset.type === 'image' && onDragStart(e, asset)}
     >
-      {asset.type === 'video' ? (
+      {/* Static thumbnail — always shown, lightweight JPEG */}
+      <img
+        src={thumbnailUrl}
+        alt=""
+        className="w-full aspect-video object-contain"
+        loading="lazy"
+      />
+      {/* Full video — only loaded on hover for playback */}
+      {asset.type === 'video' && isHovered && (
         <video
           ref={videoRef}
           src={asset.url}
-          className="w-full aspect-video object-contain"
+          className="absolute inset-0 w-full h-full object-contain"
           muted={isMuted}
           loop
           onTimeUpdate={handleTimeUpdate}
+          autoPlay
         />
-      ) : (
-        <img src={asset.url} alt="" className="w-full aspect-video object-contain" />
       )}
 
       {/* Favorite heart - always visible when favorited */}
@@ -625,6 +651,12 @@ const gallerySizeClasses: Record<GallerySize, string> = {
   small: 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7',
   medium: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5',
   large: 'grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3',
+}
+
+const galleryThumbWidth: Record<GallerySize, number> = {
+  small: THUMB_SIZE_SMALL,
+  medium: THUMB_SIZE_MEDIUM,
+  large: THUMB_SIZE_LARGE,
 }
 
 const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
@@ -1673,6 +1705,7 @@ export function GenSpace() {
                     onRerender={handleRerender}
                     onEdit={handleEdit}
                     onToggleFavorite={() => currentProjectId && toggleFavorite(currentProjectId, asset.id)}
+                    thumbWidth={galleryThumbWidth[gallerySize]}
                   />
                 ))}
               </div>

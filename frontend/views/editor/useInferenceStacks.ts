@@ -857,46 +857,38 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
 
   // Revert a rendered stack: remove the rendered clip + linked audio, un-hide source clips, reset render state
   const revertStack = useCallback((stackId: string) => {
-    // Use ref to always get the latest stack data (avoids stale closures)
     const stack = inferenceStacksRef.current.find(s => s.id === stackId)
     if (!stack) {
       logger.warn(`[revertStack] stack ${stackId} not found`)
       return
     }
 
-    const renderedId = stack.renderedClipId
+    // The original clips that existed when the stack was created
+    const originalClipIds = new Set(stack.clipIds)
 
     setClips(prev => {
-      // Identify rendered clip and any audio clips linked to it that were created by this stack
+      // 1. Find everything to REMOVE: rendered clip + any clips created by the render
+      //    (i.e. clips with this inferenceStackId that are NOT original source clips)
       const removeIds = new Set<string>()
-      if (renderedId) removeIds.add(renderedId)
-      const renderedClip = prev.find(c => c.id === renderedId)
-      if (renderedClip?.linkedClipIds) {
-        for (const lid of renderedClip.linkedClipIds) {
-          const linked = prev.find(c => c.id === lid)
-          // Only remove linked clips that were created by this stack (have matching inferenceStackId)
-          // and are NOT original source clips (not in stack.clipIds)
-          if (linked?.inferenceStackId === stackId && !stack.clipIds.includes(lid)) {
-            removeIds.add(lid)
-          }
+      for (const c of prev) {
+        if (c.inferenceStackId === stackId && !originalClipIds.has(c.id)) {
+          removeIds.add(c.id)
         }
       }
 
-      logger.info(`[revertStack] stack=${stackId} removing=${[...removeIds].join(',')} unhiding all tagged clips`)
+      logger.info(`[revertStack] stack=${stackId} removing=[${[...removeIds].join(',')}] restoring=[${[...originalClipIds].join(',')}]`)
 
-      // Remove rendered clips, un-hide ALL source clips belonging to this stack
+      // 2. Remove render artifacts, restore ALL original clips to visible
       return prev
         .filter(c => !removeIds.has(c.id))
         .map(c => {
-          // Un-hide any clip tagged with this stack (by inferenceStackId or original clipIds)
-          if (c.inferenceStackId === stackId || stack.clipIds.includes(c.id)) {
-            return { ...c, hiddenByStack: false }
+          if (originalClipIds.has(c.id)) {
+            return { ...c, hiddenByStack: undefined }
           }
           return c
         })
     })
 
-    // Reset stack state — keep clipIds and sourcePaths so it can be re-rendered
     updateStack(stackId, {
       renderState: 'pending',
       renderedClipId: undefined,

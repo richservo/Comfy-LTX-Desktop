@@ -922,6 +922,28 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     }
   }, [playbackResolution, timelineVideoSources])
 
+  // Release pool video VRAM when rendered preview is active.
+  // Removing src + calling load() tells Chromium to drop decoded frames from GPU memory.
+  // On cleanup (preview goes stale), restore src so pool is ready for live playback.
+  useEffect(() => {
+    if (previewStatus !== 'ready') return
+    const pool = videoPoolRef.current
+    for (const [, video] of pool) {
+      video.pause()
+      video.removeAttribute('src')
+      video.load()
+    }
+    return () => {
+      // Restore pool video sources for live playback
+      for (const [src, video] of pool) {
+        if (!video.src || video.src === '') {
+          video.src = src
+          video.load()
+        }
+      }
+    }
+  }, [previewStatus])
+
   // Cleanup pool on unmount
   useEffect(() => {
     return () => {

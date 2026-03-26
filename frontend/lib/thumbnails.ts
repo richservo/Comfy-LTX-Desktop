@@ -5,43 +5,59 @@
  * and return it as a small JPEG blob URL, suitable for fast grid thumbnails.
  */
 
-const THUMB_WIDTH = 320 // px – sufficient for 2-col grid at ~160px card width
+export const THUMB_SIZE_SMALL = 320
+export const THUMB_SIZE_MEDIUM = 480
+export const THUMB_SIZE_LARGE = 640
+
 const THUMB_QUALITY = 0.7
 
-/** Cache: videoUrl → thumbnailBlobUrl  (avoids regenerating on re-render) */
+/** Cache key includes width so different sizes don't collide */
+function cacheKey(url: string, width: number): string {
+  return `${url}::${width}`
+}
+
+/** Cache: "url::width" → thumbnailBlobUrl */
 const thumbnailCache = new Map<string, string>()
 
+/** In-flight dedup: "url::width" → pending promise */
+const inflightMap = new Map<string, Promise<string>>()
+
 /**
- * Extract a single frame from a video URL at the given time (default 0 s)
+ * Extract a single frame from a video URL at the given time (default 0.1s)
  * and return a lightweight blob: URL pointing to a JPEG snapshot.
  *
- * The result is cached so subsequent calls with the same `videoUrl` are instant.
+ * The result is cached so subsequent calls with the same URL+width are instant.
  */
 export function generateThumbnail(
   videoUrl: string,
-  seekTime = 0.1, // slight offset avoids occasional black first-frame
+  seekTime = 0.1,
+  width = THUMB_SIZE_SMALL,
 ): Promise<string> {
-  const cached = thumbnailCache.get(videoUrl)
+  const key = cacheKey(videoUrl, width)
+  const cached = thumbnailCache.get(key)
   if (cached) return Promise.resolve(cached)
 
-  return new Promise<string>((resolve, reject) => {
+  const inflight = inflightMap.get(key)
+  if (inflight) return inflight
+
+  const promise = new Promise<string>((resolve, reject) => {
     const video = document.createElement('video')
     video.crossOrigin = 'anonymous'
-    video.preload = 'auto'
+    video.preload = 'metadata'
     video.muted = true
     video.playsInline = true
 
     const cleanup = () => {
       video.removeAttribute('src')
-      video.load() // release resources
+      video.load()
     }
 
     const onSeeked = () => {
       try {
         const canvas = document.createElement('canvas')
         const aspect = video.videoWidth / video.videoHeight
-        canvas.width = THUMB_WIDTH
-        canvas.height = Math.round(THUMB_WIDTH / aspect) || THUMB_WIDTH
+        canvas.width = width
+        canvas.height = Math.round(width / aspect) || width
         const ctx = canvas.getContext('2d')
         if (!ctx) { cleanup(); reject(new Error('canvas 2d context unavailable')); return }
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
@@ -50,7 +66,7 @@ export function generateThumbnail(
             cleanup()
             if (!blob) { reject(new Error('toBlob returned null')); return }
             const blobUrl = URL.createObjectURL(blob)
-            thumbnailCache.set(videoUrl, blobUrl)
+            thumbnailCache.set(key, blobUrl)
             resolve(blobUrl)
           },
           'image/jpeg',
@@ -73,7 +89,6 @@ export function generateThumbnail(
     video.addEventListener(
       'loadeddata',
       () => {
-        // Seek to the requested time (clamped to duration)
         video.currentTime = Math.min(seekTime, video.duration || 0)
       },
       { once: true },
@@ -81,18 +96,21 @@ export function generateThumbnail(
 
     video.src = videoUrl
   })
+
+  inflightMap.set(key, promise)
+  promise.finally(() => inflightMap.delete(key))
+  return promise
 }
 
 /**
  * Batch-generate thumbnails for multiple video URLs.
  * Returns a map of videoUrl → blobUrl for all that succeeded.
  * Failures are silently skipped (the caller can fall back to the original URL).
- *
- * Limits concurrency to avoid overwhelming the browser's media decoder.
  */
 export async function generateThumbnailsBatch(
   videoUrls: string[],
   concurrency = 3,
+  width = THUMB_SIZE_SMALL,
 ): Promise<Map<string, string>> {
   const results = new Map<string, string>()
   const queue = [...videoUrls]
@@ -101,7 +119,7 @@ export async function generateThumbnailsBatch(
     while (queue.length > 0) {
       const url = queue.shift()!
       try {
-        const thumb = await generateThumbnail(url)
+        const thumb = await generateThumbnail(url, 0.1, width)
         results.set(url, thumb)
       } catch {
         // skip – caller will fall back to original url
@@ -116,16 +134,14 @@ export async function generateThumbnailsBatch(
 /**
  * Look up a cached thumbnail. Returns undefined if not yet generated.
  */
-export function getCachedThumbnail(videoUrl: string): string | undefined {
-  return thumbnailCache.get(videoUrl)
+export function getCachedThumbnail(videoUrl: string, width = THUMB_SIZE_SMALL): string | undefined {
+  return thumbnailCache.get(cacheKey(videoUrl, width))
 }
 
 /**
  * Warm the cache for a single URL (fire-and-forget).
- * Safe to call multiple times – subsequent calls are no-ops.
  */
-export function warmThumbnail(videoUrl: string): void {
-  if (thumbnailCache.has(videoUrl)) return
-  generateThumbnail(videoUrl).catch(() => {})
+export function warmThumbnail(videoUrl: string, width = THUMB_SIZE_SMALL): void {
+  if (thumbnailCache.has(cacheKey(videoUrl, width))) return
+  generateThumbnail(videoUrl, 0.1, width).catch(() => {})
 }
-

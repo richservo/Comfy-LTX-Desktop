@@ -65,6 +65,7 @@ import { GenerationErrorDialog } from '../components/GenerationErrorDialog'
 import { I2vGenerationModal } from './editor/I2vGenerationModal'
 import { InferenceStackPanel } from './editor/InferenceStackPanel'
 import { SubtitleTrackStyleEditor } from './editor/SubtitleTrackStyleEditor'
+import { AssetThumbnail } from '../components/AssetThumbnail'
 
 // Custom scissors cursor SVG for the blade tool (white with dark outline for contrast)
 const SCISSORS_CURSOR_SVG = `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='6' r='3'/><path d='M8.12 8.12 12 12'/><path d='M20 4 8.12 15.88'/><circle cx='6' cy='18' r='3'/><path d='M14.8 14.8 20 20'/></svg>`
@@ -603,34 +604,9 @@ export function VideoEditor() {
     return result
   }, [assets, assetFilter, selectedBin])
   
-  // --- Thumbnail generation for video assets ---
-  const [thumbnailMap, setThumbnailMap] = useState<Record<string, string>>({})
-  
-  useEffect(() => {
-    // Generate thumbnails for all video assets that don't have one yet
-    let cancelled = false
-    const videoAssets = assets.filter(a => a.type === 'video' && a.url)
-    
-    const genAll = async () => {
-      for (const asset of videoAssets) {
-        if (cancelled) break
-        const url = asset.url
-        if (thumbnailMap[url]) continue
-        try {
-          const { generateThumbnail } = await import('../lib/thumbnails')
-          const thumb = await generateThumbnail(url)
-          if (!cancelled) {
-            setThumbnailMap(prev => ({ ...prev, [url]: thumb }))
-          }
-        } catch {
-          // skip – will show fallback
-        }
-      }
-    }
-    genAll()
-    return () => { cancelled = true }
-  }, [assets]) // re-run when assets change
-  
+  // Thumbnails are now generated lazily by each component via useThumbnail hook
+  const thumbnailMap: Record<string, string> = {}
+
   // For the properties panel: show properties when a single clip (or a single linked group) is selected.
   // When all selected clips belong to the same linked group, show the primary clip (prefer video/image over audio).
   const selectedClip = (() => {
@@ -1337,8 +1313,8 @@ export function VideoEditor() {
     inPoint,
     outPoint,
     fps: activeTimeline?.fps ?? 24,
-    width: activeTimeline?.resolution?.width ?? 1920,
-    height: activeTimeline?.resolution?.height ?? 1080,
+    width: Math.round((activeTimeline?.resolution?.width ?? 1920) * playbackResolution),
+    height: Math.round((activeTimeline?.resolution?.height ?? 1080) * playbackResolution),
     letterbox: previewLetterbox,
     resolveClipSrc,
   })
@@ -3598,11 +3574,12 @@ export function VideoEditor() {
                             </div>
                           </>
                         ) : clip.asset && (
-                          clip.asset.type === 'video' ? (
-                            <video key={`thumb-${clip.id}-${clip.takeIndex ?? 'default'}`} src={getClipUrl(clip) || clip.asset.url} className="h-8 aspect-video object-cover rounded" muted />
-                          ) : (
-                            <img key={`thumb-${clip.id}-${clip.takeIndex ?? 'default'}`} src={getClipUrl(clip) || clip.asset.url} alt="" className="h-8 aspect-video object-cover rounded" />
-                          )
+                          <AssetThumbnail
+                            key={`thumb-${clip.id}-${clip.takeIndex ?? 'default'}`}
+                            src={getClipUrl(clip) || clip.asset.url}
+                            type={clip.asset.type === 'image' ? 'image' : 'video'}
+                            className="h-8 aspect-video object-cover rounded"
+                          />
                         )}
                         <div className={`flex-1 min-w-0 ${clip.type === 'audio' ? 'relative z-10' : ''}`}>
                           <p className={`text-[10px] truncate ${clip.type === 'adjustment' ? 'text-blue-300' : clip.type === 'text' ? 'text-cyan-300' : clip.type === 'audio' ? 'text-emerald-300' : 'text-zinc-300'}`}>
@@ -3888,10 +3865,8 @@ export function VideoEditor() {
                               <div className="h-8 w-8 flex-shrink-0 rounded bg-emerald-800/50 flex items-center justify-center">
                                 <Music className="h-4 w-4 text-emerald-400" />
                               </div>
-                            ) : asset.type === 'video' ? (
-                              <video src={asset.url} className="h-8 aspect-video object-cover rounded" muted />
-                            ) : asset.type === 'image' ? (
-                              <img src={asset.url} alt="" className="h-8 aspect-video object-cover rounded" />
+                            ) : asset.type === 'video' || asset.type === 'image' ? (
+                              <AssetThumbnail src={asset.url} type={asset.type} className="h-8 aspect-video object-cover rounded" />
                             ) : (
                               <div className="h-8 w-8 flex-shrink-0 rounded bg-blue-800/30 border border-blue-600/30 flex items-center justify-center">
                                 <Layers className="h-4 w-4 text-blue-400" />
