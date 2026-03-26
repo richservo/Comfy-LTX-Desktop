@@ -928,6 +928,8 @@ export function GenSpace() {
         // Only reset generation state after the final iteration
         if (!isGenerating) {
           reset()
+          // Re-sync so renders.json stays in sync with state
+          setSyncCounter(c => c + 1)
         }
       } catch (err) {
         persistedVideoKeyRef.current = null
@@ -1099,6 +1101,8 @@ export function GenSpace() {
       await window.electronAPI.archiveAsset(asset.path)
     }
     deleteAsset(currentProjectId, asset.id)
+    // Force re-sync so the asset list is reconciled with renders.json on disk
+    setSyncCounter(c => c + 1)
   }
 
   const loadTrash = useCallback(async () => {

@@ -793,6 +793,22 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
                     inferenceStackData: { stackId: stack.id, prompt: stack.prompt, settings: { ...stack.settings }, strengths: { ...stack.strengths }, preserveAspectRatio: stack.preserveAspectRatio, singleFramePosition: stack.singleFramePosition, guideMode: stack.guideMode, guideStrength: stack.guideStrength, guideEndMode: stack.guideEndMode, headHandles: stack.headHandles, tailHandles: stack.tailHandles, sourcePaths: stack.sourcePaths ? { ...stack.sourcePaths } : undefined },
                   })
                   const renderedClipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+                  const recAudioClipId = `clip-${Date.now()}-a-${Math.random().toString(36).substr(2, 9)}`
+                  const stackHasAudioClip = currentStackClips.some(c => c.type === 'audio')
+                  const recShouldCreateAudio = stack.settings.audio && !stackHasAudioClip && !isAudioOnly
+
+                  // Find or create an audio track
+                  let recAudioTrackIndex = -1
+                  if (recShouldCreateAudio) {
+                    const currentTracks = tracksRef.current
+                    recAudioTrackIndex = currentTracks.findIndex(t => t.kind === 'audio' && !t.locked && t.sourcePatched !== false)
+                    if (recAudioTrackIndex < 0) {
+                      const audioCount = currentTracks.filter(t => t.kind === 'audio').length
+                      recAudioTrackIndex = currentTracks.length
+                      setTracks(prev => [...prev, { id: `track-${Date.now()}-audio`, name: `A${audioCount + 1}`, muted: false, locked: false, kind: 'audio' as const }])
+                    }
+                  }
+
                   setClips(prev => {
                     const stackMemberIds = new Set(prev.filter(c => c.inferenceStackId === stack.id).map(c => c.id))
                     const newClip: TimelineClip = {
@@ -803,14 +819,27 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
                       transitionIn: { type: 'none', duration: 0 }, transitionOut: { type: 'none', duration: 0 },
                       colorCorrection: { brightness: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, exposure: 0, highlights: 0, shadows: 0 },
                       opacity: 100, inferenceStackId: stack.id,
+                      ...(recShouldCreateAudio && recAudioTrackIndex >= 0 ? { linkedClipIds: [recAudioClipId] } : {}),
+                    }
+                    const newClips: TimelineClip[] = [newClip]
+                    if (recShouldCreateAudio && recAudioTrackIndex >= 0) {
+                      newClips.push({
+                        id: recAudioClipId, assetId: asset.id, type: 'audio',
+                        startTime: firstClip.startTime, duration: visibleDuration, trimStart: headSec, trimEnd: tailSec,
+                        speed: 1, reversed: false, muted: false, volume: 1, trackIndex: recAudioTrackIndex, asset,
+                        flipH: false, flipV: false,
+                        transitionIn: { type: 'none', duration: 0 }, transitionOut: { type: 'none', duration: 0 },
+                        colorCorrection: { brightness: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, exposure: 0, highlights: 0, shadows: 0 },
+                        opacity: 100, inferenceStackId: stack.id, linkedClipIds: [renderedClipId],
+                      })
                     }
                     return [
                       ...prev.map(c => {
                         if (!stackMemberIds.has(c.id)) return c
-                        if (c.type === 'audio') return c // audio only plays from audio tracks
+                        if (c.type === 'audio') return c
                         return { ...c, hiddenByStack: true }
                       }),
-                      newClip,
+                      ...newClips,
                     ]
                   })
                   updateStack(failedStackId, { renderState: 'complete', renderedAssetId: asset.id, renderedClipId, errorMessage: undefined })
@@ -1022,6 +1051,22 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
         } else {
           // No existing clip — create a new one
           const renderedClipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+          const rlAudioClipId = `clip-${Date.now()}-a-${Math.random().toString(36).substr(2, 9)}`
+          const currentStackClipsRL = getStackClips(stack, currentClips)
+          const rlStackHasAudio = currentStackClipsRL.some(c => c.type === 'audio')
+          const rlShouldCreateAudio = stack.settings.audio && !rlStackHasAudio && imageClips.length > 0
+
+          let rlAudioTrackIndex = -1
+          if (rlShouldCreateAudio) {
+            const currentTracks = tracksRef.current
+            rlAudioTrackIndex = currentTracks.findIndex(t => t.kind === 'audio' && !t.locked && t.sourcePatched !== false)
+            if (rlAudioTrackIndex < 0) {
+              const audioCount = currentTracks.filter(t => t.kind === 'audio').length
+              rlAudioTrackIndex = currentTracks.length
+              setTracks(prev => [...prev, { id: `track-${Date.now()}-audio`, name: `A${audioCount + 1}`, muted: false, locked: false, kind: 'audio' as const }])
+            }
+          }
+
           setClips(prev => {
             const stackMemberIds = new Set(prev.filter(c => c.inferenceStackId === stack.id).map(c => c.id))
             const newClip: TimelineClip = {
@@ -1032,14 +1077,27 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
               transitionIn: { type: 'none', duration: 0 }, transitionOut: { type: 'none', duration: 0 },
               colorCorrection: { brightness: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, exposure: 0, highlights: 0, shadows: 0 },
               opacity: 100, inferenceStackId: stack.id, takeIndex: newTakeIndex,
+              ...(rlShouldCreateAudio && rlAudioTrackIndex >= 0 ? { linkedClipIds: [rlAudioClipId] } : {}),
+            }
+            const newClips: TimelineClip[] = [newClip]
+            if (rlShouldCreateAudio && rlAudioTrackIndex >= 0) {
+              newClips.push({
+                id: rlAudioClipId, assetId: asset.id, type: 'audio',
+                startTime: firstClip.startTime, duration: visibleDuration, trimStart: headSec, trimEnd: tailSec,
+                speed: 1, reversed: false, muted: false, volume: 1, trackIndex: rlAudioTrackIndex, asset: { ...asset, takes },
+                flipH: false, flipV: false,
+                transitionIn: { type: 'none', duration: 0 }, transitionOut: { type: 'none', duration: 0 },
+                colorCorrection: { brightness: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, exposure: 0, highlights: 0, shadows: 0 },
+                opacity: 100, inferenceStackId: stack.id, linkedClipIds: [renderedClipId], takeIndex: newTakeIndex,
+              })
             }
             return [
               ...prev.map(c => {
                 if (!stackMemberIds.has(c.id)) return c
-                if (c.type === 'audio') return c // audio only plays from audio tracks
+                if (c.type === 'audio') return c
                 return { ...c, hiddenByStack: true }
               }),
-              newClip,
+              ...newClips,
             ]
           })
           updateStack(stackId, { renderState: 'complete', renderedAssetId: asset.id, renderedClipId, errorMessage: undefined })

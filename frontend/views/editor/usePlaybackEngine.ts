@@ -729,31 +729,51 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
 
     const STATE_UPDATE_INTERVAL = 250
     let lastStateUpdate = 0
+    let lastTimestamp = 0
+    let pastPreviewEnd = false // true once rendered video has ended but timeline continues
 
     let rafId: number
     const tick = (timestamp: number) => {
-      if (!renderedVideo || renderedVideo.paused) {
+      if (!renderedVideo) {
         rafId = requestAnimationFrame(tick)
         return
       }
 
-      let t = renderedVideo.currentTime
+      let t: number
+      if (pastPreviewEnd) {
+        // Advance time using wall clock since the preview video has ended
+        const dt = lastTimestamp > 0 ? (timestamp - lastTimestamp) / 1000 * Math.abs(effectiveSpeed) : 0
+        t = playbackTimeRef.current + dt
+      } else if (renderedVideo.paused && !renderedVideo.ended) {
+        // Video paused by user or system — keep ticking but don't advance
+        rafId = requestAnimationFrame(tick)
+        lastTimestamp = timestamp
+        return
+      } else if (renderedVideo.ended) {
+        // Preview video ended but timeline continues (audio extends past)
+        pastPreviewEnd = true
+        t = playbackTimeRef.current
+      } else {
+        t = renderedVideo.currentTime
+      }
+      lastTimestamp = timestamp
 
       // In/Out looping
       if (playingInOut && inPoint !== null && outPoint !== null) {
         const loopStart = Math.min(inPoint, outPoint)
         const loopEnd = Math.max(inPoint, outPoint)
         if (t >= loopEnd) {
-          renderedVideo.currentTime = loopStart
+          if (!pastPreviewEnd) renderedVideo.currentTime = loopStart
           t = loopStart
+          pastPreviewEnd = false
         } else if (t <= loopStart && effectiveSpeed < 0) {
-          renderedVideo.currentTime = loopEnd
+          if (!pastPreviewEnd) renderedVideo.currentTime = loopEnd
           t = loopEnd
         }
       }
 
-      // End-of-video stop
-      if (t >= totalDuration || renderedVideo.ended) {
+      // End-of-timeline stop
+      if (t >= totalDuration) {
         renderedVideo.pause()
         renderedVideo.currentTime = 0
         playbackTimeRef.current = 0
@@ -823,8 +843,10 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
 
     renderedVideo.pause()
     renderedVideo.muted = false
-    if (!isNaN(currentTime) && Math.abs(renderedVideo.currentTime - currentTime) > 0.04) {
-      renderedVideo.currentTime = currentTime
+    // Clamp seek to the preview video's duration (audio may extend past it)
+    const clampedTime = Math.min(currentTime, renderedVideo.duration || Infinity)
+    if (!isNaN(clampedTime) && Math.abs(renderedVideo.currentTime - clampedTime) > 0.04) {
+      renderedVideo.currentTime = clampedTime
     }
 
     // Restore pool visibility when leaving ready state
