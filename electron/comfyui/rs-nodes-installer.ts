@@ -207,6 +207,9 @@ const CUSTOM_NODE_REPOS: CustomNodeRepo[] = [
   { name: 'rs-nodes', url: 'https://github.com/richservo/rs-nodes.git', dir: 'rs-nodes' },
   { name: 'RES4LYF', url: 'https://github.com/ClownsharkBatwing/RES4LYF.git', dir: 'RES4LYF' },
   { name: 'VideoHelperSuite', url: 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git', dir: 'ComfyUI-VideoHelperSuite' },
+  { name: 'ComfyUI-RMBG', url: 'https://github.com/1038lab/ComfyUI-RMBG.git', dir: 'comfyui-rmbg' },
+  { name: 'ComfyUI-Impact-Pack', url: 'https://github.com/ltdrdata/ComfyUI-Impact-Pack.git', dir: 'comfyui-impact-pack' },
+  { name: 'ComfyUI_essentials', url: 'https://github.com/cubiq/ComfyUI_essentials.git', dir: 'comfyui_essentials' },
 ]
 
 async function installCustomNode(
