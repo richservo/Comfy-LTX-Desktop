@@ -621,5 +621,24 @@
     },
     "class_type": "GetImageSize+",
     "_meta": { "title": "Get Original Size" }
+  },
+  "109": {
+    "inputs": {
+      "prompt": "face",
+      "output_mode": "Merged",
+      "confidence_threshold": 0.5,
+      "max_segments": 0,
+      "segment_pick": 0,
+      "mask_blur": 0,
+      "mask_offset": 0,
+      "device": "Auto",
+      "invert_output": false,
+      "unload_model": true,
+      "background": "Alpha",
+      "background_color": "#222222",
+      "image": ["20", 0]
+    },
+    "class_type": "SAM3Segment",
+    "_meta": { "title": "SAM3 Mask" }
   }
 }

@@ -119,7 +119,8 @@ interface GenerateParams {
   stgScale?: number
   crf?: number
   negativePrompt?: string
-  maskMode?: 'off' | 'subject' | 'face'
+  maskMode?: 'off' | 'subject' | 'face' | 'sam'
+  maskPrompt?: string
   maskDilation?: number
   rediffusionMaskStrength?: number
   stackId?: string
@@ -253,6 +254,7 @@ export function registerComfyUIHandlers(): void {
         crf: params.crf,
         negativePrompt: params.negativePrompt,
         maskMode: params.maskMode,
+        maskPrompt: params.maskPrompt,
         maskDilation: params.maskDilation,
         rediffusionMaskStrength: params.rediffusionMaskStrength,
         firstStrength: params.firstStrength,

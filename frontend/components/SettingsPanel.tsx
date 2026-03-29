@@ -24,7 +24,8 @@ export interface GenerationSettings {
   stgScale?: number
   crf?: number
   negativePrompt?: string
-  maskMode?: 'off' | 'subject' | 'face'
+  maskMode?: 'off' | 'subject' | 'face' | 'sam'
+  maskPrompt?: string
   maskDilation?: number
   rediffusionMaskStrength?: number
   iterations?: number
@@ -432,8 +433,24 @@ export function SettingsPanel({
                 <option value="off">Off</option>
                 <option value="subject">Subject</option>
                 <option value="face">Face</option>
+                <option value="sam">SAM3</option>
               </select>
             </div>
+            {settings.maskMode === 'sam' && (
+              <div>
+                <div className="flex justify-between text-[11px] mb-1">
+                  <span className="text-zinc-400">Mask Target</span>
+                </div>
+                <input
+                  type="text"
+                  value={settings.maskPrompt ?? 'face'}
+                  onChange={(e) => handleChange('maskPrompt', e.target.value)}
+                  disabled={disabled}
+                  placeholder="e.g. face, person, car..."
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-[11px] text-zinc-300 focus:outline-none focus:border-violet-500"
+                />
+              </div>
+            )}
             {settings.maskMode && settings.maskMode !== 'off' && (
               <div className="space-y-2 pt-1">
                 <div>

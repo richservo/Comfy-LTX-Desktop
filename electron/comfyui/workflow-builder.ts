@@ -101,8 +101,10 @@ export interface WorkflowParams {
   stgScale?: number
   /** CRF (output quality, lower = higher quality, default 35) */
   crf?: number
-  /** Rediffusion mask mode: 'off', 'subject', or 'face' */
-  maskMode?: 'off' | 'subject' | 'face'
+  /** Rediffusion mask mode: 'off', 'subject', 'face', or 'sam' */
+  maskMode?: 'off' | 'subject' | 'face' | 'sam'
+  /** SAM3 mask prompt (what to segment, e.g. "face", "person") */
+  maskPrompt?: string
   /** Mask dilation amount (pixels, default 100) */
   maskDilation?: number
   /** Rediffusion mask strength (0–1, default 0.5) */
@@ -217,6 +219,7 @@ const OPTIONAL_NODE_IDS = {
   maskRtxUpscale: '106',
   maskImageToMask: '107',
   maskOriginalSize: '108',
+  maskSam2: '109',
 }
 
 const OLLAMA_FORMATTER_NODES = [
@@ -432,6 +435,7 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskGetImageSize)
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskSubject)
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskFace)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskSam2)
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskDilate)
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskFreeVram)
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskToImage)
@@ -440,8 +444,13 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskOriginalSize)
   } else if (params.maskMode === 'subject') {
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskFace)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskSam2)
   } else if (params.maskMode === 'face') {
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskSubject)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskSam2)
+  } else if (params.maskMode === 'sam') {
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskSubject)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskFace)
   }
 
   for (const id of nodesToRemove) {
@@ -553,13 +562,17 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     // GetImageSize (108) reads raw image to get original dimensions for mask RTX upscale
     workflow[OPTIONAL_NODE_IDS.maskOriginalSize].inputs['image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
 
-    // RMBG/FaceSegment get the upscaled/cropped image (1088p) — produces a better mask
+    // Wire mask source based on mode
     if (params.maskMode === 'subject') {
       workflow[OPTIONAL_NODE_IDS.maskSubject].inputs['image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
       workflow[OPTIONAL_NODE_IDS.maskDilate].inputs['mask'] = [OPTIONAL_NODE_IDS.maskSubject, 1]
-    } else {
+    } else if (params.maskMode === 'face') {
       workflow[OPTIONAL_NODE_IDS.maskFace].inputs['images'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
       workflow[OPTIONAL_NODE_IDS.maskDilate].inputs['mask'] = [OPTIONAL_NODE_IDS.maskFace, 1]
+    } else if (params.maskMode === 'sam') {
+      workflow[OPTIONAL_NODE_IDS.maskSam2].inputs['image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
+      workflow[OPTIONAL_NODE_IDS.maskSam2].inputs['prompt'] = params.maskPrompt ?? 'face'
+      workflow[OPTIONAL_NODE_IDS.maskDilate].inputs['mask'] = [OPTIONAL_NODE_IDS.maskSam2, 1]
     }
 
     workflow[OPTIONAL_NODE_IDS.maskDilate].inputs['dilation'] = params.maskDilation ?? 100

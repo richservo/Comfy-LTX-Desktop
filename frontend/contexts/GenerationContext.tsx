@@ -148,6 +148,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
         crf: settings.crf,
         negativePrompt: settings.negativePrompt,
         maskMode: settings.maskMode,
+        maskPrompt: settings.maskPrompt,
         maskDilation: settings.maskDilation,
         rediffusionMaskStrength: settings.rediffusionMaskStrength,
         firstStrength: strengths?.first,
