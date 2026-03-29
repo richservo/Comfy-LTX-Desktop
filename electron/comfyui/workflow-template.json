@@ -77,6 +77,7 @@
       "upscale_fallback": false,
       "upscale_tiling": false,
       "upscale_tile_t": 4,
+      "rediffusion_mask_strength": 0,
       "decode": true,
       "tile_t": 0,
       "max_shift": 2.05,
@@ -520,5 +521,105 @@
     },
     "class_type": "RSPromptFormatter",
     "_meta": { "title": "Ollama Image Prompt Creator" }
+  },
+  "100": {
+    "inputs": {
+      "image": ["57", 0]
+    },
+    "class_type": "GetImageSize+",
+    "_meta": { "title": "Get Target Size" }
+  },
+  "101": {
+    "inputs": {
+      "model": "RMBG-2.0",
+      "sensitivity": 1,
+      "process_res": ["100", 0],
+      "mask_blur": 0,
+      "mask_offset": 0,
+      "invert_output": false,
+      "refine_foreground": false,
+      "background": "Alpha",
+      "background_color": "#222222",
+      "image": ["57", 0]
+    },
+    "class_type": "RMBG",
+    "_meta": { "title": "SubjectMask" }
+  },
+  "102": {
+    "inputs": {
+      "Skin": true,
+      "Nose": true,
+      "Eyeglasses": true,
+      "Left-eye": true,
+      "Right-eye": true,
+      "Left-eyebrow": true,
+      "Right-eyebrow": true,
+      "Left-ear": true,
+      "Right-ear": true,
+      "Mouth": true,
+      "Upper-lip": true,
+      "Lower-lip": true,
+      "Hair": true,
+      "Earring": true,
+      "Neck": true,
+      "process_res": ["100", 0],
+      "mask_blur": 0,
+      "mask_offset": 0,
+      "invert_output": false,
+      "background": "Alpha",
+      "background_color": "#222222",
+      "images": ["57", 0]
+    },
+    "class_type": "FaceSegment",
+    "_meta": { "title": "FaceMask" }
+  },
+  "103": {
+    "inputs": {
+      "dilation": 100,
+      "mask": ["101", 1]
+    },
+    "class_type": "ImpactDilateMask",
+    "_meta": { "title": "Dilate Mask" }
+  },
+  "104": {
+    "inputs": {
+      "any_input": ["107", 0]
+    },
+    "class_type": "RSFreeVRAM",
+    "_meta": { "title": "RS Free VRAM" }
+  },
+  "105": {
+    "inputs": {
+      "mask": ["103", 0]
+    },
+    "class_type": "MaskToImage",
+    "_meta": { "title": "Mask To Image" }
+  },
+  "106": {
+    "inputs": {
+      "mode": "upscale",
+      "quality": "ULTRA",
+      "resize_type": "target dimensions",
+      "resize_type.width": 1920,
+      "resize_type.height": 1088,
+      "images": ["105", 0]
+    },
+    "class_type": "RSRTXSuperResolution",
+    "_meta": { "title": "Upscale Mask" }
+  },
+  "107": {
+    "inputs": {
+      "channel": "red",
+      "image": ["106", 0]
+    },
+    "class_type": "ImageToMask",
+    "_meta": { "title": "Image To Mask" }
+  },
+  "108": {
+    "inputs": {
+      "image": ["20", 0]
+    },
+    "class_type": "GetImageSize+",
+    "_meta": { "title": "Get Original Size" }
   }
 }

@@ -101,6 +101,12 @@ export interface WorkflowParams {
   stgScale?: number
   /** CRF (output quality, lower = higher quality, default 35) */
   crf?: number
+  /** Rediffusion mask mode: 'off', 'subject', or 'face' */
+  maskMode?: 'off' | 'subject' | 'face'
+  /** Mask dilation amount (pixels, default 100) */
+  maskDilation?: number
+  /** Rediffusion mask strength (0–1, default 0.5) */
+  rediffusionMaskStrength?: number
 }
 
 type WorkflowNode = { class_type: string; inputs: Record<string, unknown>; _meta?: { title: string } }
@@ -202,6 +208,15 @@ const OPTIONAL_NODE_IDS = {
   rtxSuperRes: '60',
   localImagePromptCreator: '83',
   ollamaImagePromptCreator: '84',
+  maskGetImageSize: '100',
+  maskSubject: '101',
+  maskFace: '102',
+  maskDilate: '103',
+  maskFreeVram: '104',
+  maskToImage: '105',
+  maskRtxUpscale: '106',
+  maskImageToMask: '107',
+  maskOriginalSize: '108',
 }
 
 const OLLAMA_FORMATTER_NODES = [
@@ -411,6 +426,24 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   // RTX Super Resolution — only include if enabled
   if (!params.rtxSuperRes) nodesToRemove.add(OPTIONAL_NODE_IDS.rtxSuperRes)
 
+  // Mask nodes — only include if mask is enabled and first image is provided
+  const maskEnabled = params.maskMode && params.maskMode !== 'off' && params.firstImage
+  if (!maskEnabled) {
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskGetImageSize)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskSubject)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskFace)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskDilate)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskFreeVram)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskToImage)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskRtxUpscale)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskImageToMask)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskOriginalSize)
+  } else if (params.maskMode === 'subject') {
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskFace)
+  } else if (params.maskMode === 'face') {
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskSubject)
+  }
+
   for (const id of nodesToRemove) {
     delete workflow[id]
   }
@@ -510,6 +543,36 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     genNode.inputs['temporal_upscale_model'] = [OPTIONAL_NODE_IDS.temporalUpscaler, 0]
   }
 
+  // Connect rediffusion mask if enabled
+  // Flow: raw image → (RMBG or FaceSegment at target res via process_res) → DilateMask →
+  //       MaskToImage → RTX upscale to original image size → ImageToMask → FreeVRAM → gen node
+  // The gen node gets the raw image directly (handles resize internally).
+  if (maskEnabled) {
+    // GetImageSize (100) reads from the crop node to get target resolution for process_res
+    workflow[OPTIONAL_NODE_IDS.maskGetImageSize].inputs['image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
+    // GetImageSize (108) reads raw image to get original dimensions for mask RTX upscale
+    workflow[OPTIONAL_NODE_IDS.maskOriginalSize].inputs['image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+
+    // RMBG/FaceSegment get the upscaled/cropped image (1088p) — produces a better mask
+    if (params.maskMode === 'subject') {
+      workflow[OPTIONAL_NODE_IDS.maskSubject].inputs['image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
+      workflow[OPTIONAL_NODE_IDS.maskDilate].inputs['mask'] = [OPTIONAL_NODE_IDS.maskSubject, 1]
+    } else {
+      workflow[OPTIONAL_NODE_IDS.maskFace].inputs['images'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
+      workflow[OPTIONAL_NODE_IDS.maskDilate].inputs['mask'] = [OPTIONAL_NODE_IDS.maskFace, 1]
+    }
+
+    workflow[OPTIONAL_NODE_IDS.maskDilate].inputs['dilation'] = params.maskDilation ?? 100
+    // RTX upscale mask to original image dimensions (from GetImageSize 108)
+    workflow[OPTIONAL_NODE_IDS.maskRtxUpscale].inputs['resize_type.width'] = [OPTIONAL_NODE_IDS.maskOriginalSize, 0]
+    workflow[OPTIONAL_NODE_IDS.maskRtxUpscale].inputs['resize_type.height'] = [OPTIONAL_NODE_IDS.maskOriginalSize, 1]
+
+    // first_image must use raw image to match mask resolution
+    genNode.inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+    genNode.inputs['rediffusion_mask'] = [OPTIONAL_NODE_IDS.maskFreeVram, 0]
+    genNode.inputs['rediffusion_mask_strength'] = params.rediffusionMaskStrength ?? 0.5
+  }
+
   // Connect audio if provided
   if (params.audio) {
     workflow[OPTIONAL_NODE_IDS.uploadAudio].inputs['audio'] = params.audio.name
@@ -550,7 +613,9 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
       cropFirst.inputs['resize_type.width'] = frameDims.width
       cropFirst.inputs['resize_type.height'] = frameDims.height
     }
-    genNode.inputs['first_image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
+    if (!maskEnabled) {
+      genNode.inputs['first_image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
+    }
     genNode.inputs['first_strength'] = params.firstStrength ?? 1
   }
   if (params.middleImage) {
@@ -646,7 +711,7 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     delete workflow[OPTIONAL_NODE_IDS.localNegativeFormatter]
 
     workflow['7'].inputs['text'] = params.prompt
-    workflow['8'].inputs['text'] = DEFAULT_NEGATIVE_PROMPT
+    workflow['8'].inputs['text'] = params.negativePrompt || DEFAULT_NEGATIVE_PROMPT
   } else if (params.ollamaEnabled) {
     // Ollama enhancer path
     // Negative prompt formatter

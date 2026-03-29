@@ -3,6 +3,8 @@ import { Select } from './ui/select'
 import type { GenerationMode } from './ModeTabs'
 import { useAppSettings } from '../contexts/AppSettingsContext'
 
+const DEFAULT_NEGATIVE_PROMPT = 'worst quality, low quality, blurry, jittery, distorted, cropped, watermark, watermarked, extra fingers, missing fingers, fused fingers, mutated hands, deformed hands, extra limbs, missing limbs, deformed limbs, extra arms, extra legs, malformed limbs, disfigured, bad anatomy, bad proportions, ugly, duplicate, morbid, mutilated, poorly drawn face, poorly drawn hands, inconsistent motion'
+
 export interface GenerationSettings {
   model: 'fast' | 'pro'
   duration: number
@@ -21,6 +23,10 @@ export interface GenerationSettings {
   promptEnhance?: boolean
   stgScale?: number
   crf?: number
+  negativePrompt?: string
+  maskMode?: 'off' | 'subject' | 'face'
+  maskDilation?: number
+  rediffusionMaskStrength?: number
   iterations?: number
   // Image-specific settings
   imageResolution: string
@@ -319,6 +325,23 @@ export function SettingsPanel({
         </div>
       </label>
 
+      {/* Negative Prompt — shown when prompt enhance is off */}
+      {settings.promptEnhance === false && (
+        <div>
+          <div className="flex justify-between text-[11px] mb-1">
+            <span className="text-zinc-400">Negative Prompt</span>
+          </div>
+          <textarea
+            value={settings.negativePrompt ?? DEFAULT_NEGATIVE_PROMPT}
+            onChange={(e) => handleChange('negativePrompt', e.target.value)}
+            disabled={disabled}
+            rows={3}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-[11px] text-zinc-300 focus:outline-none focus:border-violet-500 resize-y"
+            placeholder="Negative prompt..."
+          />
+        </div>
+      )}
+
       {/* Upscale Options */}
       <div className="flex gap-3">
         <label className={`flex items-center gap-2 flex-1 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors ${
@@ -389,6 +412,65 @@ export function SettingsPanel({
             disabled={disabled}
             className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-violet-500"
           />
+        </div>
+      )}
+
+      {/* Rediffusion Mask - shown when spatial upscale is enabled */}
+      {settings.spatialUpscale && (
+        <div className={`rounded-lg border transition-colors ${
+          settings.maskMode && settings.maskMode !== 'off' ? 'border-violet-500/50 bg-violet-500/10' : 'border-zinc-700'
+        }`}>
+          <div className="px-3 py-2.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-zinc-400">Rediffusion Mask</span>
+              <select
+                value={settings.maskMode ?? 'off'}
+                onChange={(e) => handleChange('maskMode', e.target.value)}
+                disabled={disabled}
+                className="bg-zinc-800 border border-zinc-700 rounded px-2 py-0.5 text-[11px] text-zinc-300 focus:outline-none focus:border-violet-500 cursor-pointer"
+              >
+                <option value="off">Off</option>
+                <option value="subject">Subject</option>
+                <option value="face">Face</option>
+              </select>
+            </div>
+            {settings.maskMode && settings.maskMode !== 'off' && (
+              <div className="space-y-2 pt-1">
+                <div>
+                  <div className="flex justify-between text-[11px] mb-1">
+                    <span className="text-zinc-400">Mask Strength</span>
+                    <span className="text-zinc-500">{(settings.rediffusionMaskStrength ?? 0.5).toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={settings.rediffusionMaskStrength ?? 0.5}
+                    onChange={(e) => handleChange('rediffusionMaskStrength', parseFloat(e.target.value))}
+                    disabled={disabled}
+                    className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-violet-500"
+                  />
+                </div>
+                <div>
+                  <div className="flex justify-between text-[11px] mb-1">
+                    <span className="text-zinc-400">Dilation</span>
+                    <span className="text-zinc-500">{settings.maskDilation ?? 100}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={300}
+                    step={5}
+                    value={settings.maskDilation ?? 100}
+                    onChange={(e) => handleChange('maskDilation', parseInt(e.target.value))}
+                    disabled={disabled}
+                    className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-violet-500"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

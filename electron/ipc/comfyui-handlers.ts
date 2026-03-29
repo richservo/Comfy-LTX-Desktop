@@ -118,6 +118,10 @@ interface GenerateParams {
   guideStrength?: number
   stgScale?: number
   crf?: number
+  negativePrompt?: string
+  maskMode?: 'off' | 'subject' | 'face'
+  maskDilation?: number
+  rediffusionMaskStrength?: number
   stackId?: string
   seed?: number  // Optional explicit seed — overrides app settings when provided
 }
@@ -247,6 +251,10 @@ export function registerComfyUIHandlers(): void {
         filmGrainSize: params.filmGrainSize,
         stgScale: params.stgScale,
         crf: params.crf,
+        negativePrompt: params.negativePrompt,
+        maskMode: params.maskMode,
+        maskDilation: params.maskDilation,
+        rediffusionMaskStrength: params.rediffusionMaskStrength,
         firstStrength: params.firstStrength,
         lastStrength: params.lastStrength,
         checkpoint: settings.checkpoint,
@@ -276,10 +284,14 @@ export function registerComfyUIHandlers(): void {
         guideStrength: params.guideStrength,
       })
 
+      // Debug: dump full workflow to temp file for comparison
+      const tmpWorkflowPath = path.join(app.getPath('temp'), 'ltx-debug-workflow.json')
+      fs.writeFileSync(tmpWorkflowPath, JSON.stringify(workflow, null, 2))
+      logger.info(`DEBUG: Full workflow dumped to ${tmpWorkflowPath}`)
       // Debug: log key workflow params
       const genNode = workflow['6'] as { inputs: Record<string, unknown> } | undefined
       if (genNode) {
-        logger.info(`Workflow node 6: width=${genNode.inputs['width']} height=${genNode.inputs['height']} upscale=${genNode.inputs['upscale']} upscale_model=${JSON.stringify(genNode.inputs['upscale_model'])} temporal_upscale_model=${JSON.stringify(genNode.inputs['temporal_upscale_model'])}`)
+        logger.info(`Workflow node 6 FULL: ${JSON.stringify(genNode.inputs)}`)
       }
       logger.info(`Workflow node IDs: ${Object.keys(workflow).join(', ')}`)
 
