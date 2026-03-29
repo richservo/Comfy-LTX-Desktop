@@ -119,10 +119,11 @@ interface GenerateParams {
   stgScale?: number
   crf?: number
   negativePrompt?: string
-  maskMode?: 'off' | 'subject' | 'face' | 'sam'
+  maskMode?: 'off' | 'subject' | 'face' | 'sam' | 'paint'
   maskPrompt?: string
   maskDilation?: number
   rediffusionMaskStrength?: number
+  paintedMaskDataUrl?: string
   stackId?: string
   seed?: number  // Optional explicit seed — overrides app settings when provided
 }
@@ -199,7 +200,19 @@ export function registerComfyUIHandlers(): void {
         logger.info(`Guide video uploaded: ${uploadedGuideVideo.name}`)
       }
 
-      // 2g. Read source image dimensions for aspect-ratio-aware scaling
+      // 2g. Upload painted mask if provided (data URL → temp file → upload)
+      let uploadedPaintedMask = null
+      if (params.paintedMaskDataUrl && params.maskMode === 'paint') {
+        const base64Data = params.paintedMaskDataUrl.replace(/^data:image\/png;base64,/, '')
+        const tmpPath = path.join(app.getPath('temp'), `painted-mask-${Date.now()}.png`)
+        fs.writeFileSync(tmpPath, Buffer.from(base64Data, 'base64'))
+        logger.info(`Uploading painted mask to ComfyUI: ${tmpPath}`)
+        uploadedPaintedMask = await comfyClient.uploadImage(tmpPath)
+        logger.info(`Painted mask uploaded: ${uploadedPaintedMask.name}`)
+        fs.unlinkSync(tmpPath)
+      }
+
+      // 2h. Read source image dimensions for aspect-ratio-aware scaling
       const firstImagePath = params.imagePath || params.middleImagePath || params.lastImagePath
       const sourceImageDims = firstImagePath ? getImageDimensions(firstImagePath) : null
       if (sourceImageDims) {
@@ -257,6 +270,7 @@ export function registerComfyUIHandlers(): void {
         maskPrompt: params.maskPrompt,
         maskDilation: params.maskDilation,
         rediffusionMaskStrength: params.rediffusionMaskStrength,
+        paintedMask: uploadedPaintedMask,
         firstStrength: params.firstStrength,
         lastStrength: params.lastStrength,
         checkpoint: settings.checkpoint,

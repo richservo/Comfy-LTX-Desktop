@@ -640,5 +640,12 @@
     },
     "class_type": "SAM3Segment",
     "_meta": { "title": "SAM3 Mask" }
+  },
+  "110": {
+    "inputs": {
+      "image": ""
+    },
+    "class_type": "LoadImage",
+    "_meta": { "title": "Painted Mask" }
   }
 }

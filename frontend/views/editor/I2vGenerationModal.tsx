@@ -100,6 +100,7 @@ export function I2vGenerationModal({
                 onSettingsChange={setI2vSettings}
                 disabled={isRegenerating}
                 mode="image-to-video"
+                imagePath={i2vImageUrl}
               />
             </div>
           </div>

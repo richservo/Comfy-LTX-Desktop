@@ -404,6 +404,7 @@ export function GapGenerationModal({
                   onSettingsChange={setGapSettings}
                   disabled={isRegenerating}
                   mode={settingsMode}
+                  imagePath={gapImageUrl || gapBeforeFrame}
                 />
               </div>
 

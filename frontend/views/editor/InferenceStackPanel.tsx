@@ -544,6 +544,7 @@ export function InferenceStackPanel({
                 mode={hasFirstImage ? 'image-to-video' : 'text-to-video'}
                 hideDuration
                 hideIterations
+                imagePath={firstImageUrl}
               />
             </div>
           </div>

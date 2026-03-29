@@ -151,6 +151,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
         maskPrompt: settings.maskPrompt,
         maskDilation: settings.maskDilation,
         rediffusionMaskStrength: settings.rediffusionMaskStrength,
+        paintedMaskDataUrl: settings.paintedMaskDataUrl,
         firstStrength: strengths?.first,
         middleStrength: strengths?.middle,
         lastStrength: strengths?.last,

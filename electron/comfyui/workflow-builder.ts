@@ -101,14 +101,16 @@ export interface WorkflowParams {
   stgScale?: number
   /** CRF (output quality, lower = higher quality, default 35) */
   crf?: number
-  /** Rediffusion mask mode: 'off', 'subject', 'face', or 'sam' */
-  maskMode?: 'off' | 'subject' | 'face' | 'sam'
+  /** Rediffusion mask mode: 'off', 'subject', 'face', 'sam', or 'paint' */
+  maskMode?: 'off' | 'subject' | 'face' | 'sam' | 'paint'
   /** SAM3 mask prompt (what to segment, e.g. "face", "person") */
   maskPrompt?: string
   /** Mask dilation amount (pixels, default 100) */
   maskDilation?: number
   /** Rediffusion mask strength (0–1, default 0.5) */
   rediffusionMaskStrength?: number
+  /** Uploaded painted mask image (for paint mode) */
+  paintedMask?: ComfyUIUploadResult | null
 }
 
 type WorkflowNode = { class_type: string; inputs: Record<string, unknown>; _meta?: { title: string } }
@@ -220,6 +222,7 @@ const OPTIONAL_NODE_IDS = {
   maskImageToMask: '107',
   maskOriginalSize: '108',
   maskSam2: '109',
+  maskPaintImage: '110',
 }
 
 const OLLAMA_FORMATTER_NODES = [
@@ -431,6 +434,7 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
 
   // Mask nodes — only include if mask is enabled and first image is provided
   const maskEnabled = params.maskMode && params.maskMode !== 'off' && params.firstImage
+    && (params.maskMode !== 'paint' || params.paintedMask)
   if (!maskEnabled) {
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskGetImageSize)
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskSubject)
@@ -442,15 +446,29 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskRtxUpscale)
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskImageToMask)
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskOriginalSize)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskPaintImage)
   } else if (params.maskMode === 'subject') {
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskFace)
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskSam2)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskPaintImage)
   } else if (params.maskMode === 'face') {
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskSubject)
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskSam2)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskPaintImage)
   } else if (params.maskMode === 'sam') {
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskSubject)
     nodesToRemove.add(OPTIONAL_NODE_IDS.maskFace)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskPaintImage)
+  } else if (params.maskMode === 'paint') {
+    // Paint mode: skip all segmentation, dilation, and upscaling — mask is already full-res with feathering
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskSubject)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskFace)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskSam2)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskGetImageSize)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskDilate)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskToImage)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskRtxUpscale)
+    nodesToRemove.add(OPTIONAL_NODE_IDS.maskOriginalSize)
   }
 
   for (const id of nodesToRemove) {
@@ -553,36 +571,44 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   }
 
   // Connect rediffusion mask if enabled
-  // Flow: raw image → (RMBG or FaceSegment at target res via process_res) → DilateMask →
+  // Flow for subject/face/sam: raw image → segmentation → DilateMask →
   //       MaskToImage → RTX upscale to original image size → ImageToMask → FreeVRAM → gen node
+  // Flow for paint: LoadImage (painted mask) → ImageToMask → FreeVRAM → gen node
   // The gen node gets the raw image directly (handles resize internally).
   if (maskEnabled) {
-    // GetImageSize (100) reads from the crop node to get target resolution for process_res
-    workflow[OPTIONAL_NODE_IDS.maskGetImageSize].inputs['image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
-    // GetImageSize (108) reads raw image to get original dimensions for mask RTX upscale
-    workflow[OPTIONAL_NODE_IDS.maskOriginalSize].inputs['image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
+    if (params.maskMode === 'paint') {
+      // Paint mode: mask is already full-resolution with feathering baked in
+      workflow[OPTIONAL_NODE_IDS.maskPaintImage].inputs['image'] = params.paintedMask!.name
+      workflow[OPTIONAL_NODE_IDS.maskImageToMask].inputs['image'] = [OPTIONAL_NODE_IDS.maskPaintImage, 0]
+      genNode.inputs['rediffusion_mask'] = [OPTIONAL_NODE_IDS.maskFreeVram, 0]
+    } else {
+      // GetImageSize (100) reads from the crop node to get target resolution for process_res
+      workflow[OPTIONAL_NODE_IDS.maskGetImageSize].inputs['image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
+      // GetImageSize (108) reads raw image to get original dimensions for mask RTX upscale
+      workflow[OPTIONAL_NODE_IDS.maskOriginalSize].inputs['image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
 
-    // Wire mask source based on mode
-    if (params.maskMode === 'subject') {
-      workflow[OPTIONAL_NODE_IDS.maskSubject].inputs['image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
-      workflow[OPTIONAL_NODE_IDS.maskDilate].inputs['mask'] = [OPTIONAL_NODE_IDS.maskSubject, 1]
-    } else if (params.maskMode === 'face') {
-      workflow[OPTIONAL_NODE_IDS.maskFace].inputs['images'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
-      workflow[OPTIONAL_NODE_IDS.maskDilate].inputs['mask'] = [OPTIONAL_NODE_IDS.maskFace, 1]
-    } else if (params.maskMode === 'sam') {
-      workflow[OPTIONAL_NODE_IDS.maskSam2].inputs['image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
-      workflow[OPTIONAL_NODE_IDS.maskSam2].inputs['prompt'] = params.maskPrompt ?? 'face'
-      workflow[OPTIONAL_NODE_IDS.maskDilate].inputs['mask'] = [OPTIONAL_NODE_IDS.maskSam2, 1]
+      // Wire mask source based on mode
+      if (params.maskMode === 'subject') {
+        workflow[OPTIONAL_NODE_IDS.maskSubject].inputs['image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
+        workflow[OPTIONAL_NODE_IDS.maskDilate].inputs['mask'] = [OPTIONAL_NODE_IDS.maskSubject, 1]
+      } else if (params.maskMode === 'face') {
+        workflow[OPTIONAL_NODE_IDS.maskFace].inputs['images'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
+        workflow[OPTIONAL_NODE_IDS.maskDilate].inputs['mask'] = [OPTIONAL_NODE_IDS.maskFace, 1]
+      } else if (params.maskMode === 'sam') {
+        workflow[OPTIONAL_NODE_IDS.maskSam2].inputs['image'] = [OPTIONAL_NODE_IDS.cropFirstFrame, 0]
+        workflow[OPTIONAL_NODE_IDS.maskSam2].inputs['prompt'] = params.maskPrompt ?? 'face'
+        workflow[OPTIONAL_NODE_IDS.maskDilate].inputs['mask'] = [OPTIONAL_NODE_IDS.maskSam2, 1]
+      }
+
+      workflow[OPTIONAL_NODE_IDS.maskDilate].inputs['dilation'] = params.maskDilation ?? 100
+      // RTX upscale mask to original image dimensions (from GetImageSize 108)
+      workflow[OPTIONAL_NODE_IDS.maskRtxUpscale].inputs['resize_type.width'] = [OPTIONAL_NODE_IDS.maskOriginalSize, 0]
+      workflow[OPTIONAL_NODE_IDS.maskRtxUpscale].inputs['resize_type.height'] = [OPTIONAL_NODE_IDS.maskOriginalSize, 1]
+      genNode.inputs['rediffusion_mask'] = [OPTIONAL_NODE_IDS.maskFreeVram, 0]
     }
-
-    workflow[OPTIONAL_NODE_IDS.maskDilate].inputs['dilation'] = params.maskDilation ?? 100
-    // RTX upscale mask to original image dimensions (from GetImageSize 108)
-    workflow[OPTIONAL_NODE_IDS.maskRtxUpscale].inputs['resize_type.width'] = [OPTIONAL_NODE_IDS.maskOriginalSize, 0]
-    workflow[OPTIONAL_NODE_IDS.maskRtxUpscale].inputs['resize_type.height'] = [OPTIONAL_NODE_IDS.maskOriginalSize, 1]
 
     // first_image must use raw image to match mask resolution
     genNode.inputs['first_image'] = [OPTIONAL_NODE_IDS.firstFrame, 0]
-    genNode.inputs['rediffusion_mask'] = [OPTIONAL_NODE_IDS.maskFreeVram, 0]
     genNode.inputs['rediffusion_mask_strength'] = params.rediffusionMaskStrength ?? 0.5
   }
 

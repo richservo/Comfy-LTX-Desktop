@@ -1507,6 +1507,7 @@ export function GenSpace() {
                 disabled={isBusy}
                 mode={genMode}
                 hasAudio={!!selectedAudio}
+                imagePath={inputImage}
               />
             )}
 

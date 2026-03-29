@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Select } from './ui/select'
+import { MaskPainter } from './MaskPainter'
 import type { GenerationMode } from './ModeTabs'
 import { useAppSettings } from '../contexts/AppSettingsContext'
 
@@ -24,10 +25,11 @@ export interface GenerationSettings {
   stgScale?: number
   crf?: number
   negativePrompt?: string
-  maskMode?: 'off' | 'subject' | 'face' | 'sam'
+  maskMode?: 'off' | 'subject' | 'face' | 'sam' | 'paint'
   maskPrompt?: string
   maskDilation?: number
   rediffusionMaskStrength?: number
+  paintedMaskDataUrl?: string
   iterations?: number
   // Image-specific settings
   imageResolution: string
@@ -45,6 +47,8 @@ interface SettingsPanelProps {
   hasAudio?: boolean
   hideDuration?: boolean
   hideIterations?: boolean
+  /** First frame image URL for the mask painter */
+  imagePath?: string | null
 }
 
 export function SettingsPanel({
@@ -55,12 +59,20 @@ export function SettingsPanel({
   hasAudio = false,
   hideDuration = false,
   hideIterations = false,
+  imagePath,
 }: SettingsPanelProps) {
   const { settings: appSettings, updateSettings: updateAppSettings } = useAppSettings()
   const [hasRtxSuperRes, setHasRtxSuperRes] = useState(false)
   const [hasZImage, setHasZImage] = useState(false)
   const [hasGemini, setHasGemini] = useState(false)
   const [geminiImageSizes, setGeminiImageSizes] = useState<string[]>([])
+  const [showMaskPainter, setShowMaskPainter] = useState(false)
+
+  const handleMaskPainted = useCallback((maskDataUrl: string) => {
+    onSettingsChange({ ...settings, paintedMaskDataUrl: maskDataUrl })
+    setShowMaskPainter(false)
+  }, [settings, onSettingsChange])
+
   useEffect(() => {
     window.electronAPI?.getModelLists?.()
       .then((lists: { hasRtxSuperRes?: boolean; hasZImage?: boolean; hasGemini?: boolean; geminiImageSizes?: string[] }) => {
@@ -178,7 +190,7 @@ export function SettingsPanel({
 
   // Video mode settings
   return (
-    <div className="space-y-4">
+    <><div className="space-y-4">
       {/* Model Selection */}
       <Select
         label="Model"
@@ -434,6 +446,7 @@ export function SettingsPanel({
                 <option value="subject">Subject</option>
                 <option value="face">Face</option>
                 <option value="sam">SAM3</option>
+                <option value="paint">Paint</option>
               </select>
             </div>
             {settings.maskMode === 'sam' && (
@@ -449,6 +462,36 @@ export function SettingsPanel({
                   placeholder="e.g. face, person, car..."
                   className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-[11px] text-zinc-300 focus:outline-none focus:border-violet-500"
                 />
+              </div>
+            )}
+            {settings.maskMode === 'paint' && (
+              <div className="space-y-2">
+                <button
+                  onClick={() => setShowMaskPainter(true)}
+                  disabled={disabled || !imagePath}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors"
+                >
+                  {settings.paintedMaskDataUrl ? 'Edit Mask' : 'Paint Mask'}
+                </button>
+                {!imagePath && (
+                  <p className="text-[10px] text-zinc-500">Add a first frame image to paint a mask</p>
+                )}
+                {settings.paintedMaskDataUrl && (
+                  <div className="flex items-center gap-2">
+                    <img
+                      src={settings.paintedMaskDataUrl}
+                      alt="Painted mask"
+                      className="h-8 rounded border border-zinc-700 bg-black"
+                    />
+                    <span className="text-[10px] text-green-400">Mask ready</span>
+                    <button
+                      onClick={() => onSettingsChange({ ...settings, paintedMaskDataUrl: undefined })}
+                      className="ml-auto text-[10px] text-zinc-500 hover:text-red-400 transition-colors"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
               </div>
             )}
             {settings.maskMode && settings.maskMode !== 'off' && (
@@ -469,22 +512,24 @@ export function SettingsPanel({
                     className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-violet-500"
                   />
                 </div>
-                <div>
-                  <div className="flex justify-between text-[11px] mb-1">
-                    <span className="text-zinc-400">Dilation</span>
-                    <span className="text-zinc-500">{settings.maskDilation ?? 100}</span>
+                {settings.maskMode !== 'paint' && (
+                  <div>
+                    <div className="flex justify-between text-[11px] mb-1">
+                      <span className="text-zinc-400">Dilation</span>
+                      <span className="text-zinc-500">{settings.maskDilation ?? 100}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={300}
+                      step={5}
+                      value={settings.maskDilation ?? 100}
+                      onChange={(e) => handleChange('maskDilation', parseInt(e.target.value))}
+                      disabled={disabled}
+                      className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-violet-500"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={300}
-                    step={5}
-                    value={settings.maskDilation ?? 100}
-                    onChange={(e) => handleChange('maskDilation', parseInt(e.target.value))}
-                    disabled={disabled}
-                    className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-violet-500"
-                  />
-                </div>
+                )}
               </div>
             )}
           </div>
@@ -593,6 +638,17 @@ export function SettingsPanel({
           </div>
         )}
       </div>
+
     </div>
+
+    {showMaskPainter && imagePath && (
+      <MaskPainter
+        imagePath={imagePath}
+        existingMask={settings.paintedMaskDataUrl}
+        onApply={handleMaskPainted}
+        onCancel={() => setShowMaskPainter(false)}
+      />
+    )}
+    </>
   )
 }
