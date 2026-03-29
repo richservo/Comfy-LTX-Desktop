@@ -21,12 +21,27 @@ function sendProgress(phase: string, percent: number) {
   }
 }
 
-/** Run ffmpeg for preview rendering (separate process tracking from export) */
+/** Run ffmpeg for preview rendering at below-normal priority */
 function runPreviewFfmpeg(ffmpegPath: string, args: string[]): Promise<{ success: boolean; error?: string }> {
   return new Promise((resolve) => {
-    logger.info(`[preview-ffmpeg] spawn: ${args.join(' ').slice(0, 400)}`)
-    const proc = spawn(ffmpegPath, args, { stdio: ['pipe', 'pipe', 'pipe'] })
+    // Limit threads so ffmpeg doesn't saturate all cores
+    const cpuCount = os.cpus().length
+    const threadLimit = Math.max(1, Math.floor(cpuCount / 2))
+    const fullArgs = ['-threads', String(threadLimit), ...args]
+
+    logger.info(`[preview-ffmpeg] spawn (${threadLimit} threads): ${fullArgs.join(' ').slice(0, 400)}`)
+    const proc = spawn(ffmpegPath, fullArgs, { stdio: ['pipe', 'pipe', 'pipe'] })
     activePreviewProcess = proc
+
+    // Lower process priority so UI stays responsive
+    try {
+      if (process.platform === 'win32') {
+        // BELOW_NORMAL_PRIORITY_CLASS
+        spawn('wmic', ['process', 'where', `ProcessId=${proc.pid}`, 'CALL', 'setpriority', '"below normal"'], { stdio: 'ignore', shell: true })
+      } else {
+        spawn('renice', ['+10', '-p', String(proc.pid)], { stdio: 'ignore' })
+      }
+    } catch { /* best-effort priority lowering */ }
     let stderrLog = ''
     proc.stderr?.on('data', (chunk: Buffer) => {
       const text = chunk.toString()
@@ -110,7 +125,7 @@ export function registerPreviewHandlers(): void {
         const r = await runPreviewFfmpeg(ffmpegPath, [
           '-y', ...inputs, '-filter_complex_script', filterFile,
           '-map', '[outv]', '-an',
-          '-c:v', 'libx264', '-preset', 'fast', '-crf', '16',
+          '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22',
           '-g', '4', // keyframe every 4 frames for fast scrub/reverse seeking
           '-pix_fmt', 'yuv420p', tmpVideo,
         ])

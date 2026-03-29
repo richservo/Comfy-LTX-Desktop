@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { Asset, TimelineClip, InferenceStack, Track } from '../../types/project'
+import { DEFAULT_COLOR_CORRECTION } from '../../types/project'
 import type { GenerationSettings } from '../../components/SettingsPanel'
 import type { GenerationInitiator } from '../../contexts/GenerationContext'
 import { fileUrlToPath } from '../../lib/url-to-path'
@@ -20,7 +21,7 @@ export interface UseInferenceStacksParams {
   addTakeToAsset: (projectId: string, assetId: string, take: { url: string; path: string; createdAt: number }) => void
   resolveClipSrc: (clip: TimelineClip | null) => string
   // Generation hook values
-  regenGenerate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string, preserveAspectRatio?: boolean, initiator?: GenerationInitiator, guideVideoPath?: string, guideIndexList?: string, guideStrength?: number, stackId?: string) => Promise<void>
+  regenGenerate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string, preserveAspectRatio?: boolean, initiator?: GenerationInitiator, guideVideoPath?: string, guideIndexList?: string, guideStrength?: number, stackId?: string, seed?: number) => Promise<void>
   regenVideoUrl: string | null
   regenVideoPath: string | null
   isRegenerating: boolean
@@ -29,6 +30,7 @@ export interface UseInferenceStacksParams {
   regenCancel: () => void
   regenReset: () => void
   regenError: string | null
+  regenLastSeed: number | null
   assetSavePath: string | undefined | null
   projectName?: string
   projectGenerationSettings?: GenerationSettings
@@ -42,7 +44,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     addAsset, updateAsset, addTakeToAsset, resolveClipSrc,
     regenGenerate, regenVideoUrl, regenVideoPath,
     isRegenerating, regenProgress, regenStatusMessage,
-    regenCancel, regenReset, regenError,
+    regenCancel, regenReset, regenError, regenLastSeed,
     assetSavePath, projectName, projectGenerationSettings,
   } = params
 
@@ -219,19 +221,17 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     }
   }, [clips, inferenceStacks, setInferenceStacks])
 
-  // Reconcile: un-hide audio clips that were incorrectly hidden, and
-  // un-hide all clips from pending/error stacks
+  // Reconcile: un-hide clips from pending/error stacks (they shouldn't be hidden)
   useEffect(() => {
     const pendingStackIds = new Set(
       inferenceStacks.filter(s => s.renderState === 'pending' || s.renderState === 'error').map(s => s.id)
     )
+    if (pendingStackIds.size === 0) return
     const needsFix = clips.some(c =>
-      (c.hiddenByStack && c.type === 'audio') ||
-      (c.hiddenByStack && c.inferenceStackId && pendingStackIds.has(c.inferenceStackId))
+      c.hiddenByStack && c.inferenceStackId && pendingStackIds.has(c.inferenceStackId)
     )
     if (!needsFix) return
     setClips(prev => prev.map(c => {
-      if (c.hiddenByStack && c.type === 'audio') return { ...c, hiddenByStack: false }
       if (c.hiddenByStack && c.inferenceStackId && pendingStackIds.has(c.inferenceStackId)) return { ...c, hiddenByStack: false }
       return c
     }))
@@ -241,12 +241,6 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     const stack = inferenceStacks.find(s => s.id === stackId)
     if (!stack || !currentProjectId) return
 
-    // Collect all image clips sorted by startTime
-    const stackClips = getStackClips(stack, clips)
-    const imageClips = stackClips.filter(c => c.type === 'image').sort((a, b) => a.startTime - b.startTime)
-    const imageCount = imageClips.length
-    const useGuideVideo = imageCount >= 3
-
     // Compute handle durations in seconds
     const fps = stack.settings.fps
     const headHandleFrames = stack.headHandles ?? 0
@@ -254,24 +248,178 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     const headSeconds = headHandleFrames / fps
     const tailSeconds = tailHandleFrames / fps
 
-    // Resolve source paths — try from clips first, fall back to stored sourcePaths
+    // Determine if this is a re-render with a stored snapshot
+    const isReRender = !!(stack.renderedAssetId && stack.renderSnapshot)
+    const snapshot = stack.renderSnapshot
+
+    // Resolve source paths — on re-render use snapshot exclusively, on first render resolve from live clips
     let firstImagePath: string | null = null
     let middleImagePath: string | null = null
     let lastImagePath: string | null = null
     let audioSourcePath: string | null = null
     let hasAudioClip = false
+    let imageCount: number
+    let useGuideVideo: boolean
+    let visibleDuration: number
 
     // Guide video state
     let guideVideoPath: string | undefined
     let guideIndexList: string | undefined
     let guideStrength: number | undefined
 
+    // Snapshot data to persist (populated during first render)
+    let snapshotGuideData: { images: Array<{ path: string; startFrame: number; endFrame: number }>; frameIndices: number[]; totalFrames: number } | undefined
+    let snapshotAudioClips: Array<{ sourcePath: string; trimStart: number; duration: number; offsetInMix: number }> = []
+
+    if (isReRender && snapshot && stack.sourcePaths) {
+      // ═══ RE-RENDER: use stored snapshot exclusively ═══
+      logger.info(`[renderStack] RE-RENDER using snapshot (duration=${snapshot.duration}s, images=${snapshot.imageCount})`)
+      imageCount = snapshot.imageCount
+      useGuideVideo = imageCount >= 3
+      visibleDuration = snapshot.duration
+      const fullDurationWithHandles = visibleDuration + headSeconds + tailSeconds
+
+      firstImagePath = stack.sourcePaths.firstImage ?? null
+      middleImagePath = stack.sourcePaths.middleImage ?? null
+      lastImagePath = stack.sourcePaths.lastImage ?? null
+
+      // Re-create guide video from snapshot data (temp file may be gone)
+      if (useGuideVideo && snapshot.guideVideoData) {
+        const gd = snapshot.guideVideoData
+        guideStrength = stack.guideStrength ?? 0.7
+        guideIndexList = gd.frameIndices.join(',')
+        // Apply guideEndMode if set
+        if (stack.guideEndMode === 'end') {
+          const endFrameIdx = gd.totalFrames - 1
+          const adjustedIndices = [...gd.frameIndices]
+          adjustedIndices[adjustedIndices.length - 1] = endFrameIdx
+          guideIndexList = adjustedIndices.join(',')
+        }
+        try {
+          guideVideoPath = await window.electronAPI.renderGuideVideo({
+            images: gd.images,
+            fps,
+            totalFrames: gd.totalFrames,
+            resolution: stack.settings.videoResolution,
+            aspectRatio: stack.settings.aspectRatio || '16:9',
+          })
+        } catch (err) {
+          logger.error(`Stack render: guide video re-creation failed: ${err}`)
+        }
+      }
+
+      // Re-extract audio from snapshot params
+      let audioPath: string | null = null
+      if (snapshot.audioClips && snapshot.audioClips.length > 0) {
+        hasAudioClip = true
+        audioSourcePath = snapshot.audioClips[0].sourcePath
+        if (snapshot.audioClips.length === 1) {
+          const ac = snapshot.audioClips[0]
+          try {
+            const extractStart = Math.max(0, ac.trimStart - headSeconds)
+            const extractDuration = ac.duration + headSeconds + tailSeconds
+            const rawAudioPath = await window.electronAPI.extractAudioSegment({
+              sourcePath: ac.sourcePath,
+              startTime: extractStart,
+              duration: extractDuration,
+            })
+            audioPath = await window.electronAPI.padAudioToLength({
+              sourcePath: rawAudioPath,
+              targetDuration: fullDurationWithHandles,
+            })
+          } catch (err) {
+            logger.error(`Stack render: snapshot audio extraction failed: ${err}`)
+          }
+        } else {
+          try {
+            const extractedFiles: Array<{ path: string; offsetSeconds: number; duration: number }> = []
+            for (const ac of snapshot.audioClips) {
+              const rawAudioPath = await window.electronAPI.extractAudioSegment({
+                sourcePath: ac.sourcePath,
+                startTime: ac.trimStart,
+                duration: ac.duration,
+              })
+              extractedFiles.push({ path: rawAudioPath, offsetSeconds: Math.max(0, ac.offsetInMix), duration: ac.duration })
+            }
+            if (extractedFiles.length > 0) {
+              audioPath = await window.electronAPI.mixAudioFiles({
+                files: extractedFiles,
+                totalDuration: fullDurationWithHandles,
+              })
+            }
+          } catch (err) {
+            logger.error(`Stack render: snapshot multi-audio mixing failed: ${err}`)
+          }
+        }
+      } else if (stack.sourcePaths.audio) {
+        // Fallback to stored audio source path
+        audioSourcePath = stack.sourcePaths.audio
+        try {
+          audioPath = await window.electronAPI.extractAudioSegment({
+            sourcePath: audioSourcePath,
+            startTime: 0,
+            duration: fullDurationWithHandles,
+          })
+        } catch (err) {
+          logger.error(`Stack render: stored audio extraction failed: ${err}`)
+        }
+      }
+
+      // Build settings
+      const duration = visibleDuration + headSeconds + tailSeconds
+      const hasMiddle = !!middleImagePath
+      const settings: GenerationSettings = {
+        ...stack.settings,
+        duration: Math.min(Math.max(1, Math.round(duration)), stack.settings.model === 'pro' ? 10 : 20),
+        ...(hasMiddle && !useGuideVideo ? { temporalUpscale: false } : {}),
+        audio: hasAudioClip ? true : stack.settings.audio,
+      }
+
+      // Mark as rendering (keep existing sourcePaths and snapshot)
+      setRenderingStackId(stackId)
+      updateStack(stackId, { renderState: 'rendering', errorMessage: undefined })
+
+      // Use locked seed if available, otherwise let backend pick random
+      const renderSeed = stack.seedLocked && stack.seed != null ? stack.seed : undefined
+
+      try {
+        if (useGuideVideo && guideVideoPath) {
+          logger.info(`[renderStack] RE-RENDER (guide video): guideVideo=${guideVideoPath} guideIndexList=${guideIndexList} seed=${renderSeed ?? 'random'} prompt=${stack.prompt.substring(0, 50)}`)
+          await regenGenerate(
+            stack.prompt, firstImagePath, settings, audioPath,
+            middleImagePath, lastImagePath, stack.strengths, projectName,
+            stack.preserveAspectRatio, 'editor',
+            guideVideoPath, guideIndexList, guideStrength, stackId, renderSeed,
+          )
+        } else {
+          logger.info(`[renderStack] RE-RENDER: firstImage=${firstImagePath} middleImage=${middleImagePath} lastImage=${lastImagePath} audio=${audioPath} seed=${renderSeed ?? 'random'} prompt=${stack.prompt.substring(0, 50)}`)
+          await regenGenerate(
+            stack.prompt, firstImagePath, settings, audioPath,
+            middleImagePath, lastImagePath, stack.strengths, projectName,
+            stack.preserveAspectRatio, 'editor',
+            undefined, undefined, undefined, stackId, renderSeed,
+          )
+        }
+      } catch (err) {
+        logger.error(`Stack re-render failed: ${err}`)
+        updateStack(stackId, { renderState: 'error', errorMessage: String(err) })
+        setRenderingStackId(null)
+      }
+      return
+    }
+
+    // ═══ FIRST RENDER: resolve from live clips and build snapshot ═══
+    const stackClips = getStackClips(stack, clips)
+    const imageClips = stackClips.filter(c => c.type === 'image').sort((a, b) => a.startTime - b.startTime)
+    imageCount = imageClips.length
+    useGuideVideo = imageCount >= 3
+
     if (useGuideVideo && imageCount >= 2) {
       // --- Guide video mode ---
       const stackStart = imageClips[0].startTime
-      const duration = getStackDuration(stack, clips)
+      visibleDuration = getStackDuration(stack, clips)
       // Total frames includes handles
-      const totalFrames = Math.round((duration + headSeconds + tailSeconds) * fps) + 1
+      const totalFrames = Math.round((visibleDuration + headSeconds + tailSeconds) * fps) + 1
 
       // Resolve all image paths and compute frame indices
       const guideImages: { path: string; startFrame: number; endFrame: number }[] = []
@@ -291,6 +439,9 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
         frameIndices.push(startFrame)
       }
 
+      // Snapshot guide video data before applying guideEndMode (store raw positions)
+      snapshotGuideData = guideImages.length >= 2 ? { images: [...guideImages.map(g => ({ ...g }))], frameIndices: [...frameIndices], totalFrames } : undefined
+
       if (guideImages.length >= 2) {
         // 'end' mode: move the last image's index to the final frame of the clip
         if (stack.guideEndMode === 'end') {
@@ -301,7 +452,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
         guideIndexList = frameIndices.join(',')
         guideStrength = stack.guideStrength ?? 0.7
 
-        // Render the guide video via ffmpeg or use stored path
+        // Render the guide video via ffmpeg
         try {
           guideVideoPath = await window.electronAPI.renderGuideVideo({
             images: guideImages,
@@ -323,6 +474,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
       lastImagePath = guideImages[guideImages.length - 1]?.path ?? null
     } else if (!useGuideVideo) {
       // --- Standard first/last/middle frame mode ---
+      visibleDuration = getStackDuration(stack, clips)
       const frameMapping = getStackFrameMapping(stack, clips)
 
       if (frameMapping) {
@@ -350,21 +502,29 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
         middleImagePath = stack.sourcePaths.middleImage ?? null
         lastImagePath = stack.sourcePaths.lastImage ?? null
       }
+    } else {
+      visibleDuration = getStackDuration(stack, clips)
     }
 
     // Extract audio if present — include handles, pad with silence where needed
-    const audioClip = stackClips.find(c => c.type === 'audio')
-    const baseStackDuration = getStackDuration(stack, clips)
-    const fullDurationWithHandles = baseStackDuration + headSeconds + tailSeconds
+    const audioClips = stackClips.filter(c => c.type === 'audio')
+    const fullDurationWithHandles = visibleDuration + headSeconds + tailSeconds
+
+    // Compute stack start time (earliest clip on timeline)
+    const sortedStackClips = [...stackClips].sort((a, b) => a.startTime - b.startTime)
+    const stackStartTime = sortedStackClips[0]?.startTime ?? 0
 
     let audioPath: string | null = null
-    if (audioClip) {
+    if (audioClips.length === 1) {
+      // Single audio clip — use simple extract + pad path
+      const audioClip = audioClips[0]
       hasAudioClip = true
       const audioUrl = resolveClipSrc(audioClip)
       audioSourcePath = fileUrlToPath(audioUrl)
       if (audioSourcePath) {
+        // Snapshot audio params
+        snapshotAudioClips = [{ sourcePath: audioSourcePath, trimStart: audioClip.trimStart, duration: audioClip.duration, offsetInMix: 0 }]
         try {
-          // Extract audio including handle regions from the source if available
           const extractStart = Math.max(0, audioClip.trimStart - headSeconds)
           const extractDuration = audioClip.duration + headSeconds + tailSeconds
           const rawAudioPath = await window.electronAPI.extractAudioSegment({
@@ -372,21 +532,44 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
             startTime: extractStart,
             duration: extractDuration,
           })
-          // Pad to full duration with handles if extracted audio is shorter
-          if (fullDurationWithHandles > extractDuration + 0.1) {
-            audioPath = await window.electronAPI.padAudioToLength({
-              sourcePath: rawAudioPath,
-              targetDuration: fullDurationWithHandles,
-            })
-          } else {
-            audioPath = await window.electronAPI.padAudioToLength({
-              sourcePath: rawAudioPath,
-              targetDuration: fullDurationWithHandles,
-            })
-          }
+          audioPath = await window.electronAPI.padAudioToLength({
+            sourcePath: rawAudioPath,
+            targetDuration: fullDurationWithHandles,
+          })
         } catch (err) {
           logger.error(`Stack render: audio extraction failed: ${err}`)
         }
+      }
+    } else if (audioClips.length > 1) {
+      // Multiple audio clips — extract each, then mix at correct offsets
+      hasAudioClip = true
+      audioSourcePath = fileUrlToPath(resolveClipSrc(audioClips[0]))
+      try {
+        const extractedFiles: Array<{ path: string; offsetSeconds: number; duration: number }> = []
+        for (const audioClip of audioClips) {
+          const audioUrl = resolveClipSrc(audioClip)
+          const srcPath = fileUrlToPath(audioUrl)
+          if (!srcPath) continue
+
+          const rawAudioPath = await window.electronAPI.extractAudioSegment({
+            sourcePath: srcPath,
+            startTime: audioClip.trimStart,
+            duration: audioClip.duration,
+          })
+          // Offset relative to stack start (with head handle)
+          const offsetInMix = (audioClip.startTime - stackStartTime) + headSeconds
+          extractedFiles.push({ path: rawAudioPath, offsetSeconds: Math.max(0, offsetInMix), duration: audioClip.duration })
+          // Snapshot audio params
+          snapshotAudioClips.push({ sourcePath: srcPath, trimStart: audioClip.trimStart, duration: audioClip.duration, offsetInMix: Math.max(0, offsetInMix) })
+        }
+        if (extractedFiles.length > 0) {
+          audioPath = await window.electronAPI.mixAudioFiles({
+            files: extractedFiles,
+            totalDuration: fullDurationWithHandles,
+          })
+        }
+      } catch (err) {
+        logger.error(`Stack render: multi-audio mixing failed: ${err}`)
       }
     }
 
@@ -413,8 +596,15 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
       guideVideo: guideVideoPath ?? stack.sourcePaths?.guideVideo,
     }
 
+    // Build render snapshot for faithful re-renders
+    const renderSnapshot: InferenceStack['renderSnapshot'] = {
+      duration: visibleDuration,
+      imageCount,
+      guideVideoData: snapshotGuideData,
+      audioClips: snapshotAudioClips.length > 0 ? snapshotAudioClips : undefined,
+    }
+
     // Compute duration (visible stack duration + handles for generation)
-    const visibleDuration = getStackDuration(stack, clips)
     const duration = visibleDuration + headSeconds + tailSeconds
 
     // Build settings — force temporalUpscale off when middle frame is used
@@ -426,46 +616,29 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
       audio: hasAudioClip ? true : stack.settings.audio,
     }
 
-    // Mark as rendering and store source paths
+    // Mark as rendering and store source paths + snapshot
     setRenderingStackId(stackId)
-    updateStack(stackId, { renderState: 'rendering', errorMessage: undefined, sourcePaths: resolvedPaths })
+    updateStack(stackId, { renderState: 'rendering', errorMessage: undefined, sourcePaths: resolvedPaths, renderSnapshot })
+
+    // Use locked seed if available, otherwise let backend pick random
+    const renderSeed = stack.seedLocked && stack.seed != null ? stack.seed : undefined
 
     try {
       if (useGuideVideo && guideVideoPath) {
-        logger.info(`[renderStack] calling generate (guide video): guideVideo=${guideVideoPath} guideIndexList=${guideIndexList} guideStrength=${guideStrength} prompt=${stack.prompt.substring(0, 50)}`)
+        logger.info(`[renderStack] calling generate (guide video): guideVideo=${guideVideoPath} guideIndexList=${guideIndexList} guideStrength=${guideStrength} seed=${renderSeed ?? 'random'} prompt=${stack.prompt.substring(0, 50)}`)
         await regenGenerate(
-          stack.prompt,
-          firstImagePath,
-          settings,
-          audioPath,
-          middleImagePath,
-          lastImagePath,
-          stack.strengths,
-          projectName,
-          stack.preserveAspectRatio,
-          'editor',
-          guideVideoPath,
-          guideIndexList,
-          guideStrength,
-          stackId,
+          stack.prompt, firstImagePath, settings, audioPath,
+          middleImagePath, lastImagePath, stack.strengths, projectName,
+          stack.preserveAspectRatio, 'editor',
+          guideVideoPath, guideIndexList, guideStrength, stackId, renderSeed,
         )
       } else {
-        logger.info(`[renderStack] calling generate: firstImage=${firstImagePath} middleImage=${middleImagePath} lastImage=${lastImagePath} audio=${audioPath} prompt=${stack.prompt.substring(0, 50)}`)
+        logger.info(`[renderStack] calling generate: firstImage=${firstImagePath} middleImage=${middleImagePath} lastImage=${lastImagePath} audio=${audioPath} seed=${renderSeed ?? 'random'} prompt=${stack.prompt.substring(0, 50)}`)
         await regenGenerate(
-          stack.prompt,
-          firstImagePath,
-          settings,
-          audioPath,
-          middleImagePath,
-          lastImagePath,
-          stack.strengths,
-          projectName,
-          stack.preserveAspectRatio,
-          'editor',
-          undefined,
-          undefined,
-          undefined,
-          stackId,
+          stack.prompt, firstImagePath, settings, audioPath,
+          middleImagePath, lastImagePath, stack.strengths, projectName,
+          stack.preserveAspectRatio, 'editor',
+          undefined, undefined, undefined, stackId, renderSeed,
         )
       }
     } catch (err) {
@@ -540,6 +713,9 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
               headHandles: stack.headHandles,
               tailHandles: stack.tailHandles,
               sourcePaths: stack.sourcePaths ? { ...stack.sourcePaths } : undefined,
+              renderSnapshot: stack.renderSnapshot ? { ...stack.renderSnapshot } : undefined,
+              seed: stack.seed,
+              seedLocked: stack.seedLocked,
             },
           })
 
@@ -564,7 +740,10 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
             return c
           }))
 
-          updateStack(renderingStackId, { renderState: 'complete', errorMessage: undefined })
+          updateStack(renderingStackId, {
+            renderState: 'complete', errorMessage: undefined,
+            ...(regenLastSeed != null ? { seed: regenLastSeed, seedLocked: stack.seedLocked ?? true } : {}),
+          })
         } else {
           // First render: create new asset and clip (with full stack data for recovery)
           const asset = addAsset(currentProjectId, {
@@ -599,6 +778,9 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
               headHandles: stack.headHandles,
               tailHandles: stack.tailHandles,
               sourcePaths: stack.sourcePaths ? { ...stack.sourcePaths } : undefined,
+              renderSnapshot: stack.renderSnapshot ? { ...stack.renderSnapshot } : undefined,
+              seed: stack.seed,
+              seedLocked: stack.seedLocked,
             },
           })
 
@@ -700,6 +882,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
             renderedAssetId: asset.id,
             renderedClipId,
             errorMessage: undefined,
+            ...(regenLastSeed != null ? { seed: regenLastSeed, seedLocked: true } : {}),
           })
         }
 
@@ -795,7 +978,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
                     generationParams: { mode: 'image-to-video', prompt: stack.prompt, model: stack.settings.model, duration: stack.settings.duration, resolution: stack.settings.videoResolution, fps: stack.settings.fps, audio: stack.settings.audio, cameraMotion: stack.settings.cameraMotion },
                     takes: [{ url: finalUrl, path: finalPath, createdAt: Date.now() }],
                     activeTakeIndex: 0,
-                    inferenceStackData: { stackId: stack.id, prompt: stack.prompt, settings: { ...stack.settings }, strengths: { ...stack.strengths }, preserveAspectRatio: stack.preserveAspectRatio, singleFramePosition: stack.singleFramePosition, guideMode: stack.guideMode, guideStrength: stack.guideStrength, guideEndMode: stack.guideEndMode, headHandles: stack.headHandles, tailHandles: stack.tailHandles, sourcePaths: stack.sourcePaths ? { ...stack.sourcePaths } : undefined },
+                    inferenceStackData: { stackId: stack.id, prompt: stack.prompt, settings: { ...stack.settings }, strengths: { ...stack.strengths }, preserveAspectRatio: stack.preserveAspectRatio, singleFramePosition: stack.singleFramePosition, guideMode: stack.guideMode, guideStrength: stack.guideStrength, guideEndMode: stack.guideEndMode, headHandles: stack.headHandles, tailHandles: stack.tailHandles, sourcePaths: stack.sourcePaths ? { ...stack.sourcePaths } : undefined, renderSnapshot: stack.renderSnapshot ? { ...stack.renderSnapshot } : undefined, seed: stack.seed, seedLocked: stack.seedLocked },
                   })
                   const renderedClipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
                   const recAudioClipId = `clip-${Date.now()}-a-${Math.random().toString(36).substr(2, 9)}`
@@ -1045,7 +1228,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
           generationParams: { mode: 'image-to-video', prompt: stack.prompt, model: stack.settings.model, duration: stack.settings.duration, resolution: stack.settings.videoResolution, fps: stack.settings.fps, audio: stack.settings.audio, cameraMotion: stack.settings.cameraMotion },
           takes,
           activeTakeIndex: newTakeIndex,
-          inferenceStackData: { stackId: stack.id, prompt: stack.prompt, settings: { ...stack.settings }, strengths: { ...stack.strengths }, preserveAspectRatio: stack.preserveAspectRatio, singleFramePosition: stack.singleFramePosition, guideMode: stack.guideMode, guideStrength: stack.guideStrength, guideEndMode: stack.guideEndMode, headHandles: stack.headHandles, tailHandles: stack.tailHandles, sourcePaths: stack.sourcePaths ? { ...stack.sourcePaths } : undefined },
+          inferenceStackData: { stackId: stack.id, prompt: stack.prompt, settings: { ...stack.settings }, strengths: { ...stack.strengths }, preserveAspectRatio: stack.preserveAspectRatio, singleFramePosition: stack.singleFramePosition, guideMode: stack.guideMode, guideStrength: stack.guideStrength, guideEndMode: stack.guideEndMode, headHandles: stack.headHandles, tailHandles: stack.tailHandles, sourcePaths: stack.sourcePaths ? { ...stack.sourcePaths } : undefined, renderSnapshot: stack.renderSnapshot ? { ...stack.renderSnapshot } : undefined, seed: stack.seed, seedLocked: stack.seedLocked },
         })
         logger.info(`[relinkStackOutput] created asset with ${takes.length} takes (preserved old=${!!oldUrl})`)
 
@@ -1122,6 +1305,161 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     }
   }, [currentProjectId, addAsset, addTakeToAsset, updateStack, setClips])
 
+  /**
+   * Create a complete stack from an asset with inferenceStackData (e.g. Gen Space generation).
+   * Places hidden source clips (images, audio) on the timeline and builds a stack
+   * with renderState 'complete', so reset/revert reveals the original sources.
+   *
+   * @param renderedClipId The clip ID of the rendered video already on the timeline
+   * @param asset The asset with inferenceStackData
+   */
+  const createStackFromAsset = useCallback((renderedClipId: string, asset: Asset) => {
+    const stackData = asset.inferenceStackData
+    if (!stackData) return null
+
+    const renderedClip = clips.find(c => c.id === renderedClipId)
+    if (!renderedClip) return null
+
+    const stackId = `stack-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    const sourcePaths = stackData.sourcePaths
+    const sourceClipIds: string[] = []
+    const newSourceClips: TimelineClip[] = []
+
+    // Helper to build a file:// URL from a file path
+    const toFileUrl = (p: string) => {
+      const norm = p.replace(/\\/g, '/')
+      return norm.startsWith('/') ? `file://${norm}` : `file:///${norm}`
+    }
+
+    // Create hidden image clips for each source image
+    if (sourcePaths) {
+      const imageEntries: Array<{ path: string; position: 'first' | 'middle' | 'last' }> = []
+      if (sourcePaths.firstImage) imageEntries.push({ path: sourcePaths.firstImage, position: 'first' })
+      if (sourcePaths.middleImage) imageEntries.push({ path: sourcePaths.middleImage, position: 'middle' })
+      if (sourcePaths.lastImage) imageEntries.push({ path: sourcePaths.lastImage, position: 'last' })
+
+      const imageDuration = imageEntries.length > 1
+        ? renderedClip.duration / imageEntries.length
+        : renderedClip.duration
+
+      for (let i = 0; i < imageEntries.length; i++) {
+        const entry = imageEntries[i]
+        const clipId = `clip-${Date.now()}-src${i}-${Math.random().toString(36).substr(2, 9)}`
+        sourceClipIds.push(clipId)
+        newSourceClips.push({
+          id: clipId,
+          assetId: '',
+          type: 'image',
+          startTime: renderedClip.startTime + i * imageDuration,
+          duration: imageDuration,
+          trimStart: 0,
+          trimEnd: 0,
+          speed: 1,
+          reversed: false,
+          muted: false,
+          volume: 1,
+          trackIndex: renderedClip.trackIndex,
+          asset: {
+            id: `asset-src-${clipId}`,
+            type: 'image',
+            path: entry.path,
+            url: toFileUrl(entry.path),
+            prompt: '',
+            resolution: stackData.settings.videoResolution || '540p',
+            createdAt: Date.now(),
+          },
+          flipH: false,
+          flipV: false,
+          transitionIn: { type: 'none', duration: 0.5 },
+          transitionOut: { type: 'none', duration: 0.5 },
+          colorCorrection: { ...DEFAULT_COLOR_CORRECTION },
+          opacity: 100,
+          inferenceStackId: stackId,
+          hiddenByStack: true,
+        })
+      }
+
+      // Create hidden audio clip if source audio exists
+      if (sourcePaths.audio) {
+        const audioClipId = `clip-${Date.now()}-srcaud-${Math.random().toString(36).substr(2, 9)}`
+        sourceClipIds.push(audioClipId)
+        // Find an audio track
+        const audioTrackIdx = tracks.findIndex(t => t.kind === 'audio' && !t.locked)
+        newSourceClips.push({
+          id: audioClipId,
+          assetId: '',
+          type: 'audio',
+          startTime: renderedClip.startTime,
+          duration: renderedClip.duration,
+          trimStart: 0,
+          trimEnd: 0,
+          speed: 1,
+          reversed: false,
+          muted: false,
+          volume: 1,
+          trackIndex: audioTrackIdx >= 0 ? audioTrackIdx : renderedClip.trackIndex,
+          asset: {
+            id: `asset-src-${audioClipId}`,
+            type: 'audio',
+            path: sourcePaths.audio,
+            url: toFileUrl(sourcePaths.audio),
+            prompt: '',
+            resolution: '',
+            createdAt: Date.now(),
+          },
+          flipH: false,
+          flipV: false,
+          transitionIn: { type: 'none', duration: 0.5 },
+          transitionOut: { type: 'none', duration: 0.5 },
+          colorCorrection: { ...DEFAULT_COLOR_CORRECTION },
+          opacity: 100,
+          inferenceStackId: stackId,
+          hiddenByStack: true,
+        })
+      }
+    }
+
+    // Build the stack
+    const newStack: InferenceStack = {
+      id: stackId,
+      clipIds: [...sourceClipIds, renderedClipId],
+      prompt: stackData.prompt,
+      settings: { ...stackData.settings },
+      strengths: { ...stackData.strengths },
+      preserveAspectRatio: stackData.preserveAspectRatio,
+      singleFramePosition: stackData.singleFramePosition,
+      guideMode: stackData.guideMode,
+      guideStrength: stackData.guideStrength,
+      guideEndMode: stackData.guideEndMode,
+      headHandles: stackData.headHandles ?? 0,
+      tailHandles: stackData.tailHandles ?? 0,
+      renderState: 'complete',
+      renderedAssetId: asset.id,
+      renderedClipId,
+      createdAt: Date.now(),
+      originalClips: newSourceClips.map(c => ({ ...c, hiddenByStack: undefined })),
+      sourcePaths: stackData.sourcePaths ? { ...stackData.sourcePaths } : undefined,
+      renderSnapshot: stackData.renderSnapshot ? { ...stackData.renderSnapshot } : undefined,
+      seed: stackData.seed,
+      seedLocked: stackData.seedLocked ?? (stackData.seed != null),
+    }
+
+    // Add source clips to timeline (hidden) and tag the rendered clip with the stack
+    setClips(prev => [
+      ...prev.map(c => {
+        if (c.id === renderedClipId) {
+          return { ...c, inferenceStackId: stackId }
+        }
+        return c
+      }),
+      ...newSourceClips,
+    ])
+
+    setInferenceStacks(prev => [...prev, newStack])
+    logger.info(`[createStackFromAsset] created stack ${stackId} from asset ${asset.id} with ${newSourceClips.length} source clips`)
+    return newStack
+  }, [clips, tracks, setClips, setInferenceStacks])
+
   return {
     // State
     inferenceStacks,
@@ -1134,6 +1472,7 @@ export function useInferenceStacks(params: UseInferenceStacksParams) {
     batchQueue,
     // Actions
     createStack,
+    createStackFromAsset,
     updateStack,
     deleteStack,
     removeClipFromStack,

@@ -72,7 +72,7 @@ export function urlToFilePath(url: string): string {
 }
 
 /** Run an ffmpeg command and return a promise. Logs stderr and sets activeExportProcess. */
-export function runFfmpeg(ffmpegPath: string, args: string[]): Promise<{ success: boolean; error?: string }> {
+export function runFfmpeg(ffmpegPath: string, args: string[], onProgress?: (info: { frame: number; fps: number; time: number }) => void): Promise<{ success: boolean; error?: string }> {
   return new Promise((resolve) => {
     logger.info( `[ffmpeg] spawn: ${args.join(' ').slice(0, 400)}`)
     const proc = spawn(ffmpegPath, args, { stdio: ['pipe', 'pipe', 'pipe'] })
@@ -85,6 +85,17 @@ export function runFfmpeg(ffmpegPath: string, args: string[]): Promise<{ success
       for (const line of lines) {
         if (line.includes('frame=') || line.includes('Error') || line.includes('error')) {
           logger.info( `[ffmpeg] ${line.trim().slice(0, 200)}`)
+        }
+        if (onProgress && line.includes('frame=')) {
+          const frameMatch = line.match(/frame=\s*(\d+)/)
+          const fpsMatch = line.match(/fps=\s*([\d.]+)/)
+          const timeMatch = line.match(/time=\s*(\d+):(\d+):([\d.]+)/)
+          if (frameMatch) {
+            const frame = parseInt(frameMatch[1])
+            const fps = fpsMatch ? parseFloat(fpsMatch[1]) : 0
+            const time = timeMatch ? parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]) : 0
+            onProgress({ frame, fps, time })
+          }
         }
       }
     })

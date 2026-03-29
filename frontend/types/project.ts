@@ -66,6 +66,9 @@ export interface Asset {
     headHandles?: number
     tailHandles?: number
     sourcePaths?: InferenceStack['sourcePaths']
+    renderSnapshot?: InferenceStack['renderSnapshot']
+    seed?: number
+    seedLocked?: boolean
   }
 }
 
@@ -429,6 +432,8 @@ export interface InferenceStack {
   guideEndMode?: 'cut' | 'end'            // 'cut' = last image index at its timeline position; 'end' = last image index at final frame of clip
   headHandles?: number                     // Extra frames to generate before the stack start (for editing room)
   tailHandles?: number                     // Extra frames to generate after the stack end (for editing room)
+  seed?: number                            // Seed used for generation (stored after render for re-render fidelity)
+  seedLocked?: boolean                     // When true, re-renders use the stored seed; when false, a new random seed is used
   renderState: 'pending' | 'rendering' | 'complete' | 'error'
   renderedAssetId?: string             // generated video asset
   renderedClipId?: string              // video clip on timeline
@@ -443,6 +448,22 @@ export interface InferenceStack {
     lastImage?: string
     audio?: string
     guideVideo?: string   // Rendered guide video temp path for re-renders
+  }
+  // Full render snapshot — captured at render time, used exclusively for re-renders
+  renderSnapshot?: {
+    duration: number           // Visible stack duration (seconds) at render time
+    imageCount: number         // Number of image clips at render time
+    guideVideoData?: {         // Guide video params for re-creating guide video
+      images: Array<{ path: string; startFrame: number; endFrame: number }>
+      frameIndices: number[]
+      totalFrames: number
+    }
+    audioClips?: Array<{       // Audio extraction params for each audio clip
+      sourcePath: string
+      trimStart: number
+      duration: number
+      offsetInMix: number      // Offset relative to stack start (seconds)
+    }>
   }
 }
 
@@ -476,6 +497,7 @@ export interface Timeline {
   markers?: TimelineMarker[]  // Timeline markers for timing spots
   resolution?: { width: number; height: number }
   fps?: number
+  playheadPosition?: number   // Persisted playhead time in seconds
 }
 
 export interface Project {

@@ -717,7 +717,7 @@ export function parseTime(tc: string): number | null {
 
 /**
  * Validate that a set of clips is a valid inference stack selection:
- * 0-3 image clips + 0-1 audio clips, nothing else.
+ * 0-20 image clips + 0-20 audio clips, nothing else.
  * At least one image or one audio clip must be present.
  */
 export function isValidStackSelection(selectedClips: TimelineClip[]): boolean {
@@ -725,8 +725,8 @@ export function isValidStackSelection(selectedClips: TimelineClip[]): boolean {
   const audios = selectedClips.filter(c => c.type === 'audio')
   const others = selectedClips.filter(c => c.type !== 'image' && c.type !== 'audio')
   if (others.length > 0) return false
-  if (images.length > 20 || audios.length > 1) return false
-  return images.length >= 1 || audios.length === 1
+  if (images.length > 20 || audios.length > 20) return false
+  return images.length >= 1 || audios.length >= 1
 }
 
 /**

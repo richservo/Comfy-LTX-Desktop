@@ -243,7 +243,7 @@ export function useClipOperations(params: UseClipOperationsParams) {
       newClips.push(audioClip)
     }
 
-    if (newClips.length === 0) return
+    if (newClips.length === 0) return null
 
     pushUndo()
     if (overwrite) {
@@ -252,6 +252,8 @@ export function useClipOperations(params: UseClipOperationsParams) {
     } else {
       setClips(prev => [...prev, ...newClips])
     }
+
+    return videoClipId
   }
   
   const importFiles = async (files: File[]) => {

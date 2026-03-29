@@ -99,6 +99,8 @@ export interface WorkflowParams {
   guideStrength?: number
   /** STG scale (spatiotemporal guidance, default 1) */
   stgScale?: number
+  /** CRF (output quality, lower = higher quality, default 35) */
+  crf?: number
 }
 
 type WorkflowNode = { class_type: string; inputs: Record<string, unknown>; _meta?: { title: string } }
@@ -494,6 +496,7 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   genNode.inputs['steps'] = params.steps
   genNode.inputs['cfg'] = params.cfg
   if (params.stgScale != null) genNode.inputs['stg_scale'] = params.stgScale
+  if (params.crf != null) genNode.inputs['crf'] = params.crf
   genNode.inputs['noise_seed'] = params.seed
   genNode.inputs['seed_mode'] = 'fixed'
 

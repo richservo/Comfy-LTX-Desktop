@@ -69,7 +69,8 @@ interface UseTimelineDragParams {
   pushUndo: (c?: any) => void
   resolveClipSrc: (clip: TimelineClip | null) => string
   getMaxClipDuration: (clip: TimelineClip) => number
-  addClipToTimeline: (asset: Asset, trackIndex: number, startTime?: number, overwrite?: boolean) => void
+  addClipToTimeline: (asset: Asset, trackIndex: number, startTime?: number, overwrite?: boolean) => string | null | void
+  createStackFromAssetRef: { current: (renderedClipId: string, asset: Asset) => any }
   assets: Asset[]
   timelines: any[]
   activeTimeline: any
@@ -97,7 +98,7 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
     clips, setClips, tracks,
     selectedClipIds, setSelectedClipIds,
     currentTime, setCurrentTime, setIsPlaying, isPlayingRef,
-    snapEnabled, pushUndo, getMaxClipDuration, addClipToTimeline,
+    snapEnabled, pushUndo, getMaxClipDuration, addClipToTimeline, createStackFromAssetRef,
     assets, timelines, activeTimeline,
     timelineRef, trackContainerRef,
     orderedTracks, trackDisplayRow, getTrackHeight, trackTopPx,
@@ -1141,7 +1142,10 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
           let nextStart = Math.max(0, x / pixelsPerSecond)
           const ctrlHeld = e.ctrlKey || e.metaKey
           for (const a of droppedAssets) {
-            addClipToTimeline(a, trackIndex, nextStart, ctrlHeld)
+            const clipId = addClipToTimeline(a, trackIndex, nextStart, ctrlHeld)
+            if (clipId && a.inferenceStackData?.sourcePaths) {
+              createStackFromAssetRef.current(clipId, a)
+            }
             nextStart += a.duration || 5
           }
           return
@@ -1165,7 +1169,10 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
       const scrollLeft = trackContainerRef.current.scrollLeft
       const x = e.clientX - rect.left + scrollLeft
       const startTime = Math.max(0, x / pixelsPerSecond)
-      addClipToTimeline(asset, trackIndex, startTime, e.ctrlKey || e.metaKey)
+      const clipId = addClipToTimeline(asset, trackIndex, startTime, e.ctrlKey || e.metaKey)
+      if (clipId && asset.inferenceStackData?.sourcePaths) {
+        createStackFromAssetRef.current(clipId, asset)
+      }
     }
   }
   

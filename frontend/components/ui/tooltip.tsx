@@ -51,7 +51,21 @@ export function Tooltip({ content, children, side = 'top', className }: TooltipP
     setVisible(false)
   }, [])
 
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
+  const dismiss = useCallback(() => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+    setVisible(false)
+  }, [])
+
+  useEffect(() => {
+    // Hide tooltip on any click or window blur to prevent stale tooltips
+    window.addEventListener('mousedown', dismiss)
+    window.addEventListener('blur', dismiss)
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+      window.removeEventListener('mousedown', dismiss)
+      window.removeEventListener('blur', dismiss)
+    }
+  }, [dismiss])
 
   return (
     <div

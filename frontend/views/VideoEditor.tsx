@@ -106,6 +106,7 @@ export function VideoEditor() {
     error: regenError,
     cancel: regenCancel,
     reset: regenReset,
+    lastSeed: regenLastSeed,
   } = useGeneration()
   
   // Get the active timeline from context
@@ -337,6 +338,7 @@ export function VideoEditor() {
   const previewPanRef = useRef({ dragging: false, startX: 0, startY: 0, startPanX: 0, startPanY: 0 })
   const renameInputRef = useRef<HTMLInputElement>(null)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const currentTimeRef = useRef(0)
   
   // Keep performance refs in sync with state (cheap assignments, no re-renders)
   useEffect(() => { clipsRef.current = clips }, [clips])
@@ -345,6 +347,7 @@ export function VideoEditor() {
   useEffect(() => { shuttleSpeedRef.current = shuttleSpeed }, [shuttleSpeed])
   // Only sync ref ← state when NOT playing (during playback, ref is authoritative)
   useEffect(() => { if (!isPlaying) playbackTimeRef.current = currentTime }, [currentTime, isPlaying])
+  useEffect(() => { currentTimeRef.current = currentTime }, [currentTime])
   
   // Hovered cut point for cross-dissolve UI
   const [hoveredCutPoint, setHoveredCutPoint] = useState<{
@@ -527,6 +530,9 @@ export function VideoEditor() {
     }
   }, [sourceIsPlaying])
 
+  const addCrossDissolveRef = useRef<(leftClipId: string, rightClipId: string) => void>(() => {})
+  const removeCrossDissolveRef = useRef<(leftClipId: string, rightClipId: string) => void>(() => {})
+
   // Clip/track operations (extracted hook)
   const {
     addClipToTimeline, handleImportFile, handleDropFiles,
@@ -543,7 +549,9 @@ export function VideoEditor() {
     setActiveTimeline, setOpenTimelineIds, activeTimeline,
     fileInputRef, setHoveredCutPoint,
   })
-  
+  addCrossDissolveRef.current = addCrossDissolve
+  removeCrossDissolveRef.current = removeCrossDissolve
+
   // Ensure the active timeline is always in the open tab set.
   // On first load (empty set), open only the active timeline.
   useEffect(() => {
@@ -771,7 +779,7 @@ export function VideoEditor() {
     // Save current timeline before switching (if we had one loaded)
     if (loadedTimelineIdRef.current && currentProjectId) {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
-      updateTimeline(currentProjectId, loadedTimelineIdRef.current, { clips, tracks, subtitles, inferenceStacks, markers })
+      updateTimeline(currentProjectId, loadedTimelineIdRef.current, { clips, tracks, subtitles, inferenceStacks, markers, playheadPosition: currentTime })
     }
 
     // Load new timeline (migrate old clips without new effect fields)
@@ -780,7 +788,8 @@ export function VideoEditor() {
     setSubtitles(activeTimeline.subtitles || [])
     setInferenceStacks(activeTimeline.inferenceStacks || [])
     setMarkers(activeTimeline.markers || [])
-    setCurrentTime(0)
+    const restoredTime = activeTimeline.playheadPosition ?? 0
+    setCurrentTime(restoredTime)
     setIsPlaying(false)
     setPlayingInOut(false)
     setSelectedClipIds(new Set())
@@ -789,6 +798,19 @@ export function VideoEditor() {
     undoStackRef.current = []
     redoStackRef.current = []
     loadedTimelineIdRef.current = activeTimeline.id
+
+    // Scroll timeline to center on restored playhead after DOM updates
+    if (restoredTime > 0) {
+      requestAnimationFrame(() => {
+        const container = trackContainerRef.current
+        if (container) {
+          const pps = zoom * 100
+          const playheadX = restoredTime * pps
+          container.scrollLeft = Math.max(0, playheadX - container.clientWidth / 2)
+          if (rulerScrollRef.current) rulerScrollRef.current.scrollLeft = container.scrollLeft
+        }
+      })
+    }
   }, [activeTimeline?.id])
   
   // Debounced auto-save: when clips, tracks, or subtitles change, schedule a save
@@ -797,7 +819,7 @@ export function VideoEditor() {
     
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
     autoSaveTimerRef.current = setTimeout(() => {
-      updateTimeline(currentProjectId, loadedTimelineIdRef.current!, { clips, tracks, subtitles, inferenceStacks, markers })
+      updateTimeline(currentProjectId, loadedTimelineIdRef.current!, { clips, tracks, subtitles, inferenceStacks, markers, playheadPosition: currentTimeRef.current })
     }, AUTOSAVE_DELAY)
 
     return () => {
@@ -820,6 +842,7 @@ export function VideoEditor() {
           subtitles: subtitlesRef.current,
           inferenceStacks: inferenceStacksRef.current,
           markers: markersRef.current,
+          playheadPosition: currentTimeRef.current,
         })
       }
     }
@@ -933,7 +956,10 @@ export function VideoEditor() {
       if (preview && draggedAssets.length > 0) {
         let nextStart = preview.startTime
         for (const a of draggedAssets) {
-          addClipToTimeline(a, preview.trackIndex, nextStart, preview.overwrite)
+          const clipId = addClipToTimeline(a, preview.trackIndex, nextStart, preview.overwrite)
+          if (clipId && a.inferenceStackData?.sourcePaths) {
+            createStackFromAsset(clipId, a)
+          }
           nextStart += a.duration || 5
         }
       }
@@ -1079,6 +1105,9 @@ export function VideoEditor() {
   // Anchor position for gap action popover (screen coords of the clicked gap element)
   const [selectedGapAnchor, setSelectedGapAnchor] = useState<{ x: number; gapTop: number; gapBottom: number } | null>(null)
 
+  // Ref for createStackFromAsset — assigned after useInferenceStacks, used by useTimelineDrag
+  const createStackFromAssetRef = useRef<(renderedClipId: string, asset: Asset) => any>(() => null)
+
   // Timeline drag/resize/drop handlers (extracted hook)
   const {
     draggingClip,
@@ -1099,7 +1128,7 @@ export function VideoEditor() {
     clips, setClips, tracks,
     selectedClipIds, setSelectedClipIds,
     currentTime, setCurrentTime, setIsPlaying, isPlayingRef,
-    snapEnabled, pushUndo, resolveClipSrc, getMaxClipDuration, addClipToTimeline,
+    snapEnabled, pushUndo, resolveClipSrc, getMaxClipDuration, addClipToTimeline, createStackFromAssetRef,
     assets, timelines, activeTimeline, currentProjectId,
     timelineRef, trackContainerRef,
     orderedTracks, trackDisplayRow, getTrackHeight, trackTopPx, cutPoints,
@@ -1180,7 +1209,7 @@ export function VideoEditor() {
     activeStackId, setActiveStackId,
     renderingStackId, isRendering: isStackRendering,
     renderProgress: stackRenderProgress, renderStatusMessage: stackRenderStatusMessage,
-    createStack, updateStack, deleteStack, breakStack, removeClipFromStack, revertStack,
+    createStack, createStackFromAsset, updateStack, deleteStack, breakStack, removeClipFromStack, revertStack,
     renderStack, renderAllStacks, cancelRender: cancelStackRender, relinkStackOutput,
   } = useInferenceStacks({
     clips, setClips, inferenceStacks, setInferenceStacks,
@@ -1189,13 +1218,14 @@ export function VideoEditor() {
     addAsset, updateAsset, addTakeToAsset, resolveClipSrc,
     regenGenerate, regenVideoUrl, regenVideoPath,
     isRegenerating, regenProgress, regenStatusMessage,
-    regenCancel, regenReset, regenError,
+    regenCancel, regenReset, regenError, regenLastSeed,
     assetSavePath: currentProject?.assetSavePath,
     projectName: currentProject?.name,
     projectGenerationSettings: currentProject?.generationSettings,
   })
   renderStackRef.current = renderStack
   createStackRef.current = createStack
+  createStackFromAssetRef.current = createStackFromAsset
 
   useEditorKeyboard({
     refs: {
@@ -1264,6 +1294,8 @@ export function VideoEditor() {
       deleteAsset,
       deleteGapRef,
       createStackRef,
+      addCrossDissolveRef,
+      removeCrossDissolveRef,
     },
   })
   
@@ -3211,7 +3243,10 @@ export function VideoEditor() {
                     if (preview && draggedAssets.length > 0) {
                       let nextStart = preview.startTime
                       for (const a of draggedAssets) {
-                        addClipToTimeline(a, preview.trackIndex, nextStart, preview.overwrite)
+                        const clipId = addClipToTimeline(a, preview.trackIndex, nextStart, preview.overwrite)
+                        if (clipId && a.inferenceStackData?.sourcePaths) {
+                          createStackFromAsset(clipId, a)
+                        }
                         nextStart += a.duration || 5
                       }
                       return
@@ -3405,7 +3440,10 @@ export function VideoEditor() {
                           if (preview && draggedAssets.length > 0) {
                             let nextStart = preview.startTime
                             for (const a of draggedAssets) {
-                              addClipToTimeline(a, preview.trackIndex, nextStart, preview.overwrite)
+                              const clipId = addClipToTimeline(a, preview.trackIndex, nextStart, preview.overwrite)
+                              if (clipId && a.inferenceStackData?.sourcePaths) {
+                                createStackFromAsset(clipId, a)
+                              }
                               nextStart += a.duration || 5
                             }
                             return
@@ -4386,40 +4424,8 @@ export function VideoEditor() {
                               <div className="absolute inset-y-0 right-0 w-0.5 bg-blue-400 rounded-full" />
                             </div>
                             
-                            {/* Remove button — always visible for dissolves */}
-                            <div
-                              className="absolute left-1/2 -translate-x-1/2 top-0 whitespace-nowrap z-40"
-                              style={{ pointerEvents: 'auto' }}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <button
-                                className="px-1.5 py-0.5 rounded bg-red-900/80 border border-red-700 text-[8px] text-red-300 hover:bg-red-800 transition-colors shadow-lg opacity-60 hover:opacity-100"
-                                onClick={() => removeCrossDissolve(cp.leftClip.id, cp.rightClip.id)}
-                              >
-                                ✕
-                              </button>
-                            </div>
                           </>
-                        ) : (
-                          <>
-                            {/* No dissolve: show add button on hover (positioned inside the zone) */}
-                            {isHovered && (
-                              <div
-                                className="absolute left-1/2 -translate-x-1/2 top-0 whitespace-nowrap z-40"
-                                style={{ pointerEvents: 'auto' }}
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <button
-                                  className="px-2 py-1 rounded-lg bg-blue-600/90 border border-blue-500 text-[10px] text-white hover:bg-blue-500 transition-colors shadow-lg flex items-center gap-1"
-                                  onClick={() => addCrossDissolve(cp.leftClip.id, cp.rightClip.id)}
-                                >
-                                  <Film className="h-3 w-3" />
-                                  Dissolve
-                                </button>
-                              </div>
-                            )}
-                          </>
-                        )}
+                        ) : null}
                       </div>
                     )
                   })}

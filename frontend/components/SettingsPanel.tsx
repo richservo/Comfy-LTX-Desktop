@@ -20,6 +20,7 @@ export interface GenerationSettings {
   rtxSuperRes?: boolean
   promptEnhance?: boolean
   stgScale?: number
+  crf?: number
   iterations?: number
   // Image-specific settings
   imageResolution: string
@@ -408,6 +409,25 @@ export function SettingsPanel({
           className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-violet-500"
         />
         <div className="text-[10px] text-zinc-600 mt-0.5">Multimodal guidance strength (0 = off)</div>
+      </div>
+
+      {/* CRF (output quality) */}
+      <div>
+        <div className="flex justify-between text-[11px] mb-1">
+          <span className="text-zinc-400">CRF</span>
+          <span className="text-zinc-500">{settings.crf ?? 35}</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={51}
+          step={1}
+          value={settings.crf ?? 35}
+          onChange={(e) => handleChange('crf', parseInt(e.target.value))}
+          disabled={disabled}
+          className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-violet-500"
+        />
+        <div className="text-[10px] text-zinc-600 mt-0.5">Image preprocess quality (0 = lossless, default 35)</div>
       </div>
 
       {/* Film Grain */}

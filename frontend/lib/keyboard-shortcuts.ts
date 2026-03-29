@@ -51,6 +51,7 @@ export type ActionId =
   | 'edit.overwriteEdit'
   | 'edit.matchFrame'
   | 'edit.splitAtPlayhead'
+  | 'edit.toggleDissolve'
   // Timeline
   | 'timeline.zoomIn'
   | 'timeline.zoomOut'
@@ -116,6 +117,7 @@ export const ACTION_REGISTRY: ActionDefinition[] = [
   { id: 'edit.overwriteEdit', label: 'Overwrite Edit',     category: 'Editing' },
   { id: 'edit.matchFrame',    label: 'Match Frame',        category: 'Editing', description: 'Load the clip under the playhead into the source monitor at the matching frame' },
   { id: 'edit.splitAtPlayhead', label: 'Split at Playhead', category: 'Editing', description: 'Cut the clip(s) under the playhead at the current time' },
+  { id: 'edit.toggleDissolve', label: 'Toggle Cross Dissolve', category: 'Editing', description: 'Add or remove cross dissolve on selected cut point' },
   // Marking
   { id: 'mark.setIn',       label: 'Set In Point',         category: 'Marking' },
   { id: 'mark.setOut',      label: 'Set Out Point',        category: 'Marking' },
@@ -194,6 +196,7 @@ export const LTX_DEFAULT_LAYOUT: KeyboardLayout = {
   'edit.overwriteEdit': [k('.')],
   'edit.matchFrame':    [k('f')],
   'edit.splitAtPlayhead': [k('b', { alt: true })],
+  'edit.toggleDissolve': [k('d', { ctrl: true })],
   // Marking
   'mark.setIn':       [k('i')],
   'mark.setOut':       [k('o')],
@@ -255,6 +258,7 @@ export const PREMIERE_LAYOUT: KeyboardLayout = {
   'edit.overwriteEdit': [k('.')],         // Premiere: . = overwrite
   'edit.matchFrame':    [k('f')],         // Premiere: F = match frame
   'edit.splitAtPlayhead': [k('b', { alt: true })],
+  'edit.toggleDissolve': [k('d', { ctrl: true })],
   // Marking (same as Premiere)
   'mark.setIn':       [k('i')],
   'mark.setOut':       [k('o')],
@@ -316,6 +320,7 @@ export const DAVINCI_LAYOUT: KeyboardLayout = {
   'edit.overwriteEdit': [k('f10')],      // DaVinci: F10 = overwrite
   'edit.matchFrame':    [k('f')],        // DaVinci: F = match frame
   'edit.splitAtPlayhead': [k('b', { alt: true })],
+  'edit.toggleDissolve': [k('d', { ctrl: true })],
   // Marking
   'mark.setIn':       [k('i')],
   'mark.setOut':       [k('o')],
@@ -377,6 +382,7 @@ export const AVID_LAYOUT: KeyboardLayout = {
   'edit.overwriteEdit': [k('b')],         // Avid: B = overwrite
   'edit.matchFrame':    [k('f')],         // Avid: match frame
   'edit.splitAtPlayhead': [k('b', { alt: true })],
+  'edit.toggleDissolve': [k('d', { ctrl: true })],
   // Marking — Avid classic: I/O or E/R
   'mark.setIn':       [k('i'), k('e')],   // Avid: E = mark in
   'mark.setOut':       [k('o')],           // Avid: O = mark out (R removed to avoid conflict with tool.ripple)

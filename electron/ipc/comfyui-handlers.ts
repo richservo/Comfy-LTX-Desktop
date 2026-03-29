@@ -117,7 +117,9 @@ interface GenerateParams {
   guideIndexList?: string
   guideStrength?: number
   stgScale?: number
+  crf?: number
   stackId?: string
+  seed?: number  // Optional explicit seed — overrides app settings when provided
 }
 
 let activePromptId: string | null = null
@@ -209,10 +211,12 @@ export function registerComfyUIHandlers(): void {
         promptText = `${promptText}. Camera: ${params.cameraMotion}`
       }
 
-      // 4. Determine seed
-      const seed = settings.seedLocked
-        ? settings.lockedSeed
-        : Math.floor(Math.random() * 2147483647)
+      // 4. Determine seed — explicit param overrides app settings
+      const seed = params.seed != null
+        ? params.seed
+        : settings.seedLocked
+          ? settings.lockedSeed
+          : Math.floor(Math.random() * 2147483647)
 
       // 5. Build workflow — fall back to 'none' if z-image models aren't available
       const imageGenerator = params.imageGenerator ?? settings.imageGenerator ?? 'none'
@@ -242,6 +246,7 @@ export function registerComfyUIHandlers(): void {
         filmGrainIntensity: params.filmGrainIntensity,
         filmGrainSize: params.filmGrainSize,
         stgScale: params.stgScale,
+        crf: params.crf,
         firstStrength: params.firstStrength,
         lastStrength: params.lastStrength,
         checkpoint: settings.checkpoint,
@@ -460,6 +465,7 @@ export function registerComfyUIHandlers(): void {
           ? { image_path: finalOutputPath }
           : { video_path: finalOutputPath }),
         enhanced_prompt: enhancedPrompt,
+        seed,
       }
     } catch (error) {
       const message =
@@ -856,6 +862,59 @@ export function registerComfyUIHandlers(): void {
     }
 
     logger.info(`Padded audio to ${targetDuration}s: ${outPath}`)
+    return outPath
+  })
+
+  ipcMain.handle('comfyui:mix-audio-files', async (_event, params: {
+    files: Array<{ path: string; offsetSeconds: number; duration: number }>;
+    totalDuration: number;
+  }) => {
+    const ffmpegPath = findFfmpegPath()
+    if (!ffmpegPath) {
+      throw new Error('ffmpeg not found — cannot mix audio files')
+    }
+
+    const { files, totalDuration } = params
+    if (files.length === 0) throw new Error('No audio files to mix')
+
+    const tempDir = path.join(app.getPath('temp'), 'ltx-audio-segments')
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true })
+    const outPath = path.join(tempDir, `audio-mixed-${randomUUID()}.wav`)
+
+    // Build ffmpeg filter_complex: delay each input, then amix them all
+    const inputs: string[] = []
+    const filterParts: string[] = []
+    const mixInputs: string[] = []
+
+    for (let i = 0; i < files.length; i++) {
+      inputs.push('-i', files[i].path)
+      const delayMs = Math.round(files[i].offsetSeconds * 1000)
+      // adelay delays both channels; pad=1 pads shorter inputs with silence
+      filterParts.push(`[${i}]adelay=${delayMs}|${delayMs},apad[a${i}]`)
+      mixInputs.push(`[a${i}]`)
+    }
+
+    const filterComplex = filterParts.join(';') +
+      `;${mixInputs.join('')}amix=inputs=${files.length}:duration=longest:normalize=0`
+
+    const args = [
+      '-y',
+      ...inputs,
+      '-filter_complex', filterComplex,
+      '-t', String(totalDuration),
+      '-acodec', 'pcm_s16le',
+      '-ar', '44100',
+      '-ac', '2',
+      outPath,
+    ]
+
+    const result = spawnSync(ffmpegPath, args, { encoding: 'utf8', timeout: 30000 })
+
+    if (result.status !== 0) {
+      throw new Error(`ffmpeg audio mix failed: ${result.stderr}`)
+    }
+
+    logger.info(`Mixed ${files.length} audio files to ${totalDuration}s: ${outPath}`)
     return outPath
   })
 

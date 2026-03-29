@@ -16,6 +16,7 @@ interface GenerationState {
   iterationCurrent: number
   iterationTotal: number
   initiator: GenerationInitiator
+  lastSeed: number | null
 }
 
 interface GenerationProgress {
@@ -27,7 +28,7 @@ interface GenerationProgress {
 }
 
 export interface GenerationContextType extends GenerationState {
-  generate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string, preserveAspectRatio?: boolean, initiator?: GenerationInitiator, guideVideoPath?: string, guideIndexList?: string, guideStrength?: number, stackId?: string) => Promise<void>
+  generate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null, middleImagePath?: string | null, lastImagePath?: string | null, strengths?: { first?: number; middle?: number; last?: number }, projectName?: string, preserveAspectRatio?: boolean, initiator?: GenerationInitiator, guideVideoPath?: string, guideIndexList?: string, guideStrength?: number, stackId?: string, seed?: number) => Promise<void>
   generateImage: (prompt: string, settings: GenerationSettings, imagePath?: string | null, strength?: number, projectName?: string, referenceImagePaths?: string[], initiator?: GenerationInitiator) => Promise<void>
   cancel: () => void
   reset: () => void
@@ -61,6 +62,7 @@ const INITIAL_STATE: GenerationState = {
   iterationCurrent: 0,
   iterationTotal: 0,
   initiator: null,
+  lastSeed: null,
 }
 
 export function GenerationProvider({ children }: { children: React.ReactNode }) {
@@ -82,6 +84,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
     guideIndexList?: string,
     guideStrength?: number,
     stackId?: string,
+    seed?: number,
   ) => {
     const iterations = settings.iterations || 1
 
@@ -97,6 +100,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
       error: null,
       iterationCurrent: 1,
       iterationTotal: iterations,
+      lastSeed: null,
       initiator: initiator ?? null,
     })
 
@@ -141,6 +145,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
         filmGrainIntensity: settings.filmGrainIntensity,
         filmGrainSize: settings.filmGrainSize,
         stgScale: settings.stgScale,
+        crf: settings.crf,
         firstStrength: strengths?.first,
         middleStrength: strengths?.middle,
         lastStrength: strengths?.last,
@@ -151,6 +156,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
         guideIndexList,
         guideStrength,
         stackId,
+        seed,
       }
 
       for (let i = 1; i <= iterations; i++) {
@@ -192,6 +198,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
             error: null,
             iterationCurrent: i,
             iterationTotal: iterations,
+            lastSeed: result.seed ?? null,
           }))
 
           // Brief pause between iterations to let archive effects process
@@ -269,6 +276,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
       iterationCurrent: 0,
       iterationTotal: 0,
       initiator: initiator ?? null,
+      lastSeed: null,
     })
 
     cancelledRef.current = false

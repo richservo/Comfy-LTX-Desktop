@@ -61,6 +61,7 @@ interface Window {
       subtitles?: { text: string; startTime: number; endTime: number; style: { fontSize: number; fontFamily: string; fontWeight: string; color: string; backgroundColor: string; position: string; italic: boolean } }[]
     }) => Promise<{ success?: boolean; error?: string }>
     exportCancel: (sessionId: string) => Promise<{ ok?: boolean }>
+    onExportProgress: (callback: (_event: unknown, data: { phase: string; percent: number; detail?: string }) => void) => () => void
     previewRender: (data: {
       clips: { url: string; type: string; startTime: number; duration: number; trimStart: number; speed: number; reversed: boolean; flipH: boolean; flipV: boolean; opacity: number; trackIndex: number; muted: boolean; volume: number; volumeAutomation?: { time: number; value: number }[] }[]
       width: number; height: number; fps: number
@@ -100,7 +101,7 @@ interface Window {
       guideIndexList?: string
       guideStrength?: number
       stgScale?: number
-    }) => Promise<{ status: string; video_path?: string; image_path?: string; enhanced_prompt?: string; error?: string }>
+    }) => Promise<{ status: string; video_path?: string; image_path?: string; enhanced_prompt?: string; error?: string; seed?: number }>
     getGenerationProgress: () => Promise<{
       status: string
       phase: string
@@ -116,6 +117,7 @@ interface Window {
     extractAudioSegment: (params: { sourcePath: string; startTime: number; duration: number }) => Promise<string>
     renderGuideVideo: (params: { images: { path: string; startFrame: number; endFrame: number }[]; fps: number; totalFrames: number; resolution: string; aspectRatio: string }) => Promise<string>
     padAudioToLength: (params: { sourcePath: string; targetDuration: number }) => Promise<string>
+    mixAudioFiles: (params: { files: Array<{ path: string; offsetSeconds: number; duration: number }>; totalDuration: number }) => Promise<string>
     getProjectRenders: (projectName: string) => Promise<Array<{
       filename: string; filePath: string; type: string; prompt: string;
       enhancedPrompt: string | null; seed: number; resolution: string;

@@ -198,6 +198,15 @@ export function ExportModal({ open, onClose, clips, tracks, timeline, projectNam
     }
   }, [open, timeline])
 
+  // Listen for export progress events from main process
+  useEffect(() => {
+    const cleanup = window.electronAPI?.onExportProgress((_event, data) => {
+      setExportProgress(data.percent)
+      if (data.detail) setExportFrameInfo(data.detail)
+    })
+    return () => { cleanup?.() }
+  }, [])
+
   // Update quality default when codec changes
   const handleCodecChange = useCallback((codec: ExportCodec) => {
     let quality = 18

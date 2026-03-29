@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Play, X, Layers, Loader2, Trash2, Mic, RotateCcw, Unlink, Link } from 'lucide-react'
+import { Play, X, Layers, Loader2, Trash2, Mic, RotateCcw, Unlink, Link, Lock, Unlock, Dice5 } from 'lucide-react'
 import { SettingsPanel } from '../../components/SettingsPanel'
 import type { TimelineClip, InferenceStack } from '../../types/project'
 import { getStackFrameMapping, getStackDuration, getStackClips } from './video-editor-utils'
@@ -241,13 +241,23 @@ export function InferenceStackPanel({
 
   if (frameMapping) {
     // Live clips available — use them directly (respects single-image vs multi-image)
-    firstImageUrl = resolveClipSrc(frameMapping.first)
+    firstImageUrl = resolveClipSrc(frameMapping.first) || undefined
     if (frameMapping.middle) {
-      middleImageUrl = resolveClipSrc(frameMapping.middle)
+      middleImageUrl = resolveClipSrc(frameMapping.middle) || undefined
       hasMiddleFrame = true
     }
     if (frameMapping.last) {
-      lastImageUrl = resolveClipSrc(frameMapping.last)
+      lastImageUrl = resolveClipSrc(frameMapping.last) || undefined
+    }
+    // Fill gaps from clip file paths if URLs are broken (e.g. expired blob URLs)
+    if (!firstImageUrl && frameMapping.first.asset?.path) firstImageUrl = pathToFileUrl(frameMapping.first.asset.path)
+    if (!middleImageUrl && frameMapping.middle?.asset?.path) { middleImageUrl = pathToFileUrl(frameMapping.middle.asset.path); hasMiddleFrame = true }
+    if (!lastImageUrl && frameMapping.last?.asset?.path) lastImageUrl = pathToFileUrl(frameMapping.last.asset.path)
+    // Also try stored sourcePaths
+    if (stack.sourcePaths) {
+      if (!firstImageUrl && stack.sourcePaths.firstImage) firstImageUrl = pathToFileUrl(stack.sourcePaths.firstImage)
+      if (!middleImageUrl && stack.sourcePaths.middleImage) { middleImageUrl = pathToFileUrl(stack.sourcePaths.middleImage); hasMiddleFrame = true }
+      if (!lastImageUrl && stack.sourcePaths.lastImage) lastImageUrl = pathToFileUrl(stack.sourcePaths.lastImage)
     }
   } else if (stack.sourcePaths) {
     // No live clips — fall back to stored paths
@@ -535,6 +545,45 @@ export function InferenceStackPanel({
                 hideDuration
                 hideIterations
               />
+            </div>
+          </div>
+
+          {/* Seed */}
+          <div>
+            <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold mb-1.5 block">Seed</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                value={stack.seed ?? ''}
+                placeholder={stack.seedLocked ? '' : 'Random'}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value)
+                  if (!isNaN(val)) onUpdateStack(stack.id, { seed: val, seedLocked: true })
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+                disabled={isRendering}
+                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-violet-500/50 disabled:opacity-40 placeholder-zinc-600"
+              />
+              <button
+                onClick={() => onUpdateStack(stack.id, { seedLocked: !stack.seedLocked })}
+                disabled={isRendering || stack.seed == null}
+                title={stack.seedLocked ? 'Unlock seed (use random on next render)' : 'Lock seed (reuse this seed)'}
+                className={`p-1.5 rounded border transition-colors disabled:opacity-40 ${
+                  stack.seedLocked
+                    ? 'bg-violet-500/20 border-violet-500/50 text-violet-400 hover:bg-violet-500/30'
+                    : 'bg-zinc-800 border-zinc-700 text-zinc-500 hover:text-white hover:border-zinc-600'
+                }`}
+              >
+                {stack.seedLocked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+              </button>
+              <button
+                onClick={() => onUpdateStack(stack.id, { seed: Math.floor(Math.random() * 2147483647), seedLocked: true })}
+                disabled={isRendering}
+                title="Generate new random seed"
+                className="p-1.5 rounded border bg-zinc-800 border-zinc-700 text-zinc-500 hover:text-white hover:border-zinc-600 transition-colors disabled:opacity-40"
+              >
+                <Dice5 className="h-3 w-3" />
+              </button>
             </div>
           </div>
 

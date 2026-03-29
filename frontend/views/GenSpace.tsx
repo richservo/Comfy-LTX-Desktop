@@ -744,6 +744,7 @@ export function GenSpace() {
     cancel,
     reset,
     initiator,
+    lastSeed,
   } = useGeneration()
 
   const {
@@ -899,6 +900,22 @@ export function GenSpace() {
     ;(async () => {
       try {
         const { path: finalPath, url: finalUrl } = await copyToAssetFolder(videoPath, videoUrl, assetSavePath)
+        // Build source paths for stack recovery (re-render / reset)
+        const imagePath = inputImage ? fileUrlToPath(inputImage) : null
+        const middleImagePath = selectedMiddleImage ? fileUrlToPath(selectedMiddleImage) : null
+        const lastImagePath = selectedLastImage ? fileUrlToPath(selectedLastImage) : null
+        const audioPath = selectedAudio ? fileUrlToPath(selectedAudio) : null
+
+        const genSourcePaths: NonNullable<Asset['inferenceStackData']>['sourcePaths'] = (imagePath || audioPath) ? {
+          firstImage: imagePath ?? undefined,
+          middleImage: middleImagePath ?? undefined,
+          lastImage: lastImagePath ?? undefined,
+          audio: audioPath ?? undefined,
+        } : undefined
+
+        // Count source images for snapshot
+        const genImageCount = [imagePath, middleImagePath, lastImagePath].filter(Boolean).length
+
         addAsset(currentProjectId, {
           type: 'video',
           path: finalPath,
@@ -924,6 +941,21 @@ export function GenSpace() {
             createdAt: Date.now(),
           }],
           activeTakeIndex: 0,
+          inferenceStackData: {
+            stackId: `genspace-${Date.now()}`,
+            prompt: enhancedPrompt ?? lastPrompt,
+            settings: { ...settings },
+            strengths: { first: firstStrength, middle: middleStrength, last: lastStrength },
+            preserveAspectRatio,
+            singleFramePosition: lastImagePath && !imagePath ? 'last' : 'first',
+            sourcePaths: genSourcePaths,
+            renderSnapshot: {
+              duration: settings.duration,
+              imageCount: genImageCount,
+            },
+            seed: lastSeed ?? undefined,
+            seedLocked: lastSeed != null ? true : undefined,
+          },
         })
         // Only reset generation state after the final iteration
         if (!isGenerating) {
@@ -936,7 +968,7 @@ export function GenSpace() {
         logger.error(`Failed to persist generated video asset: ${err}`)
       }
     })()
-  }, [videoUrl, videoPath, currentProjectId, isGenerating, settings, inputImage, selectedAudio, assetSavePath, lastPrompt, enhancedPrompt, addAsset, reset, initiator])
+  }, [videoUrl, videoPath, currentProjectId, isGenerating, settings, inputImage, selectedAudio, selectedMiddleImage, selectedLastImage, firstStrength, middleStrength, lastStrength, preserveAspectRatio, assetSavePath, lastPrompt, enhancedPrompt, addAsset, reset, initiator, lastSeed])
 
   // When image generation completes, add to project assets
   // Only when GenSpace initiated the generation (not editor)

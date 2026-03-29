@@ -87,6 +87,8 @@ interface KeyboardContext {
   deleteAsset: (projectId: string, assetId: string) => void
   deleteGapRef: React.MutableRefObject<(gap: { trackIndex: number; startTime: number; endTime: number }) => void>
   createStackRef: React.MutableRefObject<(clipIds: string[]) => any>
+  addCrossDissolveRef: React.MutableRefObject<(leftClipId: string, rightClipId: string) => void>
+  removeCrossDissolveRef: React.MutableRefObject<(leftClipId: string, rightClipId: string) => void>
 }
 
 export interface UseEditorKeyboardParams {
@@ -301,8 +303,14 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
           break
         case 'edit.delete':
           if (selectedCutPoint) {
+            // If cut point has a dissolve, remove it first; otherwise heal cut
+            const leftClDel = refs.clipsRef.current.find(cl => cl.id === selectedCutPoint.leftClipId)
+            if (leftClDel?.transitionOut?.type === 'dissolve') {
+              contextRef.current.removeCrossDissolveRef.current(selectedCutPoint.leftClipId, selectedCutPoint.rightClipId)
+              break
+            }
             // Heal cut: if the two clips at the cut point are from the same source with continuous media, join them
-            const leftCl = refs.clipsRef.current.find(cl => cl.id === selectedCutPoint.leftClipId)
+            const leftCl = leftClDel
             const rightCl = refs.clipsRef.current.find(cl => cl.id === selectedCutPoint.rightClipId)
             if (leftCl && rightCl && leftCl.assetId === rightCl.assetId && leftCl.speed === rightCl.speed) {
               // Check media continuity: left clip's media end matches right clip's media start
@@ -494,6 +502,18 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
           break
         case 'edit.matchFrame':    refs.matchFrameRef.current(); break
         case 'edit.splitAtPlayhead': refs.splitAtPlayheadRef.current(); break
+
+        case 'edit.toggleDissolve': {
+          if (selectedCutPoint) {
+            const leftCl = refs.clipsRef.current.find(cl => cl.id === selectedCutPoint.leftClipId)
+            if (leftCl?.transitionOut?.type === 'dissolve') {
+              contextRef.current.removeCrossDissolveRef.current(selectedCutPoint.leftClipId, selectedCutPoint.rightClipId)
+            } else {
+              contextRef.current.addCrossDissolveRef.current(selectedCutPoint.leftClipId, selectedCutPoint.rightClipId)
+            }
+          }
+          break
+        }
 
         // Marking — panel-aware
         case 'mark.setIn':
