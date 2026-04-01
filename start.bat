@@ -101,6 +101,19 @@ if exist ".git" (
 :: -------------------------------------------------------
 :: 4. pnpm
 :: -------------------------------------------------------
+set "PNPM_CMD=pnpm"
+
+where corepack >nul 2>&1
+if errorlevel 1 goto :pnpm_global
+
+echo [*] Preparing pinned pnpm via corepack...
+call corepack enable >nul 2>&1
+call corepack prepare pnpm@10.30.3 --activate >nul 2>&1
+if errorlevel 1 goto :pnpm_global
+set "PNPM_CMD=corepack pnpm"
+goto :pnpm_ok
+
+:pnpm_global
 where pnpm >nul 2>&1
 if not errorlevel 1 goto :pnpm_ok
 
@@ -122,7 +135,7 @@ echo [OK] pnpm found.
 :: 5. Dependencies
 :: -------------------------------------------------------
 echo [*] Checking dependencies...
-call pnpm install >nul 2>&1
+call %PNPM_CMD% install
 if errorlevel 1 goto :deps_fail
 goto :deps_ok
 
@@ -144,7 +157,7 @@ echo  ========================================
 echo   Launching LTX Desktop...
 echo  ========================================
 echo.
-call pnpm dev
+call %PNPM_CMD% dev
 if errorlevel 1 goto :launch_fail
 goto :launch_done
 
