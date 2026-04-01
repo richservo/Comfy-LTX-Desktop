@@ -101,41 +101,43 @@ if exist ".git" (
 :: -------------------------------------------------------
 :: 4. pnpm
 :: -------------------------------------------------------
-set "PNPM_CMD=pnpm"
+where npm >nul 2>&1
+if errorlevel 1 goto :npm_missing
 
-where corepack >nul 2>&1
-if errorlevel 1 goto :pnpm_global
-
-echo [*] Preparing pinned pnpm via corepack...
-call corepack enable >nul 2>&1
-call corepack prepare pnpm@10.30.3 --activate >nul 2>&1
-if errorlevel 1 goto :pnpm_global
-set "PNPM_CMD=corepack pnpm"
-goto :pnpm_ok
-
-:pnpm_global
 where pnpm >nul 2>&1
 if not errorlevel 1 goto :pnpm_ok
 
 echo [*] pnpm not found. Installing...
-call npm install -g pnpm >nul 2>&1
+call npm install -g pnpm
+if errorlevel 1 goto :pnpm_fail
+
 where pnpm >nul 2>&1
 if not errorlevel 1 goto :pnpm_ok
 
+:pnpm_fail
 echo.
 echo [ERROR] Failed to install pnpm.
 echo.
 pause
 exit /b 1
 
+:npm_missing
+
+echo.
+echo [ERROR] npm not found. Please install Node.js with npm support.
+echo.
+pause
+exit /b 1
+
 :pnpm_ok
+set "PNPM_CMD=pnpm"
 echo [OK] pnpm found.
 
 :: -------------------------------------------------------
 :: 5. Dependencies
 :: -------------------------------------------------------
 echo [*] Checking dependencies...
-call %PNPM_CMD% install --node-linker=hoisted
+call %PNPM_CMD% install
 if errorlevel 1 goto :deps_fail
 goto :deps_ok
 
