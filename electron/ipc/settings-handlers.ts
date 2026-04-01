@@ -2,6 +2,11 @@ import { app, ipcMain } from 'electron'
 import fs from 'fs'
 import path from 'path'
 import { comfyClient } from '../comfyui/client'
+import {
+  getDefaultComfyUiOutputDir,
+  getDefaultComfyUiPath,
+  getDefaultComfyUiUrl,
+} from '../comfyui/defaults'
 import { logger } from '../logger'
 
 export interface ComfyUISettings {
@@ -37,11 +42,10 @@ export interface ComfyUISettings {
 }
 
 function getDefaultSettings(): ComfyUISettings {
-  const docsDir = app.getPath('documents')
   return {
-    comfyuiUrl: 'http://localhost:8188',
-    comfyuiOutputDir: path.join(docsDir, 'ComfyUI', 'output'),
-    comfyuiPath: '',
+    comfyuiUrl: getDefaultComfyUiUrl(),
+    comfyuiOutputDir: getDefaultComfyUiOutputDir(),
+    comfyuiPath: getDefaultComfyUiPath(),
     seedLocked: false,
     lockedSeed: 42,
     steps: 30,

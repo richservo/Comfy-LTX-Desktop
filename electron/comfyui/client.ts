@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { getDefaultComfyUiUrl } from './defaults'
 import { logger } from '../logger'
 
 export interface ComfyUIUploadResult {
@@ -35,7 +36,7 @@ function normalizeComfyUiUrl(url: string): string {
 export class ComfyUIClient {
   private baseUrl: string
 
-  constructor(baseUrl = 'http://localhost:8188') {
+  constructor(baseUrl = getDefaultComfyUiUrl()) {
     this.baseUrl = normalizeComfyUiUrl(baseUrl)
   }
 
