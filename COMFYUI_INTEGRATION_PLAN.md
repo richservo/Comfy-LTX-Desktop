@@ -13,8 +13,8 @@ LTX-Desktop is a Lightricks Electron + React desktop app for video generation. I
 React Frontend (renderer)
     ↓ IPC (window.electronAPI)
 Electron Main Process (ComfyUI client + workflow builder)
-    ↓ HTTP + WebSocket (localhost:8188)
-ComfyUI Desktop (existing, running on 8188)
+    ↓ HTTP + WebSocket (configured ComfyUI URL)
+ComfyUI (local or remote)
 ```
 
 No Python backend. The Electron main process handles workflow building, image upload, progress tracking, and output retrieval directly.
@@ -46,6 +46,7 @@ No Python backend. The Electron main process handles workflow building, image up
 - `cancel(promptId)` → POST `/queue` with `{delete: [promptId]}`
 - `checkHealth()` → GET `/system_stats` → returns boolean
 - Configurable `comfyuiUrl` (default `http://localhost:8188`)
+- Accepts full URLs or bare `host:port` input, normalizes to HTTP, and probes the exact configured URL before any localhost fallback scan
 
 #### `electron/comfyui/progress.ts` — WebSocket progress tracker
 - Connects to `ws://localhost:8188/ws?clientId=<uuid>`
@@ -66,6 +67,11 @@ No Python backend. The Electron main process handles workflow building, image up
   - `frame_rate` ← fps
   - `seed` ← random or locked
   - `first_image` ← uploaded image ref (if I2V)
+- LTX 2.3 GGUF path:
+  - main model via `UnetLoaderGGUF`
+  - video VAE via standalone `VAELoader`
+  - audio VAE via `LTXVAudioVAELoader`
+  - standalone LTX text loading via `DualCLIPLoader` or `DualCLIPLoaderGGUF` plus embeddings connector
 
 #### `electron/comfyui/workflow-template.json` — Exported workflow
 - RSLTXVGenerate workflow exported from ComfyUI in API format
@@ -171,7 +177,7 @@ Messages:
 
 ## Verification
 
-1. Start ComfyUI Desktop on port 8188
+1. Start ComfyUI and confirm the configured ComfyUI URL is reachable
 2. Start LTX-Desktop (`pnpm dev`)
 3. App shows "Connected" (health check passes)
 4. Enter text prompt → ComfyUI generates video

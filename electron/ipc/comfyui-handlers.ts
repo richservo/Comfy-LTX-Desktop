@@ -275,6 +275,8 @@ export function registerComfyUIHandlers(): void {
         lastStrength: params.lastStrength,
         checkpoint: settings.checkpoint,
         textEncoder: settings.textEncoder,
+        ggufEmbeddingsConnector: settings.ggufEmbeddingsConnector,
+        videoVae: settings.videoVae,
         vaeCheckpoint: settings.vaeCheckpoint,
         spatialUpscaleModel: settings.spatialUpscaleModel,
         temporalUpscaleModel: settings.temporalUpscaleModel,
@@ -627,7 +629,28 @@ export function registerComfyUIHandlers(): void {
 
       const result = {
         checkpoints: extractOptions('CheckpointLoaderSimple', 'ckpt_name'),
+        modelCheckpoints: Array.from(new Set([
+          ...extractOptions('CheckpointLoaderSimple', 'ckpt_name'),
+          ...extractOptions('UnetLoaderGGUF', 'unet_name'),
+        ])).sort((a, b) => a.localeCompare(b)),
+        videoVaes: Array.from(new Set(
+          extractOptions('VAELoader', 'vae_name'),
+        )).sort((a, b) => a.localeCompare(b)),
+        audioVaes: Array.from(new Set(
+          extractOptions('LTXVAudioVAELoader', 'ckpt_name'),
+        )).sort((a, b) => a.localeCompare(b)),
         textEncoders: extractOptions('LTXAVTextEncoderLoader', 'text_encoder'),
+        ggufTextEncoders: Array.from(new Set([
+          ...extractOptions('DualCLIPLoaderGGUF', 'clip_name1'),
+          ...extractOptions('CLIPLoaderGGUF', 'clip_name'),
+        ]))
+          .filter(name => name.toLowerCase().endsWith('.gguf'))
+          .sort((a, b) => a.localeCompare(b)),
+        ggufEmbeddingsConnectors: Array.from(new Set(
+          extractOptions('DualCLIPLoaderGGUF', 'clip_name2'),
+        ))
+          .filter(name => name.toLowerCase().endsWith('_embeddings_connectors.safetensors'))
+          .sort((a, b) => a.localeCompare(b)),
         upscaleModels: extractOptions('LatentUpscaleModelLoader', 'model_name'),
         loras: extractOptions('RSLTXVGenerate', 'upscale_lora'),
         samplers: extractOptions('KSamplerSelect', 'sampler_name'),
@@ -639,11 +662,11 @@ export function registerComfyUIHandlers(): void {
         geminiAspectRatios: extractOptions('Gemini3ProImage', 'aspect_ratio'),
         geminiImageSizes: extractOptions('Gemini3ProImage', 'image_size'),
       }
-      logger.info(`comfyui:model-lists counts: checkpoints=${result.checkpoints.length}, textEncoders=${result.textEncoders.length}, upscaleModels=${result.upscaleModels.length}, loras=${result.loras.length}, samplers=${result.samplers.length}, rtxSuperRes=${result.hasRtxSuperRes}, zImage=${result.hasZImage}, gemini=${result.hasGemini}`)
+      logger.info(`comfyui:model-lists counts: checkpoints=${result.checkpoints.length}, modelCheckpoints=${result.modelCheckpoints.length}, videoVaes=${result.videoVaes.length}, audioVaes=${result.audioVaes.length}, textEncoders=${result.textEncoders.length}, ggufTextEncoders=${result.ggufTextEncoders.length}, ggufEmbeddingsConnectors=${result.ggufEmbeddingsConnectors.length}, upscaleModels=${result.upscaleModels.length}, loras=${result.loras.length}, samplers=${result.samplers.length}, rtxSuperRes=${result.hasRtxSuperRes}, zImage=${result.hasZImage}, gemini=${result.hasGemini}`)
       return result
     } catch (error) {
       logger.error(`Failed to fetch model lists: ${error}`)
-      return { checkpoints: [], textEncoders: [], upscaleModels: [], loras: [] }
+      return { checkpoints: [], modelCheckpoints: [], videoVaes: [], audioVaes: [], textEncoders: [], ggufTextEncoders: [], ggufEmbeddingsConnectors: [], upscaleModels: [], loras: [], samplers: [] }
     }
   })
 

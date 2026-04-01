@@ -51,11 +51,15 @@ export interface WorkflowParams {
   checkpoint?: string
   /** Text encoder model filename */
   textEncoder?: string
+  /** Embeddings connector used with GGUF text encoders */
+  ggufEmbeddingsConnector?: string
+  /** Standalone video VAE filename */
+  videoVae?: string
   /** Spatial upscale model filename */
   spatialUpscaleModel?: string
   /** Temporal upscale model filename */
   temporalUpscaleModel?: string
-  /** Audio VAE checkpoint filename (usually same as checkpoint) */
+  /** Audio VAE model filename loaded by LTXVAudioVAELoader */
   vaeCheckpoint?: string
   /** Upscale LoRA filename */
   upscaleLora?: string
@@ -176,6 +180,52 @@ function quantizeResolution(width: number, height: number, spatialUpscale: boole
   }
 }
 
+function isGGUFModel(filename?: string | null): boolean {
+  return !!filename && filename.toLowerCase().endsWith('.gguf')
+}
+
+function deriveLtxFamilyBase(assetName?: string | null): string | undefined {
+  if (!assetName) return undefined
+
+  let baseName = assetName.replace(/\.[^.]+$/, '')
+  baseName = baseName
+    .replace(/_(?:video_vae|audio_vae|embeddings_connectors)$/i, '')
+    .replace(/-(?:fp8|fp16|bf16|f16)$/i, '')
+    .replace(/-(?:[a-z0-9]+-)?q\d[\w.-]*$/i, '')
+
+  return baseName || undefined
+}
+
+function deriveLtxEmbeddingsConnectorFilename(assetName?: string | null): string | undefined {
+  if (!assetName) return undefined
+  if (assetName.endsWith('_embeddings_connectors.safetensors')) {
+    return assetName
+  }
+
+  const baseName = deriveLtxFamilyBase(assetName)
+  return baseName ? `${baseName}_embeddings_connectors.safetensors` : undefined
+}
+
+function deriveLtxVideoVaeFilename(assetName?: string | null): string | undefined {
+  if (!assetName) return undefined
+  if (assetName.endsWith('_video_vae.safetensors')) {
+    return assetName
+  }
+
+  const baseName = deriveLtxFamilyBase(assetName)
+  return baseName ? `${baseName}_video_vae.safetensors` : undefined
+}
+
+function deriveLtxAudioVaeFilename(assetName?: string | null): string | undefined {
+  if (!assetName) return undefined
+  if (assetName.endsWith('_audio_vae.safetensors')) {
+    return assetName
+  }
+
+  const baseName = deriveLtxFamilyBase(assetName)
+  return baseName ? `${baseName}_audio_vae.safetensors` : undefined
+}
+
 /**
  * Nodes that are only included when needed.
  * The core pipeline (1,4,5,6,7,8,23,24,25) is always included.
@@ -223,6 +273,7 @@ const OPTIONAL_NODE_IDS = {
   maskOriginalSize: '108',
   maskSam2: '109',
   maskPaintImage: '110',
+  videoVae: '111',
 }
 
 const OLLAMA_FORMATTER_NODES = [
@@ -372,6 +423,16 @@ const DEFAULT_NEGATIVE_PROMPT = 'worst quality, low quality, blurry, jittery, di
 export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   // Deep clone the template
   const workflow: Workflow = JSON.parse(JSON.stringify(workflowTemplate))
+  const checkpointIsGGUF = isGGUFModel(params.checkpoint)
+  const textEncoderIsGGUF = isGGUFModel(params.textEncoder)
+  const derivedAssetSource = params.checkpoint || params.videoVae || params.vaeCheckpoint
+  const resolvedVideoVae = checkpointIsGGUF
+    ? (params.videoVae || deriveLtxVideoVaeFilename(derivedAssetSource))
+    : params.videoVae
+  const resolvedAudioVae = params.vaeCheckpoint
+    || (checkpointIsGGUF ? deriveLtxAudioVaeFilename(derivedAssetSource) : params.checkpoint)
+  const resolvedEmbeddingsConnector = params.ggufEmbeddingsConnector
+    || deriveLtxEmbeddingsConnectorFilename(derivedAssetSource)
 
   const useZImage = params.imageGenerator === 'z-image'
 
@@ -476,17 +537,74 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   }
 
   // --- Patch model selections ---
-  if (params.checkpoint) {
-    workflow['1'].inputs['ckpt_name'] = params.checkpoint
-    workflow['4'].inputs['ckpt_name'] = params.checkpoint
-  }
-  if (params.vaeCheckpoint) {
-    workflow['5'].inputs['ckpt_name'] = params.vaeCheckpoint
+  if (checkpointIsGGUF) {
+    if (!params.checkpoint) {
+      throw new Error('GGUF workflow requires a GGUF checkpoint filename')
+    }
+    if (!resolvedVideoVae) {
+      throw new Error('GGUF checkpoints require an LTX 2.3 video VAE (.safetensors)')
+    }
+
+    workflow['1'] = {
+      class_type: 'UnetLoaderGGUF',
+      inputs: {
+        unet_name: params.checkpoint,
+      },
+      _meta: { title: 'Load GGUF Checkpoint' },
+    }
+
+    workflow[OPTIONAL_NODE_IDS.videoVae] = {
+      class_type: 'VAELoader',
+      inputs: {
+        vae_name: resolvedVideoVae,
+      },
+      _meta: { title: 'LTX Video VAE' },
+    }
   } else if (params.checkpoint) {
-    workflow['5'].inputs['ckpt_name'] = params.checkpoint
+    workflow['1'].inputs['ckpt_name'] = params.checkpoint
   }
-  if (params.textEncoder) {
-    workflow['4'].inputs['text_encoder'] = params.textEncoder
+
+  const needsStandaloneTextEncoder = checkpointIsGGUF || textEncoderIsGGUF
+  if (needsStandaloneTextEncoder) {
+    if (!params.textEncoder) {
+      throw new Error('LTX text encoder path is missing')
+    }
+    if (!resolvedEmbeddingsConnector) {
+      throw new Error('Standalone LTX text encoders require an LTX 2.3 embeddings connector (.safetensors)')
+    }
+
+    workflow['4'] = {
+      class_type: textEncoderIsGGUF ? 'DualCLIPLoaderGGUF' : 'DualCLIPLoader',
+      inputs: {
+        clip_name1: params.textEncoder,
+        clip_name2: resolvedEmbeddingsConnector,
+        type: 'ltxv',
+      },
+      _meta: { title: textEncoderIsGGUF ? 'LTXV GGUF Text Encoder Loader' : 'LTXV Text Encoder Loader' },
+    }
+  } else {
+    if (params.checkpoint) {
+      workflow['4'].inputs['ckpt_name'] = params.checkpoint
+    }
+    if (params.textEncoder) {
+      workflow['4'].inputs['text_encoder'] = params.textEncoder
+    }
+  }
+
+  if (checkpointIsGGUF && !resolvedAudioVae) {
+    throw new Error('GGUF checkpoints require an LTX 2.3 audio VAE asset')
+  }
+  if (resolvedAudioVae) {
+    workflow['5'].inputs['ckpt_name'] = resolvedAudioVae
+  }
+  if (resolvedVideoVae && !checkpointIsGGUF) {
+    workflow[OPTIONAL_NODE_IDS.videoVae] = {
+      class_type: 'VAELoader',
+      inputs: {
+        vae_name: resolvedVideoVae,
+      },
+      _meta: { title: 'LTX Video VAE' },
+    }
   }
   if (params.spatialUpscaleModel && workflow['2']) {
     workflow['2'].inputs['model_name'] = params.spatialUpscaleModel
@@ -507,6 +625,9 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
   if (params.upscaleDenoise !== undefined) {
     genNode.inputs['upscale_denoise'] = params.upscaleDenoise
   }
+  genNode.inputs['vae'] = workflow[OPTIONAL_NODE_IDS.videoVae]
+    ? [OPTIONAL_NODE_IDS.videoVae, 0]
+    : ['1', 2]
 
   // Connect sampler node
   if (params.sampler) {

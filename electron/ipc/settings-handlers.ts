@@ -20,6 +20,8 @@ export interface ComfyUISettings {
   filmGrainSize: number
   checkpoint: string
   textEncoder: string
+  ggufEmbeddingsConnector: string
+  videoVae: string
   vaeCheckpoint: string
   spatialUpscaleModel: string
   temporalUpscaleModel: string
@@ -52,7 +54,9 @@ function getDefaultSettings(): ComfyUISettings {
     filmGrainSize: 1.2,
     checkpoint: 'ltx-2.3-22b-dev-fp8.safetensors',
     textEncoder: 'gemma_3_12B_it_fp4_mixed.safetensors',
-    vaeCheckpoint: 'ltx-2.3-22b-dev-fp8.safetensors',
+    ggufEmbeddingsConnector: '',
+    videoVae: '',
+    vaeCheckpoint: '',
     spatialUpscaleModel: 'ltx-2.3-spatial-upscaler-x2-1.0.safetensors',
     temporalUpscaleModel: 'ltx-2.3-temporal-upscaler-x2-1.0.safetensors',
     upscaleLora: 'ltx-2.3-22b-distilled-lora-384.safetensors',
@@ -103,11 +107,20 @@ export function registerSettingsHandlers(): void {
     'settings:update',
     (_event, patch: Partial<ComfyUISettings>) => {
       const current = getComfyUISettings()
-      const updated = { ...current, ...patch }
+      const normalizedPatch = { ...patch }
+      if (typeof normalizedPatch.comfyuiUrl === 'string') {
+        const trimmed = normalizedPatch.comfyuiUrl.trim()
+        normalizedPatch.comfyuiUrl = trimmed
+          ? (/^[a-z]+:\/\//i.test(trimmed)
+            ? trimmed.replace(/\/$/, '')
+            : `http://${trimmed.replace(/\/$/, '')}`)
+          : current.comfyuiUrl
+      }
+      const updated = { ...current, ...normalizedPatch }
       saveComfyUISettings(updated)
 
       // If URL changed, update the client
-      if (patch.comfyuiUrl) {
+      if (normalizedPatch.comfyuiUrl) {
         comfyClient.setBaseUrl(updated.comfyuiUrl)
       }
 

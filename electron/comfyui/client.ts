@@ -25,15 +25,22 @@ export interface ComfyUIHistoryEntry {
   status: { status_str: string; completed: boolean }
 }
 
+function normalizeComfyUiUrl(url: string): string {
+  const trimmed = url.trim().replace(/\/$/, '')
+  if (!trimmed) return 'http://localhost:8188'
+  if (/^[a-z]+:\/\//i.test(trimmed)) return trimmed
+  return `http://${trimmed}`
+}
+
 export class ComfyUIClient {
   private baseUrl: string
 
   constructor(baseUrl = 'http://localhost:8188') {
-    this.baseUrl = baseUrl.replace(/\/$/, '')
+    this.baseUrl = normalizeComfyUiUrl(baseUrl)
   }
 
   setBaseUrl(url: string): void {
-    this.baseUrl = url.replace(/\/$/, '')
+    this.baseUrl = normalizeComfyUiUrl(url)
   }
 
   async submitWorkflow(
@@ -172,9 +179,25 @@ export class ComfyUIClient {
   }
 
   async checkHealth(): Promise<boolean> {
-    // Scan all common ComfyUI ports and use the highest one that responds
-    // (ComfyUI increments port when previous instance is still bound)
-    const baseHost = new URL(this.baseUrl).hostname
+    // Always probe the exact configured URL first so custom remote hosts and
+    // non-default ports work without being forced into the localhost scan.
+    if (await this.probeUrl(this.baseUrl)) {
+      return true
+    }
+
+    // For the default local ComfyUI setup, scan common fallback ports and use
+    // the highest one that responds (ComfyUI increments when a prior port is busy).
+    const parsedUrl = new URL(this.baseUrl)
+    const baseHost = parsedUrl.hostname
+    const basePort = parsedUrl.port
+    const shouldScanFallbackPorts =
+      ['localhost', '127.0.0.1'].includes(baseHost)
+      && (basePort === '' || (Number(basePort) >= 8188 && Number(basePort) <= 8199))
+
+    if (!shouldScanFallbackPorts) {
+      return false
+    }
+
     let bestUrl: string | null = null
 
     for (let port = 8188; port <= 8199; port++) {

@@ -15,7 +15,7 @@ A desktop app for AI video and image generation using LTX models via ComfyUI. Fo
 - **Temporal upscale** (2x frame count)
 - **Film grain** post-processing with persistent settings
 - **Ollama prompt formatter** — local LLM reformats prompts into optimized tag format with positive/negative generation
-- **Model selector dropdowns** — choose checkpoint, text encoder, VAE, upscalers, and LoRA from what's installed in ComfyUI
+- **Model selector dropdowns** — choose regular or GGUF checkpoints, text encoders, video/audio VAEs, connector weights, upscalers, and LoRA from what's installed in ComfyUI
 - **Sampler selection** — all samplers available in your ComfyUI install (including custom ones like res samplers)
 - **Generation metadata embedding** — settings saved into video files via ffmpeg, loadable for re-use
 - **Progress labels** — stage-aware progress ("Generating first frame", "Generating video", "Rediffusing")
@@ -23,7 +23,7 @@ A desktop app for AI video and image generation using LTX models via ComfyUI. Fo
 
 ## Requirements
 
-- [ComfyUI](https://github.com/comfyanonymous/ComfyUI) running and accessible (default: `http://localhost:8188`)
+- [ComfyUI](https://github.com/comfyanonymous/ComfyUI) running and accessible from the desktop app. Local and remote URLs are both supported.
 - NVIDIA GPU with sufficient VRAM (16GB+ recommended, 24GB+ for 1080p with upscale)
 - LTX model weights (downloaded automatically during first-run setup)
 
@@ -61,7 +61,7 @@ On first launch, the setup wizard will:
 2. Download any missing LTX model weights
 3. Auto-install the required [rs-nodes](https://github.com/richservo/rs-nodes) and [RES4LYF](https://github.com/ClownsharkBatwing/RES4LYF) custom nodes into ComfyUI
 
-> **Note:** ComfyUI must be running before you launch the app (default: `http://localhost:8188`).
+> **Note:** ComfyUI must be running before you launch the app. The default URL is `http://localhost:8188`, but you can point the app at a different local or remote ComfyUI server from Settings.
 
 ## Architecture
 
@@ -105,11 +105,30 @@ Frontend (React) ──IPC──> Electron Main ──HTTP/WS──> ComfyUI
 
 Dropdowns populated from ComfyUI's `/object_info` API:
 
-- **Checkpoint** — main model (shared across checkpoint loader, text encoder loader, VAE loader)
-- **Audio VAE Checkpoint** — can differ from main checkpoint
+- **Checkpoint Format** — choose between regular `.safetensors` checkpoints and GGUF UNets
+- **Checkpoint** — main model selection
+- **Video VAE** — standalone video VAE used for LTX encode/decode
+- **Audio VAE** — asset used by the AV dual-tower path in `RSLTXVGenerate`
+- **Text Encoder Format** — choose regular or GGUF text loading
 - **Text Encoder** — text encoding model
+- **LTX Embeddings Connector** — connector weights paired with standalone LTX text loading
 - **Spatial Upscaler** / **Temporal Upscaler** — upscale models
 - **Upscale LoRA** — LoRA applied during spatial upscale
+
+### ComfyUI connection (Settings > General)
+
+- **ComfyUI URL** accepts either a full URL like `http://example-host:8188` or a bare host/port like `example-host:8188`
+- The app probes the exact configured URL first, so custom remote ports work without needing the default localhost port scan
+
+### LTX 2.3 GGUF notes
+
+- GGUF mode uses `UnetLoaderGGUF` for the main LTX 2.3 model
+- GGUF mode does not require a regular `.safetensors` main checkpoint
+- GGUF mode still expects the matching auxiliary LTX assets exposed by ComfyUI:
+  - video VAE
+  - audio VAE
+  - embeddings connector
+- Text loading in GGUF-aware paths is done through standalone CLIP loaders plus the connector asset rather than through the checkpoint-backed `LTXAVTextEncoderLoader`
 
 ### Playground controls
 
