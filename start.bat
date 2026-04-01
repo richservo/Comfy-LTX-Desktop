@@ -101,28 +101,43 @@ if exist ".git" (
 :: -------------------------------------------------------
 :: 4. pnpm
 :: -------------------------------------------------------
+where npm >nul 2>&1
+if errorlevel 1 goto :npm_missing
+
 where pnpm >nul 2>&1
 if not errorlevel 1 goto :pnpm_ok
 
 echo [*] pnpm not found. Installing...
-call npm install -g pnpm >nul 2>&1
+call npm install -g pnpm
+if errorlevel 1 goto :pnpm_fail
+
 where pnpm >nul 2>&1
 if not errorlevel 1 goto :pnpm_ok
 
+:pnpm_fail
 echo.
 echo [ERROR] Failed to install pnpm.
 echo.
 pause
 exit /b 1
 
+:npm_missing
+
+echo.
+echo [ERROR] npm not found. Please install Node.js with npm support.
+echo.
+pause
+exit /b 1
+
 :pnpm_ok
+set "PNPM_CMD=pnpm"
 echo [OK] pnpm found.
 
 :: -------------------------------------------------------
 :: 5. Dependencies
 :: -------------------------------------------------------
 echo [*] Checking dependencies...
-call pnpm install >nul 2>&1
+call %PNPM_CMD% install
 if errorlevel 1 goto :deps_fail
 goto :deps_ok
 
@@ -144,7 +159,7 @@ echo  ========================================
 echo   Launching LTX Desktop...
 echo  ========================================
 echo.
-call pnpm dev
+call %PNPM_CMD% dev
 if errorlevel 1 goto :launch_fail
 goto :launch_done
 

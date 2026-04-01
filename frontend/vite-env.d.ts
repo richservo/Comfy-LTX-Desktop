@@ -112,7 +112,7 @@ interface Window {
     cancelGeneration: () => Promise<void>
     findStackOutput: (params: { projectName: string; stackId: string }) => Promise<{ video_path: string; enhanced_prompt: string | null } | null>
     checkComfyUIHealth: () => Promise<{ connected: boolean }>
-    getModelLists: () => Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[]; hasRtxSuperRes?: boolean; hasZImage?: boolean }>
+    getModelLists: () => Promise<{ checkpoints: string[]; modelCheckpoints?: string[]; videoVaes?: string[]; audioVaes?: string[]; textEncoders: string[]; ggufTextEncoders?: string[]; ggufEmbeddingsConnectors?: string[]; upscaleModels: string[]; loras: string[]; samplers: string[]; hasRtxSuperRes?: boolean; hasZImage?: boolean }>
     readVideoMetadata: (filePath: string) => Promise<Record<string, unknown> | null>
     extractAudioSegment: (params: { sourcePath: string; startTime: number; duration: number }) => Promise<string>
     renderGuideVideo: (params: { images: { path: string; startFrame: number; endFrame: number }[]; fps: number; totalFrames: number; resolution: string; aspectRatio: string }) => Promise<string>

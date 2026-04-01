@@ -115,7 +115,7 @@ function AppContent() {
           <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-foreground mb-2">Cannot Connect to ComfyUI</h2>
           <p className="text-muted-foreground mb-4">{backendError}</p>
-          <p className="text-muted-foreground text-sm mb-4">Make sure ComfyUI Desktop is running on port 8188.</p>
+          <p className="text-muted-foreground text-sm mb-4">Make sure the configured ComfyUI server is running and reachable.</p>
           <Button onClick={() => window.location.reload()}>Retry</Button>
         </div>
       </div>

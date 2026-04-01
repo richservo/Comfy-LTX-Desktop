@@ -15,6 +15,8 @@ export interface AppSettings {
   filmGrainSize: number
   checkpoint: string
   textEncoder: string
+  ggufEmbeddingsConnector: string
+  videoVae: string
   vaeCheckpoint: string
   spatialUpscaleModel: string
   temporalUpscaleModel: string
@@ -44,7 +46,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   filmGrainSize: 1.2,
   checkpoint: 'ltx-2.3-22b-dev-fp8.safetensors',
   textEncoder: 'gemma_3_12B_it_fp4_mixed.safetensors',
-  vaeCheckpoint: 'ltx-2.3-22b-dev-fp8.safetensors',
+  ggufEmbeddingsConnector: '',
+  videoVae: '',
+  vaeCheckpoint: '',
   spatialUpscaleModel: 'ltx-2.3-spatial-upscaler-x2-1.0.safetensors',
   temporalUpscaleModel: 'ltx-2.3-temporal-upscaler-x2-1.0.safetensors',
   upscaleLora: 'ltx-2.3-22b-distilled-lora-384.safetensors',

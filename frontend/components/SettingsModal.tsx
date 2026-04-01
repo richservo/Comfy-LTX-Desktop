@@ -1,5 +1,5 @@
 import { Info, Package, Settings, Sliders, X, RefreshCw, CheckCircle, AlertTriangle, Download } from 'lucide-react'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Button } from './ui/button'
 import { useAppSettings, DEFAULT_APP_SETTINGS, type AppSettings } from '../contexts/AppSettingsContext'
 import { logger } from '../lib/logger'
@@ -11,6 +11,27 @@ interface SettingsModalProps {
 }
 
 type TabId = 'general' | 'inference' | 'models' | 'about'
+type ModelFormat = 'regular' | 'gguf'
+
+function isGGUFFile(name: string): boolean {
+  return name.toLowerCase().endsWith('.gguf')
+}
+
+function deriveLtxFamilyBase(assetName: string): string {
+  return assetName
+    .replace(/\.[^.]+$/, '')
+    .replace(/_(?:video_vae|audio_vae|embeddings_connectors)$/i, '')
+    .replace(/-(?:fp8|fp16|bf16|f16)$/i, '')
+    .replace(/-(?:[a-z0-9]+-)?q\d[\w.-]*$/i, '')
+}
+
+function deriveLtxAssetName(assetName: string, suffix: '_video_vae' | '_audio_vae' | '_embeddings_connectors'): string {
+  if (assetName.endsWith(`${suffix}.safetensors`)) {
+    return assetName
+  }
+
+  return `${deriveLtxFamilyBase(assetName)}${suffix}.safetensors`
+}
 
 export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
   const { settings, updateSettings } = useAppSettings()
@@ -22,9 +43,11 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const [modelLicenseText, setModelLicenseText] = useState<string | null>(null)
   const [modelLicenseLoading, setModelLicenseLoading] = useState(false)
   const [showModelLicense, setShowModelLicense] = useState(false)
-  const [modelLists, setModelLists] = useState<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[]; hasZImage?: boolean; hasGemini?: boolean; geminiModels?: string[]; geminiAspectRatios?: string[]; geminiImageSizes?: string[] } | null>(null)
+  const [modelLists, setModelLists] = useState<{ checkpoints: string[]; modelCheckpoints?: string[]; videoVaes?: string[]; audioVaes?: string[]; textEncoders: string[]; ggufTextEncoders?: string[]; ggufEmbeddingsConnectors?: string[]; upscaleModels: string[]; loras: string[]; samplers: string[]; hasZImage?: boolean; hasGemini?: boolean; geminiModels?: string[]; geminiAspectRatios?: string[]; geminiImageSizes?: string[] } | null>(null)
   const [modelListsLoading, setModelListsLoading] = useState(false)
   const [modelListsError, setModelListsError] = useState<string | null>(null)
+  const [checkpointFormat, setCheckpointFormat] = useState<ModelFormat>('regular')
+  const [textEncoderFormat, setTextEncoderFormat] = useState<ModelFormat>('regular')
   const [comfyUrlInput, setComfyUrlInput] = useState(settings.comfyuiUrl)
   const [comfyOutputDirInput, setComfyOutputDirInput] = useState(settings.comfyuiOutputDir)
   const [ollamaUrlInput, setOllamaUrlInput] = useState(settings.ollamaUrl)
@@ -49,8 +72,48 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
       setComfyOutputDirInput(settings.comfyuiOutputDir)
       setOllamaUrlInput(settings.ollamaUrl)
       setOllamaModelInput(settings.ollamaModel)
+      setCheckpointFormat(isGGUFFile(settings.checkpoint) ? 'gguf' : 'regular')
+      setTextEncoderFormat(isGGUFFile(settings.textEncoder) ? 'gguf' : 'regular')
     }
   }, [isOpen, settings.comfyuiUrl, settings.comfyuiOutputDir, settings.ollamaUrl, settings.ollamaModel])
+
+  const regularCheckpointOptions = modelLists?.checkpoints ?? []
+  const videoVaeOptions = modelLists?.videoVaes ?? []
+  const audioVaeOptions = modelLists?.audioVaes ?? []
+  const ggufCheckpointOptions = useMemo(
+    () => (modelLists?.modelCheckpoints ?? []).filter(isGGUFFile),
+    [modelLists],
+  )
+  const regularTextEncoderOptions = modelLists?.textEncoders ?? []
+  const ggufTextEncoderOptions = modelLists?.ggufTextEncoders ?? []
+  const ggufEmbeddingsConnectorOptions = modelLists?.ggufEmbeddingsConnectors ?? []
+  const checkpointOptions = checkpointFormat === 'gguf' ? ggufCheckpointOptions : regularCheckpointOptions
+  const textEncoderOptions = textEncoderFormat === 'gguf' ? ggufTextEncoderOptions : regularTextEncoderOptions
+  const defaultVideoVae = useMemo(() => {
+    if (videoVaeOptions.length === 0) return ''
+    const derived = deriveLtxAssetName(settings.checkpoint, '_video_vae')
+    return videoVaeOptions.includes(derived)
+      ? derived
+      : ''
+  }, [settings.checkpoint, videoVaeOptions])
+  const defaultAudioVae = useMemo(() => {
+    if (audioVaeOptions.length === 0) return ''
+    const derived = deriveLtxAssetName(settings.checkpoint, '_audio_vae')
+    if (audioVaeOptions.includes(derived)) {
+      return derived
+    }
+    if (audioVaeOptions.includes(settings.checkpoint)) {
+      return settings.checkpoint
+    }
+    return audioVaeOptions[0]
+  }, [audioVaeOptions, settings.checkpoint])
+  const defaultEmbeddingsConnector = useMemo(() => {
+    if (ggufEmbeddingsConnectorOptions.length === 0) return ''
+    const derived = deriveLtxAssetName(settings.checkpoint, '_embeddings_connectors')
+    return ggufEmbeddingsConnectorOptions.includes(derived)
+      ? derived
+      : ggufEmbeddingsConnectorOptions[0]
+  }, [ggufEmbeddingsConnectorOptions, settings.checkpoint])
 
   useEffect(() => {
     if (activeTab !== 'models' && activeTab !== 'inference') return
@@ -72,6 +135,42 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     if (activeTab !== 'about' || appVersion) return
     window.electronAPI.getAppInfo().then(info => setAppVersion(info.version)).catch(() => {})
   }, [activeTab, appVersion])
+
+  useEffect(() => {
+    if (!modelLists) return
+
+    const patch: Partial<AppSettings> = {}
+    if (
+      defaultVideoVae
+      && (!settings.videoVae || !videoVaeOptions.includes(settings.videoVae))
+    ) {
+      patch.videoVae = defaultVideoVae
+    }
+    if (defaultAudioVae && (!settings.vaeCheckpoint || !audioVaeOptions.includes(settings.vaeCheckpoint))) {
+      patch.vaeCheckpoint = defaultAudioVae
+    }
+    if (
+      defaultEmbeddingsConnector
+      && (!settings.ggufEmbeddingsConnector || !ggufEmbeddingsConnectorOptions.includes(settings.ggufEmbeddingsConnector))
+    ) {
+      patch.ggufEmbeddingsConnector = defaultEmbeddingsConnector
+    }
+    if (Object.keys(patch).length > 0) {
+      updateSettings(patch)
+    }
+  }, [
+    audioVaeOptions,
+    defaultAudioVae,
+    defaultEmbeddingsConnector,
+    defaultVideoVae,
+    ggufEmbeddingsConnectorOptions,
+    modelLists,
+    settings.ggufEmbeddingsConnector,
+    settings.vaeCheckpoint,
+    settings.videoVae,
+    updateSettings,
+    videoVaeOptions,
+  ])
 
   if (!isOpen) return null
 
@@ -96,6 +195,33 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const handleCfgChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const cfg = Math.max(0, Math.min(30, parseFloat(e.target.value) || 1.0))
     updateSettings({ cfg })
+  }
+
+  const handleCheckpointFormatChange = (nextFormat: ModelFormat) => {
+    setCheckpointFormat(nextFormat)
+    const nextOptions = nextFormat === 'gguf' ? ggufCheckpointOptions : regularCheckpointOptions
+    if (nextOptions.length > 0 && !nextOptions.includes(settings.checkpoint)) {
+      updateSettings({ checkpoint: nextOptions[0] })
+    }
+  }
+
+  const handleTextEncoderFormatChange = (nextFormat: ModelFormat) => {
+    setTextEncoderFormat(nextFormat)
+    const nextOptions = nextFormat === 'gguf' ? ggufTextEncoderOptions : regularTextEncoderOptions
+    const patch: Partial<AppSettings> = {}
+    if (nextOptions.length > 0 && !nextOptions.includes(settings.textEncoder)) {
+      patch.textEncoder = nextOptions[0]
+    }
+    if (
+      (checkpointFormat === 'gguf' || nextFormat === 'gguf') &&
+      defaultEmbeddingsConnector &&
+      !settings.ggufEmbeddingsConnector
+    ) {
+      patch.ggufEmbeddingsConnector = defaultEmbeddingsConnector
+    }
+    if (Object.keys(patch).length > 0) {
+      updateSettings(patch)
+    }
   }
 
   const handleSaveComfyUrl = () => {
@@ -221,12 +347,13 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-white">ComfyUI Connection</h3>
                 <div className="bg-zinc-800/50 rounded-lg p-4 space-y-3">
-                  <div>
-                    <label className="text-xs text-zinc-400 mb-1 block">ComfyUI URL</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={comfyUrlInput}
+                    <div>
+                      <label className="text-xs text-zinc-400 mb-1 block">ComfyUI URL</label>
+                      <p className="text-xs text-zinc-500 mb-1">Accepts local or remote servers. You can paste either a full URL like `http://example-host:8188` or just `example-host:8188`.</p>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={comfyUrlInput}
                         onChange={(e) => setComfyUrlInput(e.target.value)}
                         onKeyDown={(e) => e.stopPropagation()}
                         className="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -569,42 +696,97 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                 {modelLists && !modelListsLoading && (
                   <div className="bg-zinc-800/50 rounded-lg p-4 space-y-4">
                     <div>
+                      {ggufCheckpointOptions.length > 0 && (
+                        <>
+                          <label className="text-xs text-zinc-400 mb-1 block">Checkpoint Format</label>
+                          <select
+                            value={checkpointFormat}
+                            onChange={(e) => handleCheckpointFormatChange(e.target.value as ModelFormat)}
+                            className="w-full mb-2 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="regular">Regular (.safetensors)</option>
+                            <option value="gguf">GGUF (.gguf)</option>
+                          </select>
+                        </>
+                      )}
                       <label className="text-xs text-zinc-400 mb-1 block">Checkpoint</label>
-                      <p className="text-xs text-zinc-500 mb-1">Used by model loader and text encoder</p>
+                      <p className="text-xs text-zinc-500 mb-1">Main model loader. Switch format above to choose between standard checkpoints and GGUF UNets.</p>
                       <select
                         value={settings.checkpoint}
                         onChange={(e) => updateSettings({ checkpoint: e.target.value })}
                         className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
-                        {modelLists.checkpoints.map((m) => (
+                        {checkpointOptions.map((m) => (
                           <option key={m} value={m}>{m}</option>
                         ))}
                       </select>
                     </div>
                     <div>
-                      <label className="text-xs text-zinc-400 mb-1 block">Audio VAE Checkpoint</label>
-                      <p className="text-xs text-zinc-500 mb-1">Usually same as checkpoint, but can differ</p>
+                      <label className="text-xs text-zinc-400 mb-1 block">Video VAE</label>
+                      <p className="text-xs text-zinc-500 mb-1">Standalone video VAE used for LTX encode/decode. GGUF checkpoints require this; regular checkpoints can override the built-in VAE with it.</p>
                       <select
-                        value={settings.vaeCheckpoint}
+                        value={settings.videoVae || defaultVideoVae}
+                        onChange={(e) => updateSettings({ videoVae: e.target.value })}
+                        className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {videoVaeOptions.map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-400 mb-1 block">Audio VAE</label>
+                      <p className="text-xs text-zinc-500 mb-1">Used by the AV dual-tower path in `RSLTXVGenerate`. This is not the main model selection; pick the matching LTX audio VAE asset or compatible checkpoint-category file.</p>
+                      <select
+                        value={settings.vaeCheckpoint || defaultAudioVae}
                         onChange={(e) => updateSettings({ vaeCheckpoint: e.target.value })}
                         className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
-                        {modelLists.checkpoints.map((m) => (
+                        {audioVaeOptions.map((m) => (
                           <option key={m} value={m}>{m}</option>
                         ))}
                       </select>
                     </div>
                     <div>
+                      {ggufTextEncoderOptions.length > 0 && (
+                        <>
+                          <label className="text-xs text-zinc-400 mb-1 block">Text Encoder Format</label>
+                          <select
+                            value={textEncoderFormat}
+                            onChange={(e) => handleTextEncoderFormatChange(e.target.value as ModelFormat)}
+                            className="w-full mb-2 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="regular">Regular</option>
+                            <option value="gguf">GGUF</option>
+                          </select>
+                        </>
+                      )}
                       <label className="text-xs text-zinc-400 mb-1 block">Text Encoder</label>
+                      <p className="text-xs text-zinc-500 mb-1">Choose the Gemma/T5 text encoder to pair with LTX. When the main model or text encoder is GGUF, the backend loads this together with the connector file directly instead of routing through a checkpoint.</p>
                       <select
                         value={settings.textEncoder}
                         onChange={(e) => updateSettings({ textEncoder: e.target.value })}
                         className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
-                        {modelLists.textEncoders.map((m) => (
+                        {textEncoderOptions.map((m) => (
                           <option key={m} value={m}>{m}</option>
                         ))}
                       </select>
+                      {(checkpointFormat === 'gguf' || textEncoderFormat === 'gguf') && ggufEmbeddingsConnectorOptions.length > 0 && (
+                        <>
+                          <label className="text-xs text-zinc-400 mt-3 mb-1 block">LTX Embeddings Connector</label>
+                          <p className="text-xs text-zinc-500 mb-1">Pairs the selected text encoder with the LTX 2.3 connector weights. Match this to the same model family as the main checkpoint or GGUF UNet.</p>
+                          <select
+                            value={settings.ggufEmbeddingsConnector || defaultEmbeddingsConnector}
+                            onChange={(e) => updateSettings({ ggufEmbeddingsConnector: e.target.value })}
+                            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            {ggufEmbeddingsConnectorOptions.map((m) => (
+                              <option key={m} value={m}>{m}</option>
+                            ))}
+                          </select>
+                        </>
+                      )}
                     </div>
                     <div>
                       <label className="text-xs text-zinc-400 mb-1 block">Spatial Upscaler</label>

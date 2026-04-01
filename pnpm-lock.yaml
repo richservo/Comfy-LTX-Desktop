@@ -45,6 +45,9 @@ importers:
         specifier: 8.19.0
         version: 8.19.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
     devDependencies:
+      '@electron/get':
+        specifier: 2.0.3
+        version: 2.0.3
       '@resvg/resvg-js':
         specifier: ^2.6.2
         version: 2.6.2
@@ -81,6 +84,9 @@ importers:
       electron-builder:
         specifier: ^26.8.1
         version: 26.8.1(electron-builder-squirrel-windows@26.8.1)
+      extract-zip:
+        specifier: 2.0.1
+        version: 2.0.1
       postcss:
         specifier: ^8.4.38
         version: 8.5.6

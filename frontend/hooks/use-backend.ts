@@ -58,7 +58,7 @@ export function useBackend(): UseBackendReturn {
         setIsLoading(false)
         const currentStatus = await window.electronAPI.checkComfyUIHealth()
         if (!currentStatus.connected && !cancelled) {
-          setError('Could not connect to ComfyUI. Make sure ComfyUI Desktop is running on port 8188.')
+          setError('Could not connect to ComfyUI. Check the ComfyUI URL in Settings and make sure the server is reachable.')
         }
       }
     }

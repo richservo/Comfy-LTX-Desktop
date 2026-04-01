@@ -158,7 +158,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('comfyui:find-stack-output', params),
   checkComfyUIHealth: (): Promise<{ connected: boolean }> =>
     ipcRenderer.invoke('comfyui:health'),
-  getModelLists: (): Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[]; hasZImage?: boolean; hasGemini?: boolean; geminiModels?: string[]; geminiAspectRatios?: string[]; geminiImageSizes?: string[] }> =>
+  getModelLists: (): Promise<{ checkpoints: string[]; modelCheckpoints?: string[]; videoVaes?: string[]; audioVaes?: string[]; textEncoders: string[]; ggufTextEncoders?: string[]; ggufEmbeddingsConnectors?: string[]; upscaleModels: string[]; loras: string[]; samplers: string[]; hasZImage?: boolean; hasGemini?: boolean; geminiModels?: string[]; geminiAspectRatios?: string[]; geminiImageSizes?: string[] }> =>
     ipcRenderer.invoke('comfyui:model-lists'),
   readVideoMetadata: (filePath: string): Promise<Record<string, unknown> | null> =>
     ipcRenderer.invoke('comfyui:read-video-metadata', filePath),
@@ -310,7 +310,7 @@ declare global {
       }>
       cancelGeneration: () => Promise<void>
       checkComfyUIHealth: () => Promise<{ connected: boolean }>
-      getModelLists: () => Promise<{ checkpoints: string[]; textEncoders: string[]; upscaleModels: string[]; loras: string[]; samplers: string[] }>
+      getModelLists: () => Promise<{ checkpoints: string[]; modelCheckpoints?: string[]; videoVaes?: string[]; audioVaes?: string[]; textEncoders: string[]; ggufTextEncoders?: string[]; ggufEmbeddingsConnectors?: string[]; upscaleModels: string[]; loras: string[]; samplers: string[] }>
       readVideoMetadata: (filePath: string) => Promise<Record<string, unknown> | null>
       renderGuideVideo: (params: { images: { path: string; startFrame: number; endFrame: number }[]; fps: number; totalFrames: number; resolution: string; aspectRatio: string }) => Promise<string>
       padAudioToLength: (params: { sourcePath: string; targetDuration: number }) => Promise<string>

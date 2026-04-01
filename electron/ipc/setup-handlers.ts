@@ -1,9 +1,8 @@
 import { ipcMain } from 'electron'
 import fs from 'fs'
-import os from 'os'
-import path from 'path'
 import { checkExistingModels, downloadModels } from '../comfyui/model-downloader'
 import { installRsNodes } from '../comfyui/rs-nodes-installer'
+import { getDefaultComfyUiPath } from '../comfyui/defaults'
 import { logger } from '../logger'
 import { getMainWindow } from '../window'
 
@@ -11,7 +10,7 @@ let installAbortController: AbortController | null = null
 
 export function registerSetupHandlers(): void {
   ipcMain.handle('setup:get-default-comfy-path', () => {
-    return path.join(os.homedir(), 'Documents', 'ComfyUI')
+    return getDefaultComfyUiPath()
   })
 
   ipcMain.handle(
