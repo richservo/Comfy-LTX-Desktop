@@ -135,7 +135,7 @@ echo [OK] pnpm found.
 :: 5. Dependencies
 :: -------------------------------------------------------
 echo [*] Checking dependencies...
-call %PNPM_CMD% install
+call %PNPM_CMD% install --node-linker=hoisted
 if errorlevel 1 goto :deps_fail
 goto :deps_ok
 
