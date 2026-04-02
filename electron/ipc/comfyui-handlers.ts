@@ -2,7 +2,10 @@ import { app, ipcMain } from 'electron'
 import { randomUUID } from 'crypto'
 import fs from 'fs'
 import path from 'path'
-import { spawnSync } from 'child_process'
+import { spawnSync, execFile } from 'child_process'
+import { promisify } from 'util'
+
+const execFileAsync = promisify(execFile)
 import { comfyClient, type ComfyUIUploadResult } from '../comfyui/client'
 import { progressTracker } from '../comfyui/progress'
 import {
@@ -16,21 +19,36 @@ import { getGpuInfo } from '../gpu'
 import { logger } from '../logger'
 import { approvePath } from '../path-validation'
 
+// --- Render cache: avoid repeated full dir scans within short windows ---
+const renderCache = new Map<string, { data: Record<string, unknown>[]; timestamp: number }>()
+const RENDER_CACHE_TTL = 5000 // 5 seconds
+
+function getCachedRenders(projectName: string): Record<string, unknown>[] | null {
+  const entry = renderCache.get(projectName)
+  if (entry && Date.now() - entry.timestamp < RENDER_CACHE_TTL) {
+    return entry.data
+  }
+  renderCache.delete(projectName)
+  return null
+}
+
+function setCachedRenders(projectName: string, data: Record<string, unknown>[]) {
+  renderCache.set(projectName, { data, timestamp: Date.now() })
+}
+
+export function invalidateRenderCache(projectName?: string) {
+  if (projectName) {
+    renderCache.delete(projectName)
+  } else {
+    renderCache.clear()
+  }
+}
+
 /**
  * Extract render metadata from a video/image file's embedded ComfyUI workflow.
  * Returns partial render fields extracted from the prompt JSON, or null if unavailable.
  */
-function extractRenderFromMetadata(filePath: string): Record<string, unknown> | null {
-  const ffmpegPath = findFfmpegPath()
-  if (!ffmpegPath) return null
-
-  try {
-    const result = spawnSync(ffmpegPath, ['-i', filePath, '-f', 'ffmetadata', '-'], {
-      encoding: 'utf8',
-      timeout: 10000,
-    })
-
-    const output = (result.stdout || '') + (result.stderr || '')
+function parseMetadataOutput(output: string): Record<string, unknown> | null {
     // ffmetadata format: prompt={json...}
     const match = output.match(/^prompt=(.+)/m)
     if (!match) return null
@@ -104,6 +122,17 @@ function extractRenderFromMetadata(filePath: string): Record<string, unknown> | 
     // Check for spatial upscale model reference
     const hasUpscale = !!genInputs.upscale
 
+    // Recover LoRA chain from workflow
+    const loras: { name: string; strength: number }[] = []
+    for (const node of Object.values(workflow)) {
+      if (node.class_type === 'LoraLoaderModelOnly') {
+        loras.push({
+          name: node.inputs.lora_name as string,
+          strength: node.inputs.strength_model as number ?? 1,
+        })
+      }
+    }
+
     return {
       prompt,
       seed: genInputs.noise_seed as number ?? 0,
@@ -117,10 +146,44 @@ function extractRenderFromMetadata(filePath: string): Record<string, unknown> | 
       middleStrength: genInputs.middle_strength as number ?? 1,
       lastStrength: genInputs.last_strength as number ?? 1,
       cameraMotion: 'none',
+      loras: loras.length > 0 ? loras : undefined,
       metadataRecovered: true,
     }
+  } catch {
+    return null
+  }
+}
+
+function extractRenderFromMetadata(filePath: string): Record<string, unknown> | null {
+  const ffmpegPath = findFfmpegPath()
+  if (!ffmpegPath) return null
+  try {
+    const result = spawnSync(ffmpegPath, ['-i', filePath, '-f', 'ffmetadata', '-'], {
+      encoding: 'utf8',
+      timeout: 10000,
+    })
+    return parseMetadataOutput((result.stdout || '') + (result.stderr || ''))
   } catch (err) {
     logger.warn(`extractRenderFromMetadata failed for ${filePath}: ${err}`)
+    return null
+  }
+}
+
+async function extractRenderFromMetadataAsync(filePath: string): Promise<Record<string, unknown> | null> {
+  const ffmpegPath = findFfmpegPath()
+  if (!ffmpegPath) return null
+  try {
+    const { stdout, stderr } = await execFileAsync(ffmpegPath, ['-i', filePath, '-f', 'ffmetadata', '-'], {
+      encoding: 'utf8',
+      timeout: 10000,
+    })
+    return parseMetadataOutput((stdout || '') + (stderr || ''))
+  } catch (err) {
+    // ffmpeg returns non-zero exit for metadata extraction — check if we got output
+    const e = err as { stdout?: string; stderr?: string }
+    const output = (e.stdout || '') + (e.stderr || '')
+    if (output) return parseMetadataOutput(output)
+    logger.warn(`extractRenderFromMetadataAsync failed for ${filePath}: ${err}`)
     return null
   }
 }
@@ -491,6 +554,7 @@ export function registerComfyUIHandlers(): void {
             middleStrength: params.middleStrength,
             lastStrength: params.lastStrength,
             preserveAspectRatio: params.preserveAspectRatio || false,
+            loras: [...(settings.loras ?? []), ...(params.loras ?? [])],
             // Image-specific fields
             ...(params.imageMode ? {
               imageGenerator: settings.imageGenerator || 'none',
@@ -502,6 +566,7 @@ export function registerComfyUIHandlers(): void {
             timestamp: new Date().toISOString(),
           })
           writeRendersJson(rendersPath, renders)
+          invalidateRenderCache(params.projectName)
         } catch (err) {
           logger.warn(`Failed to write pending render entry: ${err}`)
         }
@@ -594,6 +659,7 @@ export function registerComfyUIHandlers(): void {
             entry.status = 'complete'
           }
           writeRendersJson(rendersPath, renders)
+          invalidateRenderCache(params.projectName)
         } catch (err) {
           logger.warn(`Failed to update render entry: ${err}`)
         }
@@ -640,7 +706,10 @@ export function registerComfyUIHandlers(): void {
                 changed = true
               }
             }
-            if (changed) writeRendersJson(rendersPath, renders)
+            if (changed) {
+              writeRendersJson(rendersPath, renders)
+              invalidateRenderCache(params.projectName)
+            }
           }
         } catch {
           // Ignore cleanup errors
@@ -763,6 +832,10 @@ export function registerComfyUIHandlers(): void {
 
   ipcMain.handle('comfyui:get-project-renders', async (_event, projectName: string) => {
     try {
+      // Check cache first
+      const cached = getCachedRenders(projectName)
+      if (cached) return cached
+
       const settings = getComfyUISettings()
       const outputDir = settings.comfyuiOutputDir || path.join(app.getPath('documents'), 'ComfyUI', 'output')
       const safeProjectName = projectName.replace(/[<>:"/\\|?*]/g, '_')
@@ -772,7 +845,7 @@ export function registerComfyUIHandlers(): void {
       const VIDEO_EXTS = new Set(['.mp4', '.webm', '.avi', '.mov'])
       const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 
-      // Single scan: collect all media files and compute total bytes (async)
+      // Single scan: collect all media files and compute total bytes (parallel stat)
       let diskTotalBytes = 0
       const diskFiles = new Map<string, { filePath: string; type: string; size: number }>()
       for (const [subDir, exts, type] of [
@@ -782,12 +855,15 @@ export function registerComfyUIHandlers(): void {
         const dir = path.join(projectDir, subDir)
         try { await fs.promises.access(dir) } catch { continue }
         const files = await fs.promises.readdir(dir)
-        for (const file of files) {
-          if (exts.has(path.extname(file).toLowerCase())) {
-            const filePath = path.join(dir, file)
-            const stat = await fs.promises.stat(filePath)
-            diskTotalBytes += stat.size
-            diskFiles.set(file, { filePath, type, size: stat.size })
+        const mediaFiles = files.filter(f => exts.has(path.extname(f).toLowerCase()))
+        const stats = await Promise.all(mediaFiles.map(async file => {
+          const filePath = path.join(dir, file)
+          const stat = await fs.promises.stat(filePath)
+          return { file, filePath, type, size: stat.size }
+        }))
+        for (const { file, filePath, type: fileType, size } of stats) {
+          diskTotalBytes += size
+          diskFiles.set(file, { filePath, type: fileType, size })
           }
         }
       }
@@ -820,11 +896,13 @@ export function registerComfyUIHandlers(): void {
 
       // Fast path: if total bytes match, disk hasn't changed — skip reconciliation
       if (storedChecksum === diskTotalBytes && renders.length > 0) {
-        return renders.map(r => {
+        const result = renders.map(r => {
           const subDir = r.type === 'image' ? 'image' : 'video'
           const filePath = path.join(projectDir, subDir, r.filename as string)
           return { ...r, filePath }
         })
+        setCachedRenders(projectName, result)
+        return result
       }
 
       // Full reconciliation: remove entries with no files, add files not in JSON
@@ -837,11 +915,22 @@ export function registerComfyUIHandlers(): void {
         return true
       })
 
+      // Collect untracked files and stat them in parallel
+      const untrackedFiles: [string, { filePath: string; type: string; size: number }][] = []
       for (const [filename, info] of diskFiles) {
-        if (trackedFilenames.has(filename)) continue
-        const stat = await fs.promises.stat(info.filePath)
-        // Try to recover metadata from the file's embedded workflow
-        const recovered = extractRenderFromMetadata(info.filePath)
+        if (!trackedFilenames.has(filename)) untrackedFiles.push([filename, info])
+      }
+      // Parallel async: stat + metadata extraction for untracked files
+      const untrackedResults = await Promise.all(
+        untrackedFiles.map(async ([filename, info]) => {
+          const [stat, recovered] = await Promise.all([
+            fs.promises.stat(info.filePath),
+            extractRenderFromMetadataAsync(info.filePath),
+          ])
+          return { filename, info, stat, recovered }
+        })
+      )
+      for (const { filename, info, stat, recovered } of untrackedResults) {
         renders.push({
           filename,
           type: info.type,
@@ -857,20 +946,24 @@ export function registerComfyUIHandlers(): void {
         })
       }
 
-      // Backfill existing entries that are missing data (seed=0, no prompt)
-      // but skip entries already marked as noMetadata (no embedded workflow)
-      for (const render of renders) {
-        if (render.noMetadata || render.metadataRecovered) continue
-        const isMissing = !render.prompt && (render.seed === 0 || render.seed === undefined)
-        if (!isMissing) continue
-        const filename = render.filename as string
-        const info = diskFiles.get(filename)
-        if (!info) continue
-        const recovered = extractRenderFromMetadata(info.filePath)
+      // Backfill existing entries that are missing data — parallel async
+      const backfillTargets = renders.filter(r => {
+        if (r.noMetadata || r.metadataRecovered) return false
+        return !r.prompt && (r.seed === 0 || r.seed === undefined)
+      })
+      const backfillResults = await Promise.all(
+        backfillTargets.map(async r => {
+          const info = diskFiles.get(r.filename as string)
+          if (!info) return null
+          return extractRenderFromMetadataAsync(info.filePath)
+        })
+      )
+      for (let i = 0; i < backfillTargets.length; i++) {
+        const recovered = backfillResults[i]
         if (recovered) {
-          Object.assign(render, recovered)
+          Object.assign(backfillTargets[i], recovered)
         } else {
-          render.noMetadata = true
+          backfillTargets[i].noMetadata = true
         }
       }
 
@@ -890,11 +983,13 @@ export function registerComfyUIHandlers(): void {
       writeRendersJson(imageRendersPath, imageRenders, diskTotalBytes)
 
       // Return with full file paths
-      return renders.map(r => {
+      const result = renders.map(r => {
         const subDir = r.type === 'image' ? 'image' : 'video'
         const filePath = path.join(projectDir, subDir, r.filename as string)
         return { ...r, filePath }
       })
+      setCachedRenders(projectName, result)
+      return result
     } catch (err) {
       logger.warn(`Failed to read project renders: ${err}`)
       return []

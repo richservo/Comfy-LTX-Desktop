@@ -128,6 +128,7 @@ interface Window {
       audioPath?: string | null;
       firstStrength?: number; middleStrength?: number; lastStrength?: number;
       preserveAspectRatio?: boolean;
+      loras?: { name: string; strength: number }[];
       timestamp: string;
     }>>
     getSettings: () => Promise<{

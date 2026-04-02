@@ -5,6 +5,7 @@ import { getAllowedRoots } from '../config'
 import { logger } from '../logger'
 import { getMainWindow } from '../window'
 import { validatePath, approvePath } from '../path-validation'
+import { invalidateRenderCache } from './comfyui-handlers'
 
 const MIME_TYPES: Record<string, string> = {
   '.png': 'image/png',
@@ -342,6 +343,7 @@ export function registerFileHandlers(): void {
         }
       }
 
+      invalidateRenderCache()
       return { success: true }
     } catch (error) {
       return { success: false, error: String(error) }
@@ -403,6 +405,7 @@ export function registerFileHandlers(): void {
         } catch { /* non-critical, skip */ }
       }
 
+      invalidateRenderCache()
       return { success: true }
     } catch (error) {
       return { success: false, error: String(error) }

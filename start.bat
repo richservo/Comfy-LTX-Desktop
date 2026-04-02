@@ -122,8 +122,12 @@ echo [OK] pnpm found.
 :: 5. Dependencies
 :: -------------------------------------------------------
 echo [*] Checking dependencies...
-call pnpm install >nul 2>&1
-if errorlevel 1 goto :deps_fail
+call pnpm install --frozen-lockfile >nul 2>&1
+if errorlevel 1 (
+  echo [*] Installing dependencies...
+  call pnpm install
+  if errorlevel 1 goto :deps_fail
+)
 goto :deps_ok
 
 :deps_fail

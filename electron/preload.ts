@@ -179,6 +179,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     audioPath?: string | null;
     firstStrength?: number; middleStrength?: number; lastStrength?: number;
     preserveAspectRatio?: boolean;
+    loras?: { name: string; strength: number }[];
   }>> => ipcRenderer.invoke('comfyui:get-project-renders', projectName),
 
   // Settings (stored locally by Electron)
@@ -324,6 +325,7 @@ declare global {
         audioPath?: string | null;
         firstStrength?: number; middleStrength?: number; lastStrength?: number;
         preserveAspectRatio?: boolean;
+        loras?: { name: string; strength: number }[];
       }>>
       getSettings: () => Promise<{
         comfyuiUrl: string

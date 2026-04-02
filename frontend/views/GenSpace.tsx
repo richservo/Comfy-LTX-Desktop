@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react'
 import {
   Trash2, Download, Image, Video, X,
   Heart, Film, Volume2, VolumeX, Sparkles,
@@ -27,7 +27,7 @@ import { logger } from '../lib/logger'
 import { RetakePanel } from '../components/RetakePanel'
 
 // Asset card with hover overlays
-function AssetCard({
+const AssetCard = memo(function AssetCard({
   asset,
   onDelete,
   onPlay,
@@ -40,14 +40,14 @@ function AssetCard({
   thumbWidth,
 }: {
   asset: Asset
-  onDelete: () => void
-  onPlay: () => void
+  onDelete: (asset: Asset) => void
+  onPlay: (asset: Asset) => void
   onDragStart: (e: React.DragEvent, asset: Asset) => void
   onCreateVideo?: (asset: Asset) => void
   onRerender?: (asset: Asset) => void
   onLoadSettings?: (asset: Asset) => void
   onEdit?: (asset: Asset) => void
-  onToggleFavorite?: () => void
+  onToggleFavorite?: (asset: Asset) => void
   thumbWidth?: number
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -108,7 +108,7 @@ function AssetCard({
       className="relative group cursor-pointer rounded-xl overflow-hidden bg-zinc-900"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      onClick={onPlay}
+      onClick={() => onPlay(asset)}
       draggable={asset.type === 'image'}
       onDragStart={(e) => asset.type === 'image' && onDragStart(e, asset)}
     >
@@ -135,7 +135,7 @@ function AssetCard({
       {/* Favorite heart - always visible when favorited */}
       {isFavorite && !isHovered && (
         <button
-          onClick={(e) => { e.stopPropagation(); onToggleFavorite?.() }}
+          onClick={(e) => { e.stopPropagation(); onToggleFavorite?.(asset) }}
           className="absolute top-2 left-2 p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white transition-colors z-10"
         >
           <Heart className="h-3.5 w-3.5 fill-current" />
@@ -150,7 +150,7 @@ function AssetCard({
         <div className="absolute top-2 left-2 right-2 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <button
-              onClick={(e) => { e.stopPropagation(); onToggleFavorite?.() }}
+              onClick={(e) => { e.stopPropagation(); onToggleFavorite?.(asset) }}
               className={`p-1.5 rounded-lg backdrop-blur-md transition-colors ${
                 isFavorite ? 'bg-white/20 text-white' : 'bg-black/40 text-white hover:bg-black/60'
               }`}
@@ -209,7 +209,7 @@ function AssetCard({
             </div>
             <div className="flex items-center gap-1.5">
               <button
-                onClick={(e) => { e.stopPropagation(); onDelete() }}
+                onClick={(e) => { e.stopPropagation(); onDelete(asset) }}
                 className="p-1.5 rounded-lg bg-red-600/70 backdrop-blur-md text-white hover:bg-red-500 transition-colors"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -234,7 +234,7 @@ function AssetCard({
               <Download className="h-3.5 w-3.5" />
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); onDelete() }}
+              onClick={(e) => { e.stopPropagation(); onDelete(asset) }}
               className="p-1.5 rounded-lg bg-red-600/70 backdrop-blur-md text-white hover:bg-red-500 transition-colors"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -245,7 +245,7 @@ function AssetCard({
 
     </div>
   )
-}
+})
 
 // Dropdown component for settings
 function SettingsDropdown({
@@ -1150,16 +1150,14 @@ export function GenSpace() {
     )
   }
 
-  const handleDelete = async (asset: Asset) => {
+  const handleDelete = useCallback(async (asset: Asset) => {
     if (!currentProjectId) return
-    // Move file to _old folder — await to ensure renders.json is updated before any sync
     if (asset.path) {
       await window.electronAPI.archiveAsset(asset.path)
     }
     deleteAsset(currentProjectId, asset.id)
-    // Force re-sync so the asset list is reconciled with renders.json on disk
     setSyncCounter(c => c + 1)
-  }
+  }, [currentProjectId, deleteAsset])
 
   const loadTrash = useCallback(async () => {
     if (!currentProject?.name || !appSettings.comfyuiOutputDir) return
@@ -1190,26 +1188,29 @@ export function GenSpace() {
     setSelectedTrashItem(null)
   }, [])
 
-  const handleDragStart = (e: React.DragEvent, asset: Asset) => {
+  const handleDragStart = useCallback((e: React.DragEvent, asset: Asset) => {
     e.dataTransfer.setData('asset', JSON.stringify(asset))
     e.dataTransfer.setData('assetId', asset.id)
     e.dataTransfer.effectAllowed = 'copy'
-  }
+  }, [])
 
-  const handleEdit = (imageAsset: Asset) => {
+  const handleEdit = useCallback((imageAsset: Asset) => {
     setGenMode('text-to-image')
     setMode('video')
-    // Load the image as the first reference image
     setReferenceImages([imageAsset.url, null])
     if (imageAsset.prompt) setPrompt(imageAsset.prompt)
     setIsPanelOpen(true)
-  }
+  }, [])
 
-  const handleCreateVideo = (imageAsset: Asset) => {
+  const handleCreateVideo = useCallback((imageAsset: Asset) => {
     setMode('video')
     setInputImage(imageAsset.url)
     setPrompt(`${imageAsset.prompt || 'The scene comes to life...'}`)
-  }
+  }, [])
+
+  const handleToggleFavorite = useCallback((asset: Asset) => {
+    if (currentProjectId) toggleFavorite(currentProjectId, asset.id)
+  }, [currentProjectId, toggleFavorite])
 
   // Shared helper: load all settings from a render entry into UI state
   const loadRenderSettings = async (asset: Asset) => {
@@ -1234,6 +1235,7 @@ export function GenSpace() {
       temporalUpscale: entry.temporalUpscale ?? settings.temporalUpscale,
       filmGrain: entry.filmGrain ?? settings.filmGrain,
       promptEnhance: entry.promptEnhance ?? settings.promptEnhance,
+      loras: entry.loras ?? undefined,
     } : asset.generationParams ? {
       videoResolution: asset.generationParams.resolution || settings.videoResolution,
       duration: asset.generationParams.duration || settings.duration,
@@ -1351,21 +1353,54 @@ export function GenSpace() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [showSizeMenu])
 
-  const sortedAssets = [...assets].sort((a, b) => {
-    if (sortOrder === 'favorites') {
-      if (a.favorite && !b.favorite) return -1
-      if (!a.favorite && b.favorite) return 1
-    }
-    // Use take timestamp (from render) if available, fall back to asset createdAt
-    const timeA = a.takes?.[0]?.createdAt || a.createdAt || 0
-    const timeB = b.takes?.[0]?.createdAt || b.createdAt || 0
-    return sortOrder === 'newest' ? timeB - timeA : timeA - timeB
+  const filteredAssets = useMemo(() => {
+    const sorted = [...assets].sort((a, b) => {
+      if (sortOrder === 'favorites') {
+        if (a.favorite && !b.favorite) return -1
+        if (!a.favorite && b.favorite) return 1
+      }
+      const timeA = a.takes?.[0]?.createdAt || a.createdAt || 0
+      const timeB = b.takes?.[0]?.createdAt || b.createdAt || 0
+      return sortOrder === 'newest' ? timeB - timeA : timeA - timeB
+    })
+    const typeFiltered = mediaFilter === 'all' ? sorted
+      : mediaFilter === 'videos' ? sorted.filter(a => a.type === 'video')
+      : sorted.filter(a => a.type === 'image')
+    return showFavorites ? typeFiltered.filter(a => a.favorite) : typeFiltered
+  }, [assets, sortOrder, mediaFilter, showFavorites])
+  const favoriteCount = useMemo(() => assets.filter(a => a.favorite).length, [assets])
+
+  // Incremental rendering: only mount a batch of cards, load more on scroll
+  const INITIAL_BATCH = 30
+  const BATCH_SIZE = 30
+  const [visibleCount, setVisibleCount] = useState(INITIAL_BATCH)
+  const loadMoreRef = useRef<HTMLDivElement>(null)
+
+  // Reset visible count when filter/sort changes
+  useEffect(() => {
+    setVisibleCount(INITIAL_BATCH)
+  }, [sortOrder, mediaFilter, showFavorites])
+
+  // Observe sentinel to load more
+  useEffect(() => {
+    const sentinel = loadMoreRef.current
+    if (!sentinel) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisibleCount(prev => prev + BATCH_SIZE)
+        }
+      },
+      { rootMargin: '400px' },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
   })
-  const typeFilteredAssets = mediaFilter === 'all' ? sortedAssets
-    : mediaFilter === 'videos' ? sortedAssets.filter(a => a.type === 'video')
-    : sortedAssets.filter(a => a.type === 'image')
-  const filteredAssets = showFavorites ? typeFilteredAssets.filter(a => a.favorite) : typeFilteredAssets
-  const favoriteCount = assets.filter(a => a.favorite).length
+
+  const visibleAssets = useMemo(
+    () => filteredAssets.slice(0, visibleCount),
+    [filteredAssets, visibleCount],
+  )
 
   // Navigation for the asset preview modal
   const selectedIndex = selectedAsset ? filteredAssets.findIndex(a => a.id === selectedAsset.id) : -1
@@ -1809,21 +1844,24 @@ export function GenSpace() {
                     </div>
                   </div>
                 )}
-                {filteredAssets.map(asset => (
+                {visibleAssets.map(asset => (
                   <AssetCard
                     key={asset.id}
                     asset={asset}
-                    onDelete={() => handleDelete(asset)}
-                    onPlay={() => setSelectedAsset(asset)}
+                    onDelete={handleDelete}
+                    onPlay={setSelectedAsset}
                     onDragStart={handleDragStart}
                     onCreateVideo={handleCreateVideo}
                     onRerender={handleRerender}
                     onLoadSettings={handleLoadSettings}
                     onEdit={handleEdit}
-                    onToggleFavorite={() => currentProjectId && toggleFavorite(currentProjectId, asset.id)}
+                    onToggleFavorite={handleToggleFavorite}
                     thumbWidth={galleryThumbWidth[gallerySize]}
                   />
                 ))}
+                {visibleCount < filteredAssets.length && (
+                  <div ref={loadMoreRef} className="col-span-full h-8" />
+                )}
               </div>
             )}
           </div>
