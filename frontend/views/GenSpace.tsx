@@ -4,7 +4,8 @@ import {
   Heart, Film, Volume2, VolumeX, Sparkles,
   Clock, Monitor, ChevronUp, Scissors, RefreshCw,
   ChevronLeft, ChevronRight, Copy, Check,
-  Menu, Square, ArrowUpDown, Pencil, RotateCcw
+  Menu, Square, ArrowUpDown, Pencil, RotateCcw,
+  Lock, Unlock, Dice5, Settings
 } from 'lucide-react'
 import { useThumbnail } from '../hooks/use-thumbnail'
 import { THUMB_SIZE_SMALL, THUMB_SIZE_MEDIUM, THUMB_SIZE_LARGE } from '../lib/thumbnails'
@@ -33,6 +34,7 @@ function AssetCard({
   onDragStart,
   onCreateVideo,
   onRerender,
+  onLoadSettings,
   onEdit,
   onToggleFavorite,
   thumbWidth,
@@ -43,6 +45,7 @@ function AssetCard({
   onDragStart: (e: React.DragEvent, asset: Asset) => void
   onCreateVideo?: (asset: Asset) => void
   onRerender?: (asset: Asset) => void
+  onLoadSettings?: (asset: Asset) => void
   onEdit?: (asset: Asset) => void
   onToggleFavorite?: () => void
   thumbWidth?: number
@@ -164,6 +167,13 @@ function AssetCard({
                 Create video
               </button>
             )}
+            <button
+              onClick={(e) => { e.stopPropagation(); onLoadSettings?.(asset) }}
+              className="px-2.5 py-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors flex items-center gap-1.5 text-xs font-medium whitespace-nowrap"
+            >
+              <Settings className="h-3 w-3" />
+              Load Settings
+            </button>
             <button
               onClick={(e) => { e.stopPropagation(); onRerender?.(asset) }}
               className="px-2.5 py-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors flex items-center gap-1.5 text-xs font-medium whitespace-nowrap"
@@ -686,6 +696,8 @@ export function GenSpace() {
   const [middleStrength, setMiddleStrength] = useState(0.7)
   const [lastStrength, setLastStrength] = useState(0.7)
   const [preserveAspectRatio, setPreserveAspectRatio] = useState(false)
+  const [genSeed, setGenSeed] = useState<number | null>(null)
+  const [seedLocked, setSeedLocked] = useState(false)
   const [referenceImages, setReferenceImages] = useState<(string | null)[]>([null])
   const [localError, setLocalError] = useState<string | null>(null)
   const [showTrash, setShowTrash] = useState(false)
@@ -800,6 +812,13 @@ export function GenSpace() {
       setMode('video')
     }
   }
+
+  // Capture seed from completed generation
+  useEffect(() => {
+    if (lastSeed != null && initiator === 'genspace') {
+      setGenSeed(lastSeed)
+    }
+  }, [lastSeed, initiator])
 
   // Force pro model when audio is attached
   useEffect(() => {
@@ -1123,6 +1142,11 @@ export function GenSpace() {
       currentProject?.name,
       preserveAspectRatio,
       'genspace',
+      undefined, // guideVideoPath
+      undefined, // guideIndexList
+      undefined, // guideStrength
+      undefined, // stackId
+      seedLocked && genSeed != null ? genSeed : undefined,
     )
   }
 
@@ -1187,21 +1211,18 @@ export function GenSpace() {
     setPrompt(`${imageAsset.prompt || 'The scene comes to life...'}`)
   }
 
-  const handleRerender = async (asset: Asset) => {
-    if (!currentProject || isGenerating) return
-    // Look up render entry from .renders.json by filename
+  // Shared helper: load all settings from a render entry into UI state
+  const loadRenderSettings = async (asset: Asset) => {
+    if (!currentProject) return null
     const filename = asset.path.replace(/\\/g, '/').split('/').pop() || ''
     const renders = await window.electronAPI.getProjectRenders(currentProject.name)
     const entry = renders.find(r => r.filename === filename)
 
-    // Use render entry settings if available, fall back to asset's generationParams
     const p = entry || asset.generationParams
-    if (!p) return
+    if (!p) return null
 
-    // Use the original (un-enhanced) prompt so promptEnhance can re-run with the same settings
     const rerenderPrompt = entry?.prompt || asset.prompt
 
-    // Build effective settings from the render entry
     const effectiveResolution = entry?.rtxSuperRes ? '4K' : (entry?.resolution || settings.videoResolution)
     const rerenderSettings = { ...settings, ...(entry ? {
       videoResolution: effectiveResolution,
@@ -1220,16 +1241,14 @@ export function GenSpace() {
       cameraMotion: asset.generationParams.cameraMotion || settings.cameraMotion,
     } : {}) }
 
-    // Update UI to reflect what's being re-rendered
     setPrompt(rerenderPrompt)
     handleSettingsChange(rerenderSettings)
 
-    // Fill in the seed from the original render (user can lock it to reproduce)
     if (entry?.seed != null) {
-      updateAppSettings({ lockedSeed: entry.seed })
+      setGenSeed(entry.seed)
+      setSeedLocked(true)
     }
 
-    // Restore injected images and audio in UI
     const toFileUrl = (p: string | null | undefined) => {
       if (!p) return null
       const normalized = p.replace(/\\/g, '/')
@@ -1252,27 +1271,42 @@ export function GenSpace() {
     setMiddleStrength(mStrength)
     setLastStrength(lStrength)
     setPreserveAspectRatio(preserveAR)
-
-    // Close the preview modal
     setSelectedAsset(null)
 
-    // Image assets: re-render as image generation
-    // Use the stored prompt (already enhanced if it was) and disable promptEnhance to avoid double-enhancement
+    if (asset.type === 'image') {
+      setGenMode('text-to-image')
+      setMode('video')
+    }
+
+    return { rerenderPrompt, rerenderSettings, firstImg, middleImg, lastImg, audioFile, fStrength, mStrength, lStrength, preserveAR }
+  }
+
+  // Load settings only — open panel so user can tweak before running
+  const handleLoadSettings = async (asset: Asset) => {
+    if (!currentProject || isGenerating) return
+    await loadRenderSettings(asset)
+    setIsPanelOpen(true)
+  }
+
+  // Re-render immediately with original settings
+  const handleRerender = async (asset: Asset) => {
+    if (!currentProject || isGenerating) return
+    const result = await loadRenderSettings(asset)
+    if (!result) return
+
+    const { rerenderPrompt, rerenderSettings, firstImg, middleImg, lastImg, audioFile, fStrength, mStrength, lStrength, preserveAR } = result
+
     if (asset.type === 'image') {
       const imagePrompt = asset.prompt || rerenderPrompt
       const imageSettings = { ...rerenderSettings, promptEnhance: false }
-      setGenMode('text-to-image')
-      setMode('video')
       setPrompt(imagePrompt)
       handleSettingsChange(imageSettings)
       generateImage(imagePrompt, imageSettings, null, undefined, currentProject.name, undefined, 'genspace')
       return
     }
 
-    // Force model to pro if audio is present
     const finalSettings = audioFile ? { ...rerenderSettings, model: 'pro' as const } : rerenderSettings
 
-    // Actually trigger generation with stored values (don't rely on React state)
     generate(
       rerenderPrompt,
       firstImg,
@@ -1284,6 +1318,11 @@ export function GenSpace() {
       currentProject.name,
       preserveAR,
       'genspace',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      seedLocked && genSeed != null ? genSeed : undefined,
     )
   }
 
@@ -1510,6 +1549,45 @@ export function GenSpace() {
                 imagePath={inputImage}
               />
             )}
+
+            {/* Seed */}
+            <div>
+              <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold mb-1.5 block">Seed</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={genSeed ?? ''}
+                  placeholder={seedLocked ? '' : 'Random'}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value)
+                    if (!isNaN(val)) { setGenSeed(val); setSeedLocked(true) }
+                  }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  disabled={isBusy}
+                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-violet-500/50 disabled:opacity-40 placeholder-zinc-600"
+                />
+                <button
+                  onClick={() => setSeedLocked(!seedLocked)}
+                  disabled={isBusy || genSeed == null}
+                  title={seedLocked ? 'Unlock seed (use random on next render)' : 'Lock seed (reuse this seed)'}
+                  className={`p-1.5 rounded border transition-colors disabled:opacity-40 ${
+                    seedLocked
+                      ? 'bg-violet-500/20 border-violet-500/50 text-violet-400 hover:bg-violet-500/30'
+                      : 'bg-zinc-800 border-zinc-700 text-zinc-500 hover:text-white hover:border-zinc-600'
+                  }`}
+                >
+                  {seedLocked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+                </button>
+                <button
+                  onClick={() => { setGenSeed(Math.floor(Math.random() * 2147483647)); setSeedLocked(true) }}
+                  disabled={isBusy}
+                  title="Generate new random seed"
+                  className="p-1.5 rounded border bg-zinc-800 border-zinc-700 text-zinc-500 hover:text-white hover:border-zinc-600 transition-colors disabled:opacity-40"
+                >
+                  <Dice5 className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
 
             {/* Generate / Cancel buttons */}
             {isGenerating ? (
@@ -1740,6 +1818,7 @@ export function GenSpace() {
                     onDragStart={handleDragStart}
                     onCreateVideo={handleCreateVideo}
                     onRerender={handleRerender}
+                    onLoadSettings={handleLoadSettings}
                     onEdit={handleEdit}
                     onToggleFavorite={() => currentProjectId && toggleFavorite(currentProjectId, asset.id)}
                     thumbWidth={galleryThumbWidth[gallerySize]}
@@ -1899,6 +1978,22 @@ export function GenSpace() {
               <p className="text-zinc-500 text-sm mt-1">
                 {selectedAsset.resolution} {selectedAsset.duration ? `${selectedAsset.duration}s` : ''}
               </p>
+              <div className="flex items-center justify-center gap-2 mt-3">
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleLoadSettings(selectedAsset) }}
+                  className="px-3 py-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white transition-colors flex items-center gap-1.5 text-xs font-medium"
+                >
+                  <Settings className="h-3 w-3" />
+                  Load Settings
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleRerender(selectedAsset) }}
+                  className="px-3 py-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white transition-colors flex items-center gap-1.5 text-xs font-medium"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  Re-render
+                </button>
+              </div>
             </div>
           </div>
         </div>

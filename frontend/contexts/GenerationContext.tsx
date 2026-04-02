@@ -161,6 +161,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
         guideVideoPath,
         guideIndexList,
         guideStrength,
+        loras: settings.loras,
         stackId,
         seed,
       }

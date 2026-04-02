@@ -16,6 +16,115 @@ import { getGpuInfo } from '../gpu'
 import { logger } from '../logger'
 import { approvePath } from '../path-validation'
 
+/**
+ * Extract render metadata from a video/image file's embedded ComfyUI workflow.
+ * Returns partial render fields extracted from the prompt JSON, or null if unavailable.
+ */
+function extractRenderFromMetadata(filePath: string): Record<string, unknown> | null {
+  const ffmpegPath = findFfmpegPath()
+  if (!ffmpegPath) return null
+
+  try {
+    const result = spawnSync(ffmpegPath, ['-i', filePath, '-f', 'ffmetadata', '-'], {
+      encoding: 'utf8',
+      timeout: 10000,
+    })
+
+    const output = (result.stdout || '') + (result.stderr || '')
+    // ffmetadata format: prompt={json...}
+    const match = output.match(/^prompt=(.+)/m)
+    if (!match) return null
+
+    // Fix invalid JSON escapes (e.g. \p, \s from system prompts) before parsing
+    const fixed = match[1].replace(/\\(?!["\\\/bfnrtu])/g, '\\\\')
+    const workflow = JSON.parse(fixed) as Record<string, { class_type: string; inputs: Record<string, unknown>; _meta?: { title: string } }>
+
+    // Find the gen node (RSLTXVGenerate)
+    let genInputs: Record<string, unknown> = {}
+    for (const node of Object.values(workflow)) {
+      if (node.class_type === 'RSLTXVGenerate') {
+        genInputs = node.inputs
+        break
+      }
+    }
+
+    // Find the user prompt — look for RSPromptFormatter or RSRSOllamaImagePromptCreator
+    // that feeds the positive CLIP (skip "Negative" titled ones)
+    let prompt = ''
+    for (const node of Object.values(workflow)) {
+      const ct = node.class_type
+      const title = node._meta?.title ?? ''
+      if ((ct === 'RSPromptFormatter' || ct === 'RSRSOllamaImagePromptCreator') && !title.toLowerCase().includes('negative')) {
+        const p = node.inputs.prompt
+        if (typeof p === 'string' && p.length > 0) {
+          prompt = p
+          break
+        }
+      }
+    }
+    // Fallback: check CLIPTextEncode with "Positive" title for inline text
+    if (!prompt) {
+      for (const node of Object.values(workflow)) {
+        if (node.class_type === 'CLIPTextEncode' && (node._meta?.title ?? '').includes('Positive')) {
+          if (typeof node.inputs.text === 'string') {
+            prompt = node.inputs.text
+            break
+          }
+        }
+      }
+    }
+
+    // Map resolution from width/height
+    const width = genInputs.width as number || 0
+    const height = genInputs.height as number || 0
+    const maxDim = Math.max(width, height)
+    const resolution = maxDim >= 2160 ? '4K' : maxDim >= 1080 ? '1080p' : maxDim >= 720 ? '720p' : '540p'
+
+    // Compute aspect ratio from dimensions
+    const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b)
+    let aspectRatio = ''
+    if (width && height) {
+      const d = gcd(width, height)
+      aspectRatio = `${width / d}:${height / d}`
+    }
+
+    // Frame rate: resolve from node reference or direct value
+    let fps = 24
+    const fr = genInputs.frame_rate
+    if (typeof fr === 'number') fps = fr
+    // If it's a node reference like ["24", 0], try to resolve from PrimitiveFloat
+    if (Array.isArray(fr) && typeof fr[0] === 'string') {
+      const fpsNode = workflow[fr[0]]
+      if (fpsNode?.inputs?.value != null) fps = fpsNode.inputs.value as number
+    }
+
+    const numFrames = genInputs.num_frames as number || 0
+    const duration = numFrames > 0 ? Math.round(numFrames / fps) : 0
+
+    // Check for spatial upscale model reference
+    const hasUpscale = !!genInputs.upscale
+
+    return {
+      prompt,
+      seed: genInputs.noise_seed as number ?? 0,
+      resolution,
+      aspectRatio,
+      duration,
+      fps,
+      spatialUpscale: hasUpscale,
+      filmGrain: Object.values(workflow).some(n => n.class_type === 'RSFilmGrain'),
+      firstStrength: genInputs.first_strength as number ?? 1,
+      middleStrength: genInputs.middle_strength as number ?? 1,
+      lastStrength: genInputs.last_strength as number ?? 1,
+      cameraMotion: 'none',
+      metadataRecovered: true,
+    }
+  } catch (err) {
+    logger.warn(`extractRenderFromMetadata failed for ${filePath}: ${err}`)
+    return null
+  }
+}
+
 // Helpers for reading/writing .renders.json (supports both old flat array and new wrapped format)
 function readRendersJson(rendersPath: string): Record<string, unknown>[] {
   if (!fs.existsSync(rendersPath)) return []
@@ -298,6 +407,9 @@ export function registerComfyUIHandlers(): void {
         guideVideo: uploadedGuideVideo,
         guideIndexList: params.guideIndexList,
         guideStrength: params.guideStrength,
+        loras: [...(settings.loras ?? []), ...(params.loras ?? [])].length > 0
+          ? [...(settings.loras ?? []), ...(params.loras ?? [])]
+          : undefined,
       })
 
       // Debug: dump full workflow to temp file for comparison
@@ -629,7 +741,9 @@ export function registerComfyUIHandlers(): void {
         checkpoints: extractOptions('CheckpointLoaderSimple', 'ckpt_name'),
         textEncoders: extractOptions('LTXAVTextEncoderLoader', 'text_encoder'),
         upscaleModels: extractOptions('LatentUpscaleModelLoader', 'model_name'),
-        loras: extractOptions('RSLTXVGenerate', 'upscale_lora'),
+        loras: extractOptions('LoraLoaderModelOnly', 'lora_name').length > 0
+          ? extractOptions('LoraLoaderModelOnly', 'lora_name')
+          : extractOptions('RSLTXVGenerate', 'upscale_lora'),
         samplers: extractOptions('KSamplerSelect', 'sampler_name'),
         hasRtxSuperRes: ('RSRTXSuperResolution' in info) && getGpuInfo().supportsRtx,
         hasZImage: 'RSZImageGenerate' in info,
@@ -726,6 +840,8 @@ export function registerComfyUIHandlers(): void {
       for (const [filename, info] of diskFiles) {
         if (trackedFilenames.has(filename)) continue
         const stat = await fs.promises.stat(info.filePath)
+        // Try to recover metadata from the file's embedded workflow
+        const recovered = extractRenderFromMetadata(info.filePath)
         renders.push({
           filename,
           type: info.type,
@@ -737,7 +853,25 @@ export function registerComfyUIHandlers(): void {
           duration: 0,
           fps: 0,
           timestamp: stat.birthtime.toISOString(),
+          ...(recovered ?? { noMetadata: true }),
         })
+      }
+
+      // Backfill existing entries that are missing data (seed=0, no prompt)
+      // but skip entries already marked as noMetadata (no embedded workflow)
+      for (const render of renders) {
+        if (render.noMetadata || render.metadataRecovered) continue
+        const isMissing = !render.prompt && (render.seed === 0 || render.seed === undefined)
+        if (!isMissing) continue
+        const filename = render.filename as string
+        const info = diskFiles.get(filename)
+        if (!info) continue
+        const recovered = extractRenderFromMetadata(info.filePath)
+        if (recovered) {
+          Object.assign(render, recovered)
+        } else {
+          render.noMetadata = true
+        }
       }
 
       // Final dedup pass before writing

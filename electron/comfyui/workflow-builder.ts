@@ -111,6 +111,8 @@ export interface WorkflowParams {
   rediffusionMaskStrength?: number
   /** Uploaded painted mask image (for paint mode) */
   paintedMask?: ComfyUIUploadResult | null
+  /** LoRA models to apply (chained after checkpoint model) */
+  loras?: { name: string; strength: number }[]
 }
 
 type WorkflowNode = { class_type: string; inputs: Record<string, unknown>; _meta?: { title: string } }
@@ -495,10 +497,39 @@ export function buildWorkflow(params: WorkflowParams): Record<string, unknown> {
     workflow['3'].inputs['model_name'] = params.temporalUpscaleModel
   }
 
+  // --- Inject LoRA chain (if any) ---
+  // Each LoRA node takes a model input and outputs a model.
+  // Chain: checkpoint (node 1, output 0) → lora1 → lora2 → ... → gen node / upscale node
+  let modelSource: [string, number] = ['1', 0] // default: checkpoint model output
+  if (params.loras && params.loras.length > 0) {
+    for (let i = 0; i < params.loras.length; i++) {
+      const lora = params.loras[i]
+      const loraNodeId = `${200 + i}`
+      workflow[loraNodeId] = {
+        class_type: 'LoraLoaderModelOnly',
+        inputs: {
+          lora_name: lora.name,
+          strength_model: lora.strength,
+          model: modelSource,
+        },
+        _meta: { title: `LoRA ${i + 1}` },
+      }
+      modelSource = [loraNodeId, 0]
+    }
+  }
+
   // --- Patch RSLTXVGenerate (node 6) ---
   const genNode = workflow['6']
   if (!genNode || genNode.class_type !== 'RSLTXVGenerate') {
     throw new Error('Workflow template missing RSLTXVGenerate at node "6"')
+  }
+
+  // Apply LoRA chain output to gen node and upscale node
+  if (params.loras && params.loras.length > 0) {
+    genNode.inputs['model'] = modelSource
+    if (workflow['28']) {
+      workflow['28'].inputs['model'] = modelSource
+    }
   }
 
   if (params.upscaleLora) {

@@ -167,8 +167,9 @@ export function MaskPainter({ imagePath, existingMask, onApply, onCancel }: Mask
       if (!cursor) return
       if (!canvasRectRef.current) canvasRectRef.current = canvas.getBoundingClientRect()
       const rect = canvasRectRef.current
-      cursor.style.left = `${e.clientX - rect.left}px`
-      cursor.style.top = `${e.clientY - rect.top}px`
+      const x = e.clientX - rect.left
+      const y = e.clientY - rect.top
+      cursor.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`
       cursor.style.display = 'block'
     }
 
@@ -455,12 +456,14 @@ export function MaskPainter({ imagePath, existingMask, onApply, onCancel }: Mask
                 style={{
                   display: 'none',
                   position: 'absolute',
+                  left: 0,
+                  top: 0,
                   width: cursorSize,
                   height: cursorSize,
                   borderRadius: '50%',
                   border: `1.5px solid ${tool === 'brush' ? 'rgba(167,139,250,0.8)' : 'rgba(239,68,68,0.8)'}`,
                   pointerEvents: 'none',
-                  transform: 'translate(-50%, -50%)',
+                  willChange: 'transform',
                 }}
               />
             </div>

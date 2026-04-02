@@ -37,6 +37,7 @@ export interface GenerationSettings {
   imageSteps: number
   imageGenerator?: string
   variations?: number  // Number of image variations to generate
+  loras?: { name: string; strength: number }[]
 }
 
 interface SettingsPanelProps {
@@ -66,6 +67,7 @@ export function SettingsPanel({
   const [hasZImage, setHasZImage] = useState(false)
   const [hasGemini, setHasGemini] = useState(false)
   const [geminiImageSizes, setGeminiImageSizes] = useState<string[]>([])
+  const [loraOptions, setLoraOptions] = useState<string[]>([])
   const [showMaskPainter, setShowMaskPainter] = useState(false)
 
   const handleMaskPainted = useCallback((maskDataUrl: string) => {
@@ -75,11 +77,12 @@ export function SettingsPanel({
 
   useEffect(() => {
     window.electronAPI?.getModelLists?.()
-      .then((lists: { hasRtxSuperRes?: boolean; hasZImage?: boolean; hasGemini?: boolean; geminiImageSizes?: string[] }) => {
+      .then((lists: { hasRtxSuperRes?: boolean; hasZImage?: boolean; hasGemini?: boolean; geminiImageSizes?: string[]; loras?: string[] }) => {
         if (lists.hasRtxSuperRes) setHasRtxSuperRes(true)
         if (lists.hasZImage) setHasZImage(true)
         if (lists.hasGemini) setHasGemini(true)
         if (lists.geminiImageSizes) setGeminiImageSizes(lists.geminiImageSizes)
+        if (lists.loras) setLoraOptions(lists.loras)
       })
       .catch(() => {})
   }, [])
@@ -638,6 +641,78 @@ export function SettingsPanel({
           </div>
         )}
       </div>
+
+      {/* LoRA Models */}
+      {loraOptions.length > 0 && (
+        <div className="rounded-lg border border-zinc-700 transition-colors">
+          <div className="px-3 py-2.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-zinc-400">LoRA Models</span>
+            </div>
+            {(settings.loras ?? []).map((lora, idx) => (
+              <div key={idx} className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <select
+                    value={lora.name}
+                    onChange={(e) => {
+                      const next = [...(settings.loras ?? [])]
+                      next[idx] = { ...next[idx], name: e.target.value }
+                      onSettingsChange({ ...settings, loras: next })
+                    }}
+                    disabled={disabled}
+                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-[11px] text-zinc-300 focus:outline-none focus:border-violet-500 cursor-pointer"
+                  >
+                    {loraOptions.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                  <button
+                    onClick={() => {
+                      const next = (settings.loras ?? []).filter((_, i) => i !== idx)
+                      onSettingsChange({ ...settings, loras: next.length > 0 ? next : undefined })
+                    }}
+                    disabled={disabled}
+                    className="text-zinc-500 hover:text-red-400 transition-colors text-[11px] px-1"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-zinc-500 w-14">Strength</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={2}
+                    step={0.05}
+                    value={lora.strength}
+                    onChange={(e) => {
+                      const next = [...(settings.loras ?? [])]
+                      next[idx] = { ...next[idx], strength: parseFloat(e.target.value) }
+                      onSettingsChange({ ...settings, loras: next })
+                    }}
+                    disabled={disabled}
+                    className="flex-1 h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-violet-500"
+                  />
+                  <span className="text-[10px] text-zinc-500 w-7 text-right">{lora.strength.toFixed(2)}</span>
+                </div>
+              </div>
+            ))}
+            <button
+              onClick={() => {
+                const next = [...(settings.loras ?? []), { name: loraOptions[0], strength: 1.0 }]
+                onSettingsChange({ ...settings, loras: next })
+              }}
+              disabled={disabled}
+              className="w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded text-[11px] text-zinc-400 hover:text-zinc-200 border border-dashed border-zinc-700 hover:border-zinc-500 transition-colors"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              Add LoRA
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
 

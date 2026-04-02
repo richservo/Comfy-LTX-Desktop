@@ -27,6 +27,7 @@ export interface AppSettings {
   geminiImageSize: string
   promptEnhanceSystemPrompt: string
   tileT: number
+  loras: { name: string; strength: number }[]
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -55,6 +56,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   geminiRegion: 'global',
   geminiImageSize: '2K',
   tileT: 0,
+  loras: [],
   promptEnhanceSystemPrompt: "Expand the user's prompt into a detailed prose paragraph describing a video scene. Write in present tense. Describe what is seen and heard \u2014 the environment, lighting, textures, sounds, body language, and small physical details that make the scene feel real. If characters speak or discuss something, write the actual dialogue in quotation marks. Base everything on the user's prompt and reference images if provided \u2014 do not change the subject or setting, just flesh it out with rich, grounded detail. Output ONLY the scene description.",
 }
 

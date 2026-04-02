@@ -377,6 +377,75 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                   </div>
                 </div>
 
+                {/* Global LoRAs */}
+                <div className="pt-2 border-t border-zinc-700/50">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <label className="text-sm text-white">LoRA Models</label>
+                      <p className="text-xs text-zinc-500">Applied to all generations</p>
+                    </div>
+                  </div>
+                  {(settings.loras ?? []).map((lora, idx) => (
+                    <div key={idx} className="mb-2 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={lora.name}
+                          onChange={(e) => {
+                            const next = [...(settings.loras ?? [])]
+                            next[idx] = { ...next[idx], name: e.target.value }
+                            updateSettings({ loras: next })
+                          }}
+                          className="flex-1 px-3 py-1.5 bg-zinc-700 border border-zinc-600 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          {modelLists?.loras?.map(m => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                        <button
+                          onClick={() => {
+                            const next = (settings.loras ?? []).filter((_, i) => i !== idx)
+                            updateSettings({ loras: next })
+                          }}
+                          className="text-zinc-500 hover:text-red-400 transition-colors p-1"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2 px-1">
+                        <span className="text-xs text-zinc-500 w-14">Strength</span>
+                        <input
+                          type="range"
+                          min={0}
+                          max={2}
+                          step={0.05}
+                          value={lora.strength}
+                          onChange={(e) => {
+                            const next = [...(settings.loras ?? [])]
+                            next[idx] = { ...next[idx], strength: parseFloat(e.target.value) }
+                            updateSettings({ loras: next })
+                          }}
+                          className="flex-1 h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+                        />
+                        <span className="text-xs text-zinc-500 w-8 text-right">{lora.strength.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {modelLists?.loras && modelLists.loras.length > 0 && (
+                    <button
+                      onClick={() => {
+                        const next = [...(settings.loras ?? []), { name: modelLists.loras[0], strength: 1.0 }]
+                        updateSettings({ loras: next })
+                      }}
+                      className="w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 border border-dashed border-zinc-600 hover:border-zinc-500 transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
+                      Add LoRA
+                    </button>
+                  )}
+                </div>
+
                 <div className="bg-zinc-800/30 rounded-lg p-3">
                   <p className="text-xs text-zinc-400">
                     <span className="text-blue-400 font-medium">Tip:</span> These values are sent to the RSLTXVGenerate node in ComfyUI.
