@@ -149,7 +149,7 @@ function parseMetadataOutput(output: string): Record<string, unknown> | null {
       loras: loras.length > 0 ? loras : undefined,
       metadataRecovered: true,
     }
-  } catch {
+  } catch (_err) {
     return null
   }
 }
