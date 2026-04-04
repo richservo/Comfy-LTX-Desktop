@@ -49,6 +49,7 @@ export function invalidateRenderCache(projectName?: string) {
  * Returns partial render fields extracted from the prompt JSON, or null if unavailable.
  */
 function parseMetadataOutput(output: string): Record<string, unknown> | null {
+  try {
     // ffmetadata format: prompt={json...}
     const match = output.match(/^prompt=(.+)/m)
     if (!match) return null
