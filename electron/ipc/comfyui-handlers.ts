@@ -865,7 +865,6 @@ export function registerComfyUIHandlers(): void {
         for (const { file, filePath, type: fileType, size } of stats) {
           diskTotalBytes += size
           diskFiles.set(file, { filePath, type: fileType, size })
-          }
         }
       }
 
