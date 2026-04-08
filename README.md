@@ -6,20 +6,55 @@ A desktop app for AI video and image generation using LTX models via ComfyUI. Fo
 
 ## Features
 
+### Generation
 - **Text-to-video** generation via ComfyUI
-- **Image-to-video** generation with first/last frame support and per-frame strength controls
+- **Image-to-video** generation with first/middle/last frame support and per-frame strength controls
 - **Text-to-image** generation (single latent frame extraction at full 1080p resolution)
 - **Audio-to-video** generation
 - **Video retake** (re-generate sections of existing video)
+- **Reference images** — upload up to 6 reference images to guide text-to-video generation
+- **Prompt enhance** — toggle to expand prompts with detail before generation
+- **Negative prompt** — editable negative prompt field
+- **Seed control** — specify seeds for reproducible generation
+- **Image variations** — generate multiple variations from text-to-image
+
+### Alternative Image Generators
+- **Z-Image** — alternative image generation model (detected automatically)
+- **Gemini 3 Pro** — Google Gemini image generation with configurable model, aspect ratio, and image size (1K/2K/4K)
+
+### Upscaling
 - **Spatial upscale** (2x resolution) with configurable denoise strength
 - **Temporal upscale** (2x frame count)
-- **Film grain** post-processing with persistent settings
-- **Ollama prompt formatter** — local LLM reformats prompts into optimized tag format with positive/negative generation
+- **4K RTX Super Resolution** — NVIDIA RTX-powered upscale from 1080p to 4K (see [4K output](#4k-output))
+
+### Rediffusion & Masking
+- **Paint mask mode** — manual mask painting with brush/eraser, feather control, and undo
+- **SAM3 segmentation** — text-prompted automatic mask generation
+- **Subject & face detection** — pre-built mask modes via segmentation
+- **Mask strength & dilation** — fine-grained control over mask-guided rediffusion
+
+### Models & Inference
 - **Model selector dropdowns** — choose checkpoint, text encoder, VAE, upscalers, and LoRA from what's installed in ComfyUI
+- **LoRA support** — dynamic LoRA selection with per-model strength sliders
 - **Sampler selection** — all samplers available in your ComfyUI install (including custom ones like res samplers)
-- **Generation metadata embedding** — settings saved into video files via ffmpeg, loadable for re-use
+- **Ollama prompt formatter** — local LLM reformats prompts into optimized tag format
+- **Film grain** post-processing with intensity and grain size controls (persistent across sessions)
+- **Camera motion** — optional camera movement prompt suffix
+
+### Video Editor
+- **Timeline** with gap-fill, rolling edits, and project management
+- **Timeline markers** — add, edit, and delete markers with color/description (M key)
+- **Heal cut** — Delete key on redundant cut points rejoins clips
+- **Volume automation** — keyframe-based per-track volume control
+- **Cross dissolve** — configurable fade between clips with rendering
+- **Rendered preview system** — smooth timeline scrubbing with pre-rendered previews
+- **Stack relinking** — re-link inference stacks to different source clips
+- **Guide video mode** — multi-image stacks for frame-by-frame guidance
+- **Audio-only inference stacks**
+- **Export with in/out points**, CRF quality control, and real-time progress
+- **Load settings from renders** — restore generation parameters from previously rendered videos
+- **Generation metadata embedding** — settings saved into video files via ffmpeg
 - **Progress labels** — stage-aware progress ("Generating first frame", "Generating video", "Rediffusing")
-- **Video Editor** with timeline, gap-fill, and project management
 
 ## Requirements
 
@@ -27,7 +62,13 @@ A desktop app for AI video and image generation using LTX models via ComfyUI. Fo
 - NVIDIA GPU with sufficient VRAM (16GB+ recommended, 24GB+ for 1080p with upscale)
 - LTX model weights (downloaded automatically during first-run setup)
 
-The required [rs-nodes](https://github.com/richservo/rs-nodes) custom nodes are installed automatically on first launch.
+The following custom nodes are installed automatically on first launch:
+- [rs-nodes](https://github.com/richservo/rs-nodes) — core generation workflows
+- [RES4LYF](https://github.com/ClownsharkBatwing/RES4LYF) — advanced samplers (res_2s, etc.)
+- [ComfyUI-VideoHelperSuite](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite)
+- [ComfyUI-RMBG](https://github.com/1038lab/ComfyUI-RMBG) — background removal
+- [ComfyUI-Impact-Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) — SAM segmentation
+- [ComfyUI_essentials](https://github.com/cubiq/ComfyUI_essentials) — utility nodes
 
 ## Install
 
@@ -57,9 +98,12 @@ pnpm dev
 ### First launch
 
 On first launch, the setup wizard will:
-1. Ask you to point to your ComfyUI installation directory
-2. Download any missing LTX model weights
-3. Auto-install the required [rs-nodes](https://github.com/richservo/rs-nodes) and [RES4LYF](https://github.com/ClownsharkBatwing/RES4LYF) custom nodes into ComfyUI
+1. Ask you to accept the LTX-2 Community License
+2. Ask you to point to your ComfyUI installation directory
+3. Download any missing LTX model weights
+4. Auto-install the required custom nodes into ComfyUI
+
+If custom nodes are missing on a subsequent launch (e.g. deleted externally), the app will automatically re-enter setup mode to reinstall them.
 
 > **Note:** ComfyUI must be running before you launch the app (default: `http://localhost:8188`).
 
@@ -118,11 +162,13 @@ Dropdowns populated from ComfyUI's `/object_info` API:
 - **Duration**: video length in seconds
 - **FPS**: frame rate
 - **Camera Motion**: optional camera movement prompt suffix
-- **First/Last Frame**: optional keyframe images with strength sliders
+- **First/Middle/Last Frame**: optional keyframe images with strength sliders
+- **Reference Images**: up to 6 reference images for guided generation
 - **Audio**: optional audio input (forces pro model)
 - **Spatial Upscale**: 2x resolution with denoise slider (0-1)
 - **Temporal Upscale**: 2x frame count
 - **Film Grain**: intensity and grain size controls (persistent across sessions)
+- **LoRA**: add multiple LoRAs with individual strength sliders
 
 ### Image generation
 
@@ -146,6 +192,14 @@ When the node is detected in your ComfyUI installation, the 4K option automatica
 4. Relaunch LTX Desktop — the 4K option will appear in the resolution dropdown
 
 > **Note:** Requires an NVIDIA RTX GPU.
+
+## Keyboard Shortcuts
+
+| Key | Action |
+|---|---|
+| `M` | Add timeline marker |
+| `Delete` | Heal cut (rejoin clips at cut point) |
+| `Shift+X` | Fit timeline to view |
 
 ## Development
 

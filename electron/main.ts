@@ -80,6 +80,29 @@ if (!gotLock) {
     const comfyPath = settings.comfyuiPath
     if (comfyPath) {
       const appStateFile = path.join(app.getPath('userData'), 'app_state.json')
+
+      // If rs-nodes is missing, reset setup so the installer runs again
+      const rsNodesDir = path.join(comfyPath, 'custom_nodes', 'rs-nodes')
+      if (!fs.existsSync(rsNodesDir)) {
+        logger.info('rs-nodes not found — resetting setup to re-run installer')
+        try {
+          if (fs.existsSync(appStateFile)) {
+            const appState = JSON.parse(fs.readFileSync(appStateFile, 'utf-8'))
+            appState.setupComplete = false
+            fs.writeFileSync(appStateFile, JSON.stringify(appState, null, 2))
+          }
+        } catch {
+          // If we can't update, delete it — missing file also triggers setup
+          try { fs.unlinkSync(appStateFile) } catch { /* ignore */ }
+        }
+        // Reload the window so frontend picks up needsSetup=true
+        const mainWindow = getMainWindow()
+        if (mainWindow) {
+          mainWindow.webContents.reload()
+        }
+        return
+      }
+
       let needsFullUpdate = false
       try {
         if (fs.existsSync(appStateFile)) {
